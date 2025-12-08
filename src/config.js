@@ -8,14 +8,14 @@ dotenv.config();
  */
 function parseDiscordTokens() {
     const tokens = [];
-    
+
     for (let i = 1; i <= 20; i++) {
         const token = process.env[`DISCORD_TOKEN_${i}`];
         if (token && token.trim()) {
             tokens.push(token.trim());
         }
     }
-    
+
     return tokens;
 }
 
@@ -23,8 +23,8 @@ export const config = {
     // Discord - Multiple tokens support
     discordTokens: parseDiscordTokens(),
 
-    // Onyx API
-    onyxApiBase: process.env.ONYX_API_BASE,
+    // OpenAI-compatible API
+    onyxApiBase: process.env.API_BASE,
 
     // AI Model
     aiModel: process.env.AI_MODEL,

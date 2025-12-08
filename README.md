@@ -1,6 +1,8 @@
 # 🎯 CheapShot Discord Bot
 
-A Discord AI assistant powered by the Onyx OpenAI-compatible API. Features real-time streaming responses and a queue system to prevent server overload.
+A Discord AI assistant powered by OpenAI-compatible API endpoints. Features real-time streaming responses, multi-bot load balancing, and image generation.
+
+**🎉 Includes a free public API** — No API key required, no rate limits!
 
 ## Features
 
@@ -33,11 +35,12 @@ Edit `.env`:
 # Discord Bot Token - Get from https://discord.com/developers/applications
 DISCORD_TOKEN=your_discord_bot_token_here
 
-# Onyx OpenAI API Base URL (your local server)
-ONYX_API_BASE=http://localhost:8000
+# OpenAI-compatible API Base URL
+# Free public API (no limits, no API key required):
+API_BASE=https://ai-api.motoemotovps.xyz
 
 # AI Model to use
-AI_MODEL=claude-3-opus-20240229
+AI_MODEL=claude-opus-4-1
 
 # Maximum concurrent AI requests
 MAX_CONCURRENT_REQUESTS=3
@@ -57,13 +60,6 @@ MAX_CONCURRENT_REQUESTS=3
 9. Copy the generated URL and open it to invite the bot to your server
 
 ### 4. Start the Bot
-
-Make sure your Onyx API server is running first:
-
-```bash
-# In the onyx-openai-api directory
-python main.py
-```
 
 Then start the Discord bot:
 
@@ -90,15 +86,15 @@ The bot will show a "thinking" message, then stream the response in real-time!
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Discord User   │────▶│   CheapShot     │────▶│   Onyx API      │
-│                 │     │   Discord Bot   │     │   (localhost)   │
+│  Discord User   │────▶│   CheapShot     │────▶│  OpenAI-compat  │
+│                 │     │   Discord Bot   │     │      API        │
 │                 │◀────│                 │◀────│                 │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
                               │
                               ▼
                         ┌───────────────┐
-                        │ Request Queue │
-                        │  (max 3)      │
+                        │  Multi-Bot    │
+                        │ Load Balancer │
                         └───────────────┘
 ```
 
