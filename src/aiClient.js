@@ -1,0 +1,221 @@
+import { config } from './config.js';
+import { TOOLS } from './imageClient.js';
+
+/**
+ * AI Client for streaming chat completions from Onyx API
+ * Supports tool calling for image generation
+ */
+export class AIClient {
+    constructor() {
+        this.baseUrl = config.onyxApiBase;
+        this.model = config.aiModel;
+    }
+
+    /**
+     * Stream a chat completion response in real-time
+     * Supports tool calling for image generation
+     * @param {string} userMessage - The user's message
+     * @param {Function} onChunk - Callback for each text chunk received (called immediately)
+     * @param {Function} onComplete - Callback when stream finishes with text response
+     * @param {Function} onError - Callback for errors
+     * @param {Function} onToolCall - Callback when AI wants to use a tool
+     */
+    async streamChat(userMessage, onChunk, onComplete, onError, onToolCall = null) {
+        const url = `${this.baseUrl}/v1/chat/completions`;
+
+        const body = {
+            model: this.model,
+            messages: [
+                {
+                    role: 'system',
+                    content: config.systemPrompt
+                },
+                {
+                    role: 'user',
+                    content: userMessage
+                }
+            ],
+            stream: true,
+            tools: TOOLS,
+            tool_choice: "auto" // Let the AI decide when to use tools
+        };
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-App-Name': 'cheapshot' // Tracking header
+                },
+                body: JSON.stringify(body)
+            });
+
+            if (!response.ok) {
+                throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let fullText = '';
+            let buffer = '';
+            let toolCalls = [];
+            let currentToolCall = null;
+
+            while (true) {
+                const { done, value } = await reader.read();
+
+                if (done) {
+                    // Process any remaining buffer
+                    if (buffer.trim()) {
+                        const result = this.parseSSELine(buffer);
+                        if (result) {
+                            if (result.content) {
+                                fullText += result.content;
+                                await onChunk(result.content, fullText);
+                            }
+                            if (result.toolCall) {
+                                toolCalls.push(result.toolCall);
+                            }
+                        }
+                    }
+                    break;
+                }
+
+                // Decode the chunk and add to buffer
+                buffer += decoder.decode(value, { stream: true });
+
+                // Process complete lines immediately for real-time streaming
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+                for (const line of lines) {
+                    const result = this.parseSSELine(line);
+                    if (result) {
+                        if (result.content) {
+                            fullText += result.content;
+                            // Call onChunk IMMEDIATELY for real-time effect
+                            await onChunk(result.content, fullText);
+                        }
+                        if (result.toolCall) {
+                            toolCalls.push(result.toolCall);
+                        }
+                        if (result.toolCallDelta) {
+                            // Handle streaming tool calls (arguments come in chunks)
+                            if (!currentToolCall) {
+                                currentToolCall = { name: '', arguments: '' };
+                            }
+                            if (result.toolCallDelta.name) {
+                                currentToolCall.name = result.toolCallDelta.name;
+                            }
+                            if (result.toolCallDelta.arguments) {
+                                currentToolCall.arguments += result.toolCallDelta.arguments;
+                            }
+                        }
+                        if (result.finishReason === 'tool_calls' && currentToolCall) {
+                            try {
+                                const args = JSON.parse(currentToolCall.arguments);
+                                toolCalls.push({
+                                    name: currentToolCall.name,
+                                    arguments: args
+                                });
+                            } catch (e) {
+                                console.warn('Failed to parse tool call arguments:', e);
+                            }
+                            currentToolCall = null;
+                        }
+                    }
+                }
+            }
+
+            // Check if we have tool calls
+            if (toolCalls.length > 0 && onToolCall) {
+                for (const toolCall of toolCalls) {
+                    await onToolCall(toolCall);
+                }
+            }
+
+            // Complete with text (might be empty if only tool calls)
+            await onComplete(fullText);
+            return { text: fullText, toolCalls };
+
+        } catch (error) {
+            console.error('[AI] Streaming error:', error);
+            await onError(error);
+            throw error;
+        }
+    }
+
+    /**
+     * Parse a single SSE line and extract content or tool calls
+     * @param {string} line - SSE line to parse
+     * @returns {object|null} - Extracted content, tool call, or null
+     */
+    parseSSELine(line) {
+        if (!line.startsWith('data: ')) {
+            return null;
+        }
+
+        const data = line.slice(6).trim();
+
+        if (data === '[DONE]') {
+            return null;
+        }
+
+        try {
+            const parsed = JSON.parse(data);
+            const choice = parsed.choices?.[0];
+
+            if (!choice) return null;
+
+            const result = {};
+
+            // Get content from delta (streaming format)
+            const delta = choice.delta;
+            if (delta?.content) {
+                result.content = delta.content;
+            }
+
+            // Check for tool calls in delta
+            if (delta?.tool_calls) {
+                for (const tc of delta.tool_calls) {
+                    if (tc.function) {
+                        result.toolCallDelta = {
+                            name: tc.function.name,
+                            arguments: tc.function.arguments
+                        };
+                    }
+                }
+            }
+
+            // Check finish reason
+            if (choice.finish_reason) {
+                result.finishReason = choice.finish_reason;
+            }
+
+            // Also check message format (non-streaming)
+            const message = choice.message;
+            if (message?.content) {
+                result.content = message.content;
+            }
+            if (message?.tool_calls) {
+                for (const tc of message.tool_calls) {
+                    if (tc.function) {
+                        try {
+                            result.toolCall = {
+                                name: tc.function.name,
+                                arguments: JSON.parse(tc.function.arguments)
+                            };
+                        } catch (e) {
+                            // Skip invalid JSON
+                        }
+                    }
+                }
+            }
+
+            return Object.keys(result).length > 0 ? result : null;
+        } catch (e) {
+            // Invalid JSON, skip
+            return null;
+        }
+    }
+}
