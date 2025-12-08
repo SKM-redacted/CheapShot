@@ -585,9 +585,12 @@ You're talking to ${username}. Keep it casual and SHORT.`;
                 }
             }
 
-            // Only store bot response in memory if NOT cancelled
+            // Handle memory based on whether response was cancelled
             const wasCancelled = isCancelled ? isCancelled() : false;
-            if (fullText.trim() && !wasCancelled) {
+            if (wasCancelled) {
+                // Save a note that we chose not to respond - gives AI context if user asks
+                voiceMemory.addBotMessage(guildId, '[Did not respond - determined this was not directed at me or was unrelated chatter]');
+            } else if (fullText.trim()) {
                 voiceMemory.addBotMessage(guildId, fullText.trim());
             }
 
