@@ -18,8 +18,9 @@ import { logger } from './logger.js';
 class VoiceClient {
     constructor() {
         this.activeConnections = new Map(); // guildId -> { connection, textChannel, userStreams, members }
-        this.userTranscriptBuffers = new Map(); // guildId -> Map(userId -> { words: [], lastUpdate })
+        this.userTranscriptBuffers = new Map(); // guildId -> Map(userId -> { text, timer, memberInfo })
         this.aiResponseCallback = null; // Callback for generating AI responses
+        this.TRANSCRIPT_DEBOUNCE_MS = 1200; // Wait 1.2s after last transcript before triggering AI
     }
 
     /**
@@ -235,7 +236,7 @@ class VoiceClient {
             const audioStream = receiver.subscribe(userId, {
                 end: {
                     behavior: EndBehaviorType.AfterSilence,
-                    duration: 1500, // 1.5 seconds of silence ends the stream
+                    duration: 1200, // 1.2s of silence - balances speed vs accuracy
                 }
             });
 
@@ -306,19 +307,53 @@ class VoiceClient {
         // Only process final transcripts
         if (isFinal && transcript.trim()) {
             try {
-                // Log to console always
-                logger.info('VOICE', `[${memberInfo.displayName}] "${transcript}" (${(confidence * 100).toFixed(1)}%)`);
+                // Get or create transcript buffer for this user
+                const bufferKey = `${guildId}-${userId}`;
+                let buffer = this.userTranscriptBuffers.get(bufferKey);
 
-                // Only send to text channel if showTranscripts is enabled
-                if (connectionInfo.showTranscripts) {
-                    const output = `🗣️ **${memberInfo.displayName}:** ${transcript}`;
-                    await connectionInfo.textChannel.send(output);
+                if (!buffer) {
+                    buffer = { text: '', timer: null, memberInfo };
+                    this.userTranscriptBuffers.set(bufferKey, buffer);
                 }
 
-                // If conversation mode is enabled and we have an AI callback, generate a response
-                if (connectionInfo.conversationMode && this.aiResponseCallback) {
-                    await this.generateAndSpeak(guildId, userId, memberInfo.displayName, transcript);
+                // Clear any existing timer
+                if (buffer.timer) {
+                    clearTimeout(buffer.timer);
                 }
+
+                // Append transcript to buffer
+                if (buffer.text) {
+                    buffer.text += ' ' + transcript.trim();
+                } else {
+                    buffer.text = transcript.trim();
+                }
+
+                // Log each fragment for debugging
+                logger.debug('VOICE', `[${memberInfo.displayName}] Fragment: "${transcript}" (buffered: "${buffer.text}")`);
+
+                // Set debounce timer - wait for user to finish speaking
+                buffer.timer = setTimeout(async () => {
+                    const fullTranscript = buffer.text.trim();
+                    buffer.text = '';
+                    buffer.timer = null;
+
+                    if (!fullTranscript) return;
+
+                    // Log the complete transcript
+                    logger.info('VOICE', `[${memberInfo.displayName}] "${fullTranscript}" (${(confidence * 100).toFixed(1)}%)`);
+
+                    // Only send to text channel if showTranscripts is enabled
+                    if (connectionInfo.showTranscripts) {
+                        const output = `🗣️ **${memberInfo.displayName}:** ${fullTranscript}`;
+                        await connectionInfo.textChannel.send(output);
+                    }
+
+                    // If conversation mode is enabled and we have an AI callback, generate a response
+                    if (connectionInfo.conversationMode && this.aiResponseCallback) {
+                        await this.generateAndSpeak(guildId, userId, memberInfo.displayName, fullTranscript);
+                    }
+                }, this.TRANSCRIPT_DEBOUNCE_MS);
+
             } catch (error) {
                 logger.error('VOICE', `Failed to process transcript: ${error.message}`);
             }
@@ -372,86 +407,51 @@ class VoiceClient {
         }
     }
 
-}
+    /**
+     * Enable or disable conversation mode
+     * @param {string} guildId - Guild ID
+     * @param {boolean} enabled - Whether to enable conversation mode
+     */
+    setConversationMode(guildId, enabled) {
+        const connectionInfo = this.activeConnections.get(guildId);
+        if (connectionInfo) {
+            connectionInfo.conversationMode = enabled;
+            logger.info('VOICE', `Conversation mode ${enabled ? 'enabled' : 'disabled'} for guild ${guildId}`);
+        }
     }
 
     /**
-     * Generate AI response and speak it
+     * Check if conversation mode is enabled
      * @param {string} guildId - Guild ID
-     * @param {string} userId - User ID
-     * @param {string} username - User's display name
-     * @param {string} transcript - User's spoken text
+     * @returns {boolean}
      */
-    async generateAndSpeak(guildId, userId, username, transcript) {
-    const connectionInfo = this.activeConnections.get(guildId);
-    if (!connectionInfo || !this.aiResponseCallback) return;
+    isConversationMode(guildId) {
+        const connectionInfo = this.activeConnections.get(guildId);
+        return connectionInfo?.conversationMode || false;
+    }
 
-    try {
-        // Generate AI response
-        logger.info('VOICE', `Generating AI response to: "${transcript}"`);
-        const aiResponse = await this.aiResponseCallback(guildId, userId, username, transcript);
-
-        if (aiResponse && aiResponse.trim()) {
-            // Only send to text channel if showTranscripts is enabled
-            if (connectionInfo.showTranscripts) {
-                await connectionInfo.textChannel.send(`🤖 **CheapShot:** ${aiResponse}`);
-            }
-
-            // Speak the response
-            await ttsClient.speak(guildId, connectionInfo.connection, aiResponse);
-
-            logger.info('VOICE', `AI responded: "${aiResponse.substring(0, 100)}..."`);
+    /**
+     * Enable or disable showing transcripts in text channel
+     * @param {string} guildId - Guild ID
+     * @param {boolean} enabled - Whether to show transcripts
+     */
+    setShowTranscripts(guildId, enabled) {
+        const connectionInfo = this.activeConnections.get(guildId);
+        if (connectionInfo) {
+            connectionInfo.showTranscripts = enabled;
+            logger.info('VOICE', `Show transcripts ${enabled ? 'enabled' : 'disabled'} for guild ${guildId}`);
         }
-    } catch (error) {
-        logger.error('VOICE', `Failed to generate/speak AI response: ${error.message}`);
     }
-}
 
-/**
- * Enable or disable conversation mode
- * @param {string} guildId - Guild ID
- * @param {boolean} enabled - Whether to enable conversation mode
- */
-setConversationMode(guildId, enabled) {
-    const connectionInfo = this.activeConnections.get(guildId);
-    if (connectionInfo) {
-        connectionInfo.conversationMode = enabled;
-        logger.info('VOICE', `Conversation mode ${enabled ? 'enabled' : 'disabled'} for guild ${guildId}`);
+    /**
+     * Check if showing transcripts is enabled
+     * @param {string} guildId - Guild ID
+     * @returns {boolean}
+     */
+    isShowingTranscripts(guildId) {
+        const connectionInfo = this.activeConnections.get(guildId);
+        return connectionInfo?.showTranscripts || false;
     }
-}
-
-/**
- * Check if conversation mode is enabled
- * @param {string} guildId - Guild ID
- * @returns {boolean}
- */
-isConversationMode(guildId) {
-    const connectionInfo = this.activeConnections.get(guildId);
-    return connectionInfo?.conversationMode || false;
-}
-
-/**
- * Enable or disable showing transcripts in text channel
- * @param {string} guildId - Guild ID
- * @param {boolean} enabled - Whether to show transcripts
- */
-setShowTranscripts(guildId, enabled) {
-    const connectionInfo = this.activeConnections.get(guildId);
-    if (connectionInfo) {
-        connectionInfo.showTranscripts = enabled;
-        logger.info('VOICE', `Show transcripts ${enabled ? 'enabled' : 'disabled'} for guild ${guildId}`);
-    }
-}
-
-/**
- * Check if showing transcripts is enabled
- * @param {string} guildId - Guild ID
- * @returns {boolean}
- */
-isShowingTranscripts(guildId) {
-    const connectionInfo = this.activeConnections.get(guildId);
-    return connectionInfo?.showTranscripts || false;
-}
 
     /**
      * Speak text in the voice channel
@@ -459,149 +459,149 @@ isShowingTranscripts(guildId) {
      * @param {string} text - Text to speak
      */
     async speak(guildId, text) {
-    const connectionInfo = this.activeConnections.get(guildId);
-    if (!connectionInfo) {
-        logger.error('VOICE', `Not connected to speak in guild ${guildId}`);
-        return false;
-    }
+        const connectionInfo = this.activeConnections.get(guildId);
+        if (!connectionInfo) {
+            logger.error('VOICE', `Not connected to speak in guild ${guildId}`);
+            return false;
+        }
 
-    return await ttsClient.speak(guildId, connectionInfo.connection, text);
-}
+        return await ttsClient.speak(guildId, connectionInfo.connection, text);
+    }
 
     /**
      * Stop listening but stay in voice channel
      * @param {string} guildId - Guild ID
      */
     async stopListening(guildId) {
-    const connectionInfo = this.activeConnections.get(guildId);
-    if (!connectionInfo) return;
+        const connectionInfo = this.activeConnections.get(guildId);
+        if (!connectionInfo) return;
 
-    if (!connectionInfo.isListening) {
-        logger.warn('VOICE', `Not currently listening in guild ${guildId}`);
-        return;
+        if (!connectionInfo.isListening) {
+            logger.warn('VOICE', `Not currently listening in guild ${guildId}`);
+            return;
+        }
+
+        // Clean up all user streams and STT connections
+        for (const [userId, streamInfo] of connectionInfo.userStreams) {
+            try {
+                streamInfo.audioStream.destroy();
+                await sttClient.closeConnection(streamInfo.sttConnectionId);
+            } catch (e) { }
+        }
+        connectionInfo.userStreams.clear();
+
+        connectionInfo.isListening = false;
+
+        if (connectionInfo.showTranscripts) {
+            await connectionInfo.textChannel.send('🔇 **Stopped listening.** Still in the voice channel.');
+        }
+        logger.info('VOICE', `Stopped listening in guild ${guildId}`);
     }
-
-    // Clean up all user streams and STT connections
-    for (const [userId, streamInfo] of connectionInfo.userStreams) {
-        try {
-            streamInfo.audioStream.destroy();
-            await sttClient.closeConnection(streamInfo.sttConnectionId);
-        } catch (e) { }
-    }
-    connectionInfo.userStreams.clear();
-
-    connectionInfo.isListening = false;
-
-    if (connectionInfo.showTranscripts) {
-        await connectionInfo.textChannel.send('🔇 **Stopped listening.** Still in the voice channel.');
-    }
-    logger.info('VOICE', `Stopped listening in guild ${guildId}`);
-}
 
     /**
      * Leave voice channel
      * @param {string} guildId - Guild ID
      */
     async leave(guildId) {
-    const connectionInfo = this.activeConnections.get(guildId);
-    if (!connectionInfo) {
-        const connection = getVoiceConnection(guildId);
-        if (connection) {
-            connection.destroy();
+        const connectionInfo = this.activeConnections.get(guildId);
+        if (!connectionInfo) {
+            const connection = getVoiceConnection(guildId);
+            if (connection) {
+                connection.destroy();
+            }
+            return;
         }
-        return;
-    }
 
-    // Stop listening if active
-    if (connectionInfo.isListening) {
-        await this.stopListening(guildId);
-    }
-
-    // Destroy the connection
-    connectionInfo.connection.destroy();
-    this.cleanup(guildId);
-
-    logger.info('VOICE', `Left voice channel in guild ${guildId}`);
-}
-
-/**
- * Cleanup after disconnection
- * @param {string} guildId - Guild ID
- */
-cleanup(guildId) {
-    const connectionInfo = this.activeConnections.get(guildId);
-    if (connectionInfo) {
-        // Clean up all user streams
-        for (const [userId, streamInfo] of connectionInfo.userStreams) {
-            try {
-                streamInfo.audioStream.destroy();
-                sttClient.closeConnection(streamInfo.sttConnectionId);
-            } catch (e) { }
+        // Stop listening if active
+        if (connectionInfo.isListening) {
+            await this.stopListening(guildId);
         }
+
+        // Destroy the connection
+        connectionInfo.connection.destroy();
+        this.cleanup(guildId);
+
+        logger.info('VOICE', `Left voice channel in guild ${guildId}`);
     }
 
-    // Clean up TTS
-    ttsClient.cleanup(guildId);
+    /**
+     * Cleanup after disconnection
+     * @param {string} guildId - Guild ID
+     */
+    cleanup(guildId) {
+        const connectionInfo = this.activeConnections.get(guildId);
+        if (connectionInfo) {
+            // Clean up all user streams
+            for (const [userId, streamInfo] of connectionInfo.userStreams) {
+                try {
+                    streamInfo.audioStream.destroy();
+                    sttClient.closeConnection(streamInfo.sttConnectionId);
+                } catch (e) { }
+            }
+        }
 
-    this.activeConnections.delete(guildId);
-    this.userTranscriptBuffers.delete(guildId);
-}
+        // Clean up TTS
+        ttsClient.cleanup(guildId);
 
-/**
- * Check if connected to a voice channel in a guild
- * @param {string} guildId - Guild ID
- * @returns {boolean}
- */
-isConnected(guildId) {
-    return this.activeConnections.has(guildId);
-}
+        this.activeConnections.delete(guildId);
+        this.userTranscriptBuffers.delete(guildId);
+    }
 
-/**
- * Check if listening in a guild
- * @param {string} guildId - Guild ID
- * @returns {boolean}
- */
-isListening(guildId) {
-    const connectionInfo = this.activeConnections.get(guildId);
-    return connectionInfo?.isListening || false;
-}
+    /**
+     * Check if connected to a voice channel in a guild
+     * @param {string} guildId - Guild ID
+     * @returns {boolean}
+     */
+    isConnected(guildId) {
+        return this.activeConnections.has(guildId);
+    }
 
-/**
- * Get the voice channel info for a guild
- * @param {string} guildId - Guild ID
- * @returns {Object|null}
- */
-getConnectionInfo(guildId) {
-    return this.activeConnections.get(guildId) || null;
-}
+    /**
+     * Check if listening in a guild
+     * @param {string} guildId - Guild ID
+     * @returns {boolean}
+     */
+    isListening(guildId) {
+        const connectionInfo = this.activeConnections.get(guildId);
+        return connectionInfo?.isListening || false;
+    }
 
-/**
- * Get active connection count
- * @returns {number}
- */
-getConnectionCount() {
-    return this.activeConnections.size;
-}
+    /**
+     * Get the voice channel info for a guild
+     * @param {string} guildId - Guild ID
+     * @returns {Object|null}
+     */
+    getConnectionInfo(guildId) {
+        return this.activeConnections.get(guildId) || null;
+    }
 
-/**
- * Get count of users currently being transcribed
- * @param {string} guildId - Guild ID
- * @returns {number}
- */
-getActiveUserCount(guildId) {
-    const connectionInfo = this.activeConnections.get(guildId);
-    return connectionInfo?.userStreams?.size || 0;
-}
+    /**
+     * Get active connection count
+     * @returns {number}
+     */
+    getConnectionCount() {
+        return this.activeConnections.size;
+    }
+
+    /**
+     * Get count of users currently being transcribed
+     * @param {string} guildId - Guild ID
+     * @returns {number}
+     */
+    getActiveUserCount(guildId) {
+        const connectionInfo = this.activeConnections.get(guildId);
+        return connectionInfo?.userStreams?.size || 0;
+    }
 
     /**
      * Leave all voice channels
      */
     async leaveAll() {
-    for (const guildId of this.activeConnections.keys()) {
-        await this.leave(guildId);
+        for (const guildId of this.activeConnections.keys()) {
+            await this.leave(guildId);
+        }
+        logger.info('VOICE', 'Left all voice channels');
     }
-    logger.info('VOICE', 'Left all voice channels');
-}
 }
 
 // Export singleton

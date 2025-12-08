@@ -7,12 +7,12 @@ import { logger } from './logger.js';
 /**
  * Text-to-Speech Client using Deepgram Aura
  * Handles real-time text to speech conversion for Discord voice channels
- * Optimized for low-latency streaming playback
+ * Optimized for low-latency streaming playback with PARALLEL PRE-GENERATION
  */
 export class TTSClient {
     constructor() {
         this.deepgram = null;
-        this.activeSpeakers = new Map(); // guildId -> { connection, player, queue }
+        this.activeSpeakers = new Map(); // guildId -> { connection, player, audioQueue, isPlaying, pendingGenerations }
         this.speedFactor = 0.28; // 0.7 = 70% speed (30% slower), 1.0 = normal speed
     }
 
@@ -76,7 +76,8 @@ export class TTSClient {
     }
 
     /**
-     * Speak text in a voice channel using streaming TTS
+     * Speak text in a voice channel using streaming TTS with PARALLEL PRE-GENERATION
+     * Audio is generated immediately in parallel - doesn't wait for previous sentence to finish!
      * @param {string} guildId - Guild ID
      * @param {Object} voiceConnection - Discord voice connection
      * @param {string} text - Text to speak
@@ -99,122 +100,174 @@ export class TTSClient {
         if (!speaker) {
             speaker = {
                 player: createAudioPlayer(),
-                queue: [],
-                isSpeaking: false
+                audioQueue: [],        // Queue of ready-to-play audio buffers
+                isPlaying: false,      // Is the player currently playing audio?
+                pendingOrder: [],      // Array of generation IDs in order
+                pendingAudio: new Map(), // generationId -> audioBuffer (completed generations waiting for ordering)
+                nextGenerationId: 0
             };
 
             // Subscribe the player to the voice connection
             voiceConnection.subscribe(speaker.player);
 
-            // Handle player state changes
+            // Handle player state changes - when audio finishes, play next
             speaker.player.on(AudioPlayerStatus.Idle, () => {
-                speaker.isSpeaking = false;
-                this.processQueue(guildId);
+                speaker.isPlaying = false;
+                this.playNextAudio(guildId);
             });
 
             speaker.player.on('error', (error) => {
                 logger.error('TTS', `Audio player error: ${error.message}`);
-                speaker.isSpeaking = false;
-                this.processQueue(guildId);
+                speaker.isPlaying = false;
+                this.playNextAudio(guildId);
             });
 
             this.activeSpeakers.set(guildId, speaker);
         }
 
-        // Add to queue
-        speaker.queue.push({ text, options });
+        // Assign a generation ID to maintain order
+        const generationId = speaker.nextGenerationId++;
+        speaker.pendingOrder.push(generationId);
 
-        // Process if not currently speaking
-        if (!speaker.isSpeaking) {
-            await this.processQueue(guildId);
-        }
+        // Start generating audio IMMEDIATELY in parallel - don't wait!
+        this.generateAudio(guildId, generationId, text, options);
 
         return true;
     }
 
     /**
-     * Process the speech queue for a guild
+     * Generate audio for text and add to queue when ready
+     * This runs in parallel - multiple sentences can be generating at once!
      * @param {string} guildId - Guild ID
+     * @param {number} generationId - Order ID for this generation
+     * @param {string} text - Text to convert to audio
+     * @param {Object} options - TTS options
      */
-    async processQueue(guildId) {
+    async generateAudio(guildId, generationId, text, options = {}) {
         const speaker = this.activeSpeakers.get(guildId);
-        if (!speaker || speaker.queue.length === 0) {
-            return;
-        }
-
-        if (speaker.isSpeaking) {
-            return; // Already speaking
-        }
-
-        const { text, options } = speaker.queue.shift();
-        speaker.isSpeaking = true;
+        if (!speaker) return;
 
         try {
-            await this.streamTTS(speaker, text, options);
+            logger.debug('TTS', `Starting parallel generation #${generationId}: "${text.substring(0, 30)}..."`);
+
+            const audioBuffer = await this.generateTTSBuffer(text, options);
+
+            if (audioBuffer && speaker) {
+                // Store the completed audio
+                speaker.pendingAudio.set(generationId, audioBuffer);
+                logger.debug('TTS', `Generation #${generationId} complete (${audioBuffer.length} bytes)`);
+
+                // Check if we can move any audio to the playback queue
+                this.flushPendingToQueue(guildId);
+            }
         } catch (error) {
-            logger.error('TTS', `Failed to speak: ${error.message}`);
-            speaker.isSpeaking = false;
-            this.processQueue(guildId);
+            logger.error('TTS', `Generation #${generationId} failed: ${error.message}`);
+            // Remove from pending order on failure
+            const speaker = this.activeSpeakers.get(guildId);
+            if (speaker) {
+                const idx = speaker.pendingOrder.indexOf(generationId);
+                if (idx !== -1) speaker.pendingOrder.splice(idx, 1);
+                this.flushPendingToQueue(guildId);
+            }
         }
     }
 
     /**
-     * Stream TTS audio to the player with real-time chunked playback
-     * @param {Object} speaker - Speaker object with player
+     * Move completed audio to the playback queue in the correct order
+     * @param {string} guildId - Guild ID
+     */
+    flushPendingToQueue(guildId) {
+        const speaker = this.activeSpeakers.get(guildId);
+        if (!speaker) return;
+
+        // Move audio to queue in order
+        while (speaker.pendingOrder.length > 0) {
+            const nextId = speaker.pendingOrder[0];
+            if (speaker.pendingAudio.has(nextId)) {
+                // This one is ready - move to playback queue
+                const audioBuffer = speaker.pendingAudio.get(nextId);
+                speaker.pendingAudio.delete(nextId);
+                speaker.pendingOrder.shift();
+                speaker.audioQueue.push(audioBuffer);
+                logger.debug('TTS', `Queued audio #${nextId} for playback`);
+            } else {
+                // Not ready yet - stop here to maintain order
+                break;
+            }
+        }
+
+        // Start playback if not already playing
+        if (!speaker.isPlaying) {
+            this.playNextAudio(guildId);
+        }
+    }
+
+    /**
+     * Play the next audio buffer in the queue
+     * @param {string} guildId - Guild ID
+     */
+    playNextAudio(guildId) {
+        const speaker = this.activeSpeakers.get(guildId);
+        if (!speaker || speaker.audioQueue.length === 0) {
+            return;
+        }
+
+        if (speaker.isPlaying) {
+            return; // Already playing
+        }
+
+        const audioBuffer = speaker.audioQueue.shift();
+        speaker.isPlaying = true;
+
+        this.playAudio(speaker.player, audioBuffer);
+    }
+
+    /**
+     * Generate TTS audio buffer (doesn't play - just generates)
      * @param {string} text - Text to speak
      * @param {Object} options - TTS options
+     * @returns {Promise<Buffer>} Audio buffer
      */
-    async streamTTS(speaker, text, options = {}) {
+    async generateTTSBuffer(text, options = {}) {
         return new Promise((resolve, reject) => {
-            // Use a slower, clearer voice - Helena is known for being clear and measured
             const model = options.voice || 'aura-2-helena-en';
             const audioChunks = [];
-            let isFirstChunk = true;
 
             try {
                 const dgConnection = this.deepgram.speak.live({
                     model: model,
                     encoding: 'linear16',
-                    sample_rate: 24000, // Lower sample rate for Discord compatibility
+                    sample_rate: 24000,
                 });
 
                 dgConnection.on(LiveTTSEvents.Open, () => {
-                    logger.debug('TTS', `Streaming TTS: "${text.substring(0, 50)}..."`);
-
-                    // Send the text
                     dgConnection.sendText(text);
-
-                    // Flush to get the audio
                     dgConnection.flush();
                 });
 
                 dgConnection.on(LiveTTSEvents.Audio, (data) => {
-                    const chunk = Buffer.from(data);
-                    audioChunks.push(chunk);
-
-                    // Start playing after first chunk for lower latency
-                    if (isFirstChunk && audioChunks.length >= 1) {
-                        isFirstChunk = false;
-                        // We'll wait for flush to play for consistency
-                    }
+                    audioChunks.push(Buffer.from(data));
                 });
 
                 dgConnection.on(LiveTTSEvents.Flushed, () => {
-                    // Combine all chunks and play
                     if (audioChunks.length > 0) {
                         const fullAudio = Buffer.concat(audioChunks);
-                        // Apply speed adjustment to slow down the voice
                         const adjustedAudio = this.stretchAudio(fullAudio, this.speedFactor);
-                        this.playAudio(speaker.player, adjustedAudio);
-                        logger.debug('TTS', `Playing ${adjustedAudio.length} bytes of audio (speed: ${this.speedFactor}x)`);
+                        dgConnection.requestClose();
+                        resolve(adjustedAudio);
+                    } else {
+                        dgConnection.requestClose();
+                        resolve(null);
                     }
-
-                    // Close the connection
-                    dgConnection.requestClose();
                 });
 
                 dgConnection.on(LiveTTSEvents.Close, () => {
-                    resolve();
+                    // Connection closed - if we haven't resolved yet, resolve with what we have
+                    if (audioChunks.length > 0) {
+                        const fullAudio = Buffer.concat(audioChunks);
+                        const adjustedAudio = this.stretchAudio(fullAudio, this.speedFactor);
+                        resolve(adjustedAudio);
+                    }
                 });
 
                 dgConnection.on(LiveTTSEvents.Error, (error) => {
@@ -266,9 +319,11 @@ export class TTSClient {
     stop(guildId) {
         const speaker = this.activeSpeakers.get(guildId);
         if (speaker) {
-            speaker.queue = [];
+            speaker.audioQueue = [];
+            speaker.pendingOrder = [];
+            speaker.pendingAudio.clear();
             speaker.player.stop();
-            speaker.isSpeaking = false;
+            speaker.isPlaying = false;
         }
     }
 
@@ -279,7 +334,7 @@ export class TTSClient {
      */
     isSpeaking(guildId) {
         const speaker = this.activeSpeakers.get(guildId);
-        return speaker?.isSpeaking || false;
+        return speaker?.isPlaying || false;
     }
 
     /**

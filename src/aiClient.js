@@ -488,25 +488,27 @@ You're talking to ${username}. Keep it casual and SHORT.`;
             const decoder = new TextDecoder();
             let fullText = '';
             let buffer = '';
-            let sentenceBuffer = '';
+            let chunkBuffer = '';
+            let isFirstChunk = true;
+            let earlyTriggerTimeout = null;
 
-            // Sentence ending patterns
-            const sentenceEnders = /[.!?]+[\s"']*/;
+            // AGGRESSIVE first-word settings
+            const MIN_WORDS_EARLY = 3;      // Send after just 3 words for first chunk
+            const EARLY_TIMEOUT_MS = 200;   // Or after 200ms pause in generation
 
             while (true) {
                 const { done, value } = await reader.read();
 
                 if (done) {
-                    // Process any remaining text as final sentence
-                    if (sentenceBuffer.trim()) {
-                        await onSentence(sentenceBuffer.trim());
+                    if (earlyTriggerTimeout) clearTimeout(earlyTriggerTimeout);
+                    if (chunkBuffer.trim()) {
+                        await onSentence(chunkBuffer.trim());
                     }
                     break;
                 }
 
                 buffer += decoder.decode(value, { stream: true });
 
-                // Process complete SSE lines
                 const lines = buffer.split('\n');
                 buffer = lines.pop() || '';
 
@@ -521,25 +523,52 @@ You're talking to ${username}. Keep it casual and SHORT.`;
 
                         if (content) {
                             fullText += content;
-                            sentenceBuffer += content;
+                            chunkBuffer += content;
 
-                            // Check if we have a complete sentence
-                            const sentences = sentenceBuffer.split(sentenceEnders);
+                            // Clear any pending early trigger
+                            if (earlyTriggerTimeout) {
+                                clearTimeout(earlyTriggerTimeout);
+                                earlyTriggerTimeout = null;
+                            }
 
-                            // If we have more than one part, we found sentence boundaries
-                            if (sentences.length > 1) {
-                                // Process all complete sentences except the last (incomplete) one
-                                for (let i = 0; i < sentences.length - 1; i++) {
-                                    const sentence = sentences[i].trim();
-                                    if (sentence) {
-                                        // Find the actual ending punctuation
-                                        const match = sentenceBuffer.match(sentenceEnders);
-                                        const punctuation = match ? match[0].trim() : '';
-                                        await onSentence(sentence + punctuation);
-                                    }
+                            // Check for sentence enders (always send)
+                            const sentenceMatch = chunkBuffer.match(/^(.*?[.!?]+)\s*(.*)$/s);
+                            if (sentenceMatch) {
+                                if (sentenceMatch[1].trim()) {
+                                    await onSentence(sentenceMatch[1].trim());
+                                    isFirstChunk = false;
                                 }
-                                // Keep the incomplete sentence in the buffer
-                                sentenceBuffer = sentences[sentences.length - 1];
+                                chunkBuffer = sentenceMatch[2];
+                                continue;
+                            }
+
+                            // Check for clauses
+                            const clauseMatch = chunkBuffer.match(/^(.*?[,;:])\s+(.*)$/s);
+                            if (clauseMatch) {
+                                const clause = clauseMatch[1].trim();
+                                const wordCount = clause.split(/\s+/).length;
+                                const threshold = isFirstChunk ? MIN_WORDS_EARLY : 4;
+                                if (wordCount >= threshold) {
+                                    await onSentence(clause);
+                                    isFirstChunk = false;
+                                    chunkBuffer = clauseMatch[2];
+                                    continue;
+                                }
+                            }
+
+                            // AGGRESSIVE: For first chunk, trigger early after MIN_WORDS_EARLY
+                            if (isFirstChunk) {
+                                const words = chunkBuffer.trim().split(/\s+/);
+                                if (words.length >= MIN_WORDS_EARLY && !earlyTriggerTimeout) {
+                                    earlyTriggerTimeout = setTimeout(async () => {
+                                        if (isFirstChunk && chunkBuffer.trim()) {
+                                            const toSend = chunkBuffer.trim();
+                                            chunkBuffer = '';
+                                            isFirstChunk = false;
+                                            await onSentence(toSend);
+                                        }
+                                    }, EARLY_TIMEOUT_MS);
+                                }
                             }
                         }
                     } catch (e) {
