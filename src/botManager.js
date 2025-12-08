@@ -82,24 +82,27 @@ class BotManager {
             }
         }, 5000);
 
-        // Ready event
-        client.once('clientReady', () => {
-            bot.ready = true;
-            logger.info('BOT_MANAGER', `Bot ${index} ready: ${client.user.tag}`);
-            
-            client.user.setPresence({
-                activities: [{ name: `AI + Image Gen | CheapShot (${index + 1}/${config.discordTokens.length})`, type: 3 }],
-                status: 'online'
-            });
-        });
-
         // Error handling
         client.on('error', (error) => {
             logger.error('BOT_MANAGER', `Bot ${index} error`, error);
         });
 
-        // Login
+        // Login and wait for ready
         await client.login(token);
+        
+        // Wait for clientReady event
+        await new Promise((resolve) => {
+            client.once('clientReady', () => {
+                bot.ready = true;
+                logger.info('BOT_MANAGER', `Bot ${index} ready: ${client.user.tag}`);
+                
+                client.user.setPresence({
+                    activities: [{ name: `AI + Image Gen | CheapShot (${index + 1}/${config.discordTokens.length})`, type: 3 }],
+                    status: 'online'
+                });
+                resolve();
+            });
+        });
         
         this.bots.push(bot);
         return bot;

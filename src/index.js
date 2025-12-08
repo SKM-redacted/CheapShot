@@ -489,6 +489,11 @@ async function start() {
         // Setup message handler on all bots
         botManager.onMessage(handleMessage);
         
+        // Update dashboard with bot info
+        const primaryBot = botManager.bots[0];
+        const botTag = primaryBot?.client?.user?.tag || `CheapShot (${botManager.getBotCount()} bots)`;
+        logger.startup(botTag, config.aiModel, config.onyxApiBase, config.maxConcurrentRequests);
+        
         logger.info('STARTUP', `CheapShot Multi-Bot System ready with ${botManager.getBotCount()} bot(s)`);
         logger.info('STARTUP', `AI Model: ${config.aiModel}`);
         logger.info('STARTUP', `API Base: ${config.onyxApiBase}`);
