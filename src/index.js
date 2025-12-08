@@ -24,6 +24,137 @@ const requestQueue = new RequestQueue(config.maxConcurrentRequests);
 const imageQueue = new ImageQueue(100);
 
 /**
+ * Split a long message into multiple chunks at natural breakpoints
+ * Uses recursive character splitting with prioritized separators
+ * Preserves code blocks, lists, and sentence integrity
+ * 
+ * @param {string} text - The text to split
+ * @param {number} maxLength - Maximum length per chunk (default 1900 for safety margin)
+ * @returns {string[]} Array of text chunks
+ */
+function splitMessage(text, maxLength = 1900) {
+    if (!text || text.length <= maxLength) {
+        return text ? [text] : [];
+    }
+
+    const chunks = [];
+    let remainingText = text;
+
+    // Extract and protect code blocks from being split
+    const codeBlockRegex = /```[\s\S]*?```/g;
+    const codeBlocks = [];
+    let protectedText = remainingText.replace(codeBlockRegex, (match) => {
+        const placeholder = `__CODE_BLOCK_${codeBlocks.length}__`;
+        codeBlocks.push(match);
+        return placeholder;
+    });
+
+    while (protectedText.length > 0) {
+        if (protectedText.length <= maxLength) {
+            chunks.push(protectedText);
+            break;
+        }
+
+        let splitIndex = findBestSplitPoint(protectedText, maxLength);
+
+        // Extract the chunk
+        let chunk = protectedText.substring(0, splitIndex).trim();
+        protectedText = protectedText.substring(splitIndex).trim();
+
+        if (chunk) {
+            chunks.push(chunk);
+        }
+    }
+
+    // Restore code blocks in all chunks
+    const restoredChunks = chunks.map(chunk => {
+        let restored = chunk;
+        codeBlocks.forEach((block, index) => {
+            restored = restored.replace(`__CODE_BLOCK_${index}__`, block);
+        });
+        return restored;
+    });
+
+    // Post-process: if any chunk is still too long (due to large code blocks), split it
+    const finalChunks = [];
+    for (const chunk of restoredChunks) {
+        if (chunk.length <= maxLength) {
+            finalChunks.push(chunk);
+        } else {
+            // Force split long code blocks or text at word boundaries
+            finalChunks.push(...forceSplitLongChunk(chunk, maxLength));
+        }
+    }
+
+    return finalChunks;
+}
+
+/**
+ * Find the best split point using hierarchical separators
+ * Priority: paragraph breaks > markdown headers > line breaks > sentences > clauses > words
+ */
+function findBestSplitPoint(text, maxLength) {
+    const minLength = Math.floor(maxLength * 0.4); // Don't create chunks smaller than 40% of max
+
+    // Separators in priority order (highest to lowest)
+    const separators = [
+        { pattern: '\n\n', offset: 2 },           // Paragraph break
+        { pattern: '\n# ', offset: 1 },           // Markdown H1
+        { pattern: '\n## ', offset: 1 },          // Markdown H2
+        { pattern: '\n### ', offset: 1 },         // Markdown H3
+        { pattern: '\n- ', offset: 1 },           // List item
+        { pattern: '\n* ', offset: 1 },           // List item (alt)
+        { pattern: '\n', offset: 1 },             // Line break
+        { pattern: '. ', offset: 2 },             // Sentence end (period)
+        { pattern: '! ', offset: 2 },             // Sentence end (exclamation)
+        { pattern: '? ', offset: 2 },             // Sentence end (question)
+        { pattern: '; ', offset: 2 },             // Clause break
+        { pattern: ', ', offset: 2 },             // Comma
+        { pattern: ' ', offset: 1 },              // Word break
+    ];
+
+    for (const { pattern, offset } of separators) {
+        const index = text.lastIndexOf(pattern, maxLength);
+        if (index > minLength) {
+            return index + offset;
+        }
+    }
+
+    // Fallback: hard cut at maxLength (should rarely happen)
+    return maxLength;
+}
+
+/**
+ * Force split a chunk that's still too long (e.g., large code block or URL)
+ */
+function forceSplitLongChunk(chunk, maxLength) {
+    const result = [];
+    let remaining = chunk;
+
+    while (remaining.length > maxLength) {
+        // Try to find a newline within the chunk
+        let splitAt = remaining.lastIndexOf('\n', maxLength);
+        if (splitAt < maxLength * 0.3) {
+            // Try space
+            splitAt = remaining.lastIndexOf(' ', maxLength);
+        }
+        if (splitAt < maxLength * 0.3) {
+            // Hard cut as last resort
+            splitAt = maxLength;
+        }
+
+        result.push(remaining.substring(0, splitAt).trim());
+        remaining = remaining.substring(splitAt).trim();
+    }
+
+    if (remaining) {
+        result.push(remaining);
+    }
+
+    return result;
+}
+
+/**
  * Handle incoming messages
  */
 client.on('messageCreate', async (message) => {
@@ -79,7 +210,8 @@ async function handleAIResponse(message, userMessage) {
 
         let displayText = text;
         if (displayText.length > MAX_LENGTH) {
-            displayText = displayText.substring(0, MAX_LENGTH) + '... *(truncated)*';
+            // During streaming, show first chunk with indicator that more is coming
+            displayText = displayText.substring(0, MAX_LENGTH - 50) + '\n\n*...continued below when complete*';
         }
 
         if (!isFinal) {
@@ -149,13 +281,32 @@ async function handleAIResponse(message, userMessage) {
 
                 let finalText = fullText || "Let me help you with that!";
 
-                if (finalText.length > MAX_LENGTH) {
-                    finalText = finalText.substring(0, MAX_LENGTH) + '\n\n... *(truncated)*';
-                }
+                // Split message into chunks if it exceeds the limit
+                const chunks = splitMessage(finalText, MAX_LENGTH);
+                const totalChunks = chunks.length;
 
+                // Update the first message (the reply)
                 try {
-                    await replyMessage.edit(finalText);
+                    if (totalChunks > 1) {
+                        // Add a part indicator for multi-part messages
+                        await replyMessage.edit(`${chunks[0]}\n\n*— (1/${totalChunks})*`);
+                    } else {
+                        await replyMessage.edit(chunks[0]);
+                    }
                 } catch (e) { }
+
+                // Send additional messages for remaining chunks
+                for (let i = 1; i < totalChunks; i++) {
+                    try {
+                        // Small delay to ensure messages arrive in order
+                        await new Promise(resolve => setTimeout(resolve, 300));
+
+                        const partIndicator = `*— (${i + 1}/${totalChunks})*`;
+                        await message.channel.send(`${chunks[i]}\n\n${partIndicator}`);
+                    } catch (e) {
+                        logger.error('AI', `Failed to send message part ${i + 1}`, e);
+                    }
+                }
 
                 logger.aiComplete(message.author.tag, finalText.length, pendingToolCalls.length > 0);
 
