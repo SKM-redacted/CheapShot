@@ -76,7 +76,8 @@ class VoiceClient {
                 userStreams: new Map(),     // userId -> { stream, sttConnection }
                 members: new Map(),          // userId -> { username, displayName }
                 isListening: false,
-                conversationMode: false      // When true, triggers AI responses
+                conversationMode: false,     // When true, triggers AI responses
+                showTranscripts: false       // When true, sends transcripts to text channel
             });
 
             // Initialize user transcript buffers for this guild
@@ -204,7 +205,10 @@ class VoiceClient {
         connectionInfo.isListening = true;
         logger.info('VOICE', `Started listening in guild ${guildId}`);
 
-        await connectionInfo.textChannel.send('🎤 **Now listening!** I\'ll transcribe what people say and show who said it.');
+        // Only send message if showTranscripts is enabled
+        if (connectionInfo.showTranscripts) {
+            await connectionInfo.textChannel.send('🎤 **Now listening!** I\'ll transcribe what people say.');
+        }
 
         return true;
     }
@@ -302,18 +306,21 @@ class VoiceClient {
         // Only process final transcripts
         if (isFinal && transcript.trim()) {
             try {
-                // Format with user's display name and avatar-like prefix
-                const output = `🗣️ **${memberInfo.displayName}:** ${transcript}`;
-                await connectionInfo.textChannel.send(output);
-
+                // Log to console always
                 logger.info('VOICE', `[${memberInfo.displayName}] "${transcript}" (${(confidence * 100).toFixed(1)}%)`);
+
+                // Only send to text channel if showTranscripts is enabled
+                if (connectionInfo.showTranscripts) {
+                    const output = `🗣️ **${memberInfo.displayName}:** ${transcript}`;
+                    await connectionInfo.textChannel.send(output);
+                }
 
                 // If conversation mode is enabled and we have an AI callback, generate a response
                 if (connectionInfo.conversationMode && this.aiResponseCallback) {
                     await this.generateAndSpeak(guildId, userId, memberInfo.displayName, transcript);
                 }
             } catch (error) {
-                logger.error('VOICE', `Failed to send transcript: ${error.message}`);
+                logger.error('VOICE', `Failed to process transcript: ${error.message}`);
             }
         }
     }
@@ -330,16 +337,15 @@ class VoiceClient {
         if (!connectionInfo || !this.aiResponseCallback) return;
 
         try {
-            // Show typing indicator in text channel
-            await connectionInfo.textChannel.sendTyping();
-
             // Generate AI response
             logger.info('VOICE', `Generating AI response to: "${transcript}"`);
             const aiResponse = await this.aiResponseCallback(guildId, userId, username, transcript);
 
             if (aiResponse && aiResponse.trim()) {
-                // Send response to text channel
-                await connectionInfo.textChannel.send(`🤖 **CheapShot:** ${aiResponse}`);
+                // Only send to text channel if showTranscripts is enabled
+                if (connectionInfo.showTranscripts) {
+                    await connectionInfo.textChannel.send(`🤖 **CheapShot:** ${aiResponse}`);
+                }
 
                 // Speak the response
                 await ttsClient.speak(guildId, connectionInfo.connection, aiResponse);
@@ -372,6 +378,29 @@ class VoiceClient {
     isConversationMode(guildId) {
         const connectionInfo = this.activeConnections.get(guildId);
         return connectionInfo?.conversationMode || false;
+    }
+
+    /**
+     * Enable or disable showing transcripts in text channel
+     * @param {string} guildId - Guild ID
+     * @param {boolean} enabled - Whether to show transcripts
+     */
+    setShowTranscripts(guildId, enabled) {
+        const connectionInfo = this.activeConnections.get(guildId);
+        if (connectionInfo) {
+            connectionInfo.showTranscripts = enabled;
+            logger.info('VOICE', `Show transcripts ${enabled ? 'enabled' : 'disabled'} for guild ${guildId}`);
+        }
+    }
+
+    /**
+     * Check if showing transcripts is enabled
+     * @param {string} guildId - Guild ID
+     * @returns {boolean}
+     */
+    isShowingTranscripts(guildId) {
+        const connectionInfo = this.activeConnections.get(guildId);
+        return connectionInfo?.showTranscripts || false;
     }
 
     /**
@@ -413,7 +442,9 @@ class VoiceClient {
 
         connectionInfo.isListening = false;
 
-        await connectionInfo.textChannel.send('🔇 **Stopped listening.** Still in the voice channel.');
+        if (connectionInfo.showTranscripts) {
+            await connectionInfo.textChannel.send('🔇 **Stopped listening.** Still in the voice channel.');
+        }
         logger.info('VOICE', `Stopped listening in guild ${guildId}`);
     }
 

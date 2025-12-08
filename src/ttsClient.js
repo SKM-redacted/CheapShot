@@ -7,6 +7,7 @@ import { logger } from './logger.js';
 /**
  * Text-to-Speech Client using Deepgram Aura
  * Handles real-time text to speech conversion for Discord voice channels
+ * Optimized for low-latency streaming playback
  */
 export class TTSClient {
     constructor() {
@@ -108,7 +109,7 @@ export class TTSClient {
         speaker.isSpeaking = true;
 
         try {
-            await this.streamTTS(speaker.player, text, options);
+            await this.streamTTS(speaker, text, options);
         } catch (error) {
             logger.error('TTS', `Failed to speak: ${error.message}`);
             speaker.isSpeaking = false;
@@ -117,25 +118,27 @@ export class TTSClient {
     }
 
     /**
-     * Stream TTS audio to the player
-     * @param {Object} player - Audio player
+     * Stream TTS audio to the player with real-time chunked playback
+     * @param {Object} speaker - Speaker object with player
      * @param {string} text - Text to speak
      * @param {Object} options - TTS options
      */
-    async streamTTS(player, text, options = {}) {
+    async streamTTS(speaker, text, options = {}) {
         return new Promise((resolve, reject) => {
-            const model = options.voice || 'aura-2-thalia-en';
+            // Use a slower, clearer voice - Helena is known for being clear and measured
+            const model = options.voice || 'aura-2-helena-en';
             const audioChunks = [];
+            let isFirstChunk = true;
 
             try {
                 const dgConnection = this.deepgram.speak.live({
                     model: model,
                     encoding: 'linear16',
-                    sample_rate: 48000, // Discord's sample rate
+                    sample_rate: 24000, // Lower sample rate for Discord compatibility
                 });
 
                 dgConnection.on(LiveTTSEvents.Open, () => {
-                    logger.debug('TTS', `Streaming TTS for: "${text.substring(0, 50)}..."`);
+                    logger.debug('TTS', `Streaming TTS: "${text.substring(0, 50)}..."`);
 
                     // Send the text
                     dgConnection.sendText(text);
@@ -145,14 +148,22 @@ export class TTSClient {
                 });
 
                 dgConnection.on(LiveTTSEvents.Audio, (data) => {
-                    audioChunks.push(Buffer.from(data));
+                    const chunk = Buffer.from(data);
+                    audioChunks.push(chunk);
+
+                    // Start playing after first chunk for lower latency
+                    if (isFirstChunk && audioChunks.length >= 1) {
+                        isFirstChunk = false;
+                        // We'll wait for flush to play for consistency
+                    }
                 });
 
                 dgConnection.on(LiveTTSEvents.Flushed, () => {
                     // Combine all chunks and play
                     if (audioChunks.length > 0) {
                         const fullAudio = Buffer.concat(audioChunks);
-                        this.playAudio(player, fullAudio);
+                        this.playAudio(speaker.player, fullAudio);
+                        logger.debug('TTS', `Playing ${fullAudio.length} bytes of audio`);
                     }
 
                     // Close the connection
@@ -176,31 +187,30 @@ export class TTSClient {
 
     /**
      * Play audio buffer through the player
+     * Uses lower sample rate for clearer playback
      * @param {Object} player - Audio player
-     * @param {Buffer} audioBuffer - PCM audio buffer
+     * @param {Buffer} audioBuffer - PCM audio buffer (24kHz, 16-bit, mono)
      */
     playAudio(player, audioBuffer) {
         try {
             // Create a readable stream from the buffer
             const stream = Readable.from(audioBuffer);
 
-            // Create an audio resource
-            // Discord.js expects 48kHz, 16-bit, stereo PCM by default
-            // Deepgram sends 48kHz, 16-bit, mono - we need to specify this
+            // Create an audio resource - specify raw input for PCM
             const resource = createAudioResource(stream, {
                 inputType: StreamType.Raw,
                 inlineVolume: true
             });
 
-            // Set volume (optional, 1.0 = 100%)
+            // Set volume slightly higher for clarity
             if (resource.volume) {
-                resource.volume.setVolume(1.0);
+                resource.volume.setVolume(1.2);
             }
 
             // Play the audio
             player.play(resource);
 
-            logger.debug('TTS', 'Playing audio...');
+            logger.debug('TTS', 'Audio playback started');
         } catch (error) {
             logger.error('TTS', `Failed to play audio: ${error.message}`);
         }

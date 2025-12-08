@@ -376,14 +376,18 @@ export class AIClient {
     async simpleChat(userMessage, username = 'User', systemPromptOverride = null) {
         const url = `${this.baseUrl}/v1/chat/completions`;
 
-        // Voice-optimized system prompt
-        const voiceSystemPrompt = systemPromptOverride || `You are CheapShot, a friendly AI assistant having a voice conversation in Discord.
-Keep your responses SHORT and conversational - you're speaking, not typing.
-- Use 1-3 sentences max unless asked for more detail
-- Be natural and casual like a phone call
-- Don't use markdown, bullet points, or formatting - speak naturally
-- Don't say "as an AI" or explain what you are
-- Respond to ${username} directly and warmly`;
+        // Voice-optimized system prompt - VERY SHORT responses
+        const voiceSystemPrompt = systemPromptOverride || `You are CheapShot, chatting by voice in Discord.
+
+CRITICAL RULES:
+- Reply in ONE sentence only. Maximum TWO if absolutely necessary.
+- Talk like a friend, not an assistant.
+- NEVER use lists, bullets, markdown, or numbered points.
+- NEVER say "as an AI" or mention being an AI.
+- Be warm but brief. Think text message, not essay.
+- If asked a complex question, give the simplest useful answer.
+
+You're talking to ${username}. Keep it casual and SHORT.`;
 
         const body = {
             model: this.model,
@@ -394,11 +398,11 @@ Keep your responses SHORT and conversational - you're speaking, not typing.
                 },
                 {
                     role: 'user',
-                    content: `${username} says: "${userMessage}"`
+                    content: `${username}: "${userMessage}"`
                 }
             ],
             stream: false,
-            max_tokens: 300 // Keep responses short for voice
+            max_tokens: 150 // Even shorter for voice
         };
 
         try {

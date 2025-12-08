@@ -68,6 +68,11 @@ export const voiceCommands = [
         )
         .addSubcommand(subcommand =>
             subcommand
+                .setName('transcripts')
+                .setDescription('Toggle showing transcripts in text channel (off by default)')
+        )
+        .addSubcommand(subcommand =>
+            subcommand
                 .setName('status')
                 .setDescription('Check voice connection status')
         )
@@ -97,6 +102,8 @@ export async function handleVoiceCommand(interaction) {
                 return await handleConverse(interaction);
             case 'quiet':
                 return await handleStopConverse(interaction);
+            case 'transcripts':
+                return await handleToggleTranscripts(interaction);
             case 'status':
                 return await handleStatus(interaction);
             default:
@@ -290,6 +297,7 @@ async function handleStatus(interaction) {
     const isConnected = voiceClient.isConnected(guild.id);
     const isListening = voiceClient.isListening(guild.id);
     const isConversing = voiceClient.isConversationMode(guild.id);
+    const isShowingTranscripts = voiceClient.isShowingTranscripts(guild.id);
     const connectionInfo = voiceClient.getConnectionInfo(guild.id);
     const activeUsers = voiceClient.getActiveUserCount(guild.id);
 
@@ -301,8 +309,8 @@ async function handleStatus(interaction) {
         status += `🟢 Connected to: **${connectionInfo?.voiceChannel?.name || 'Unknown'}**\n`;
         status += `🎤 Listening: ${isListening ? '**Yes**' : '**No**'}\n`;
         status += `💬 Conversation Mode: ${isConversing ? '**Enabled** (AI responds with voice)' : '**Disabled**'}\n`;
-        status += `👥 Users being transcribed: **${activeUsers}**\n`;
-        status += `📝 Cached members: ${connectionInfo?.members?.size || 0}`;
+        status += `📝 Text Transcripts: ${isShowingTranscripts ? '**On** (shown in chat)' : '**Off** (voice only)'}\n`;
+        status += `👥 Users being transcribed: **${activeUsers}**`;
     }
 
     await interaction.reply({
@@ -378,6 +386,37 @@ async function handleStopConverse(interaction) {
 
     await interaction.reply('🔇 **Conversation mode disabled.** I\'ll still transcribe but won\'t respond with voice.');
     logger.info('VOICE', `Conversation mode disabled by ${interaction.user.tag}`);
+
+    return true;
+}
+
+/**
+ * Handle /voice transcripts - Toggle text channel transcripts
+ */
+async function handleToggleTranscripts(interaction) {
+    const { guild } = interaction;
+
+    if (!voiceClient.isConnected(guild.id)) {
+        await interaction.reply({
+            content: '❌ I\'m not in any voice channel!',
+            ephemeral: true
+        });
+        return true;
+    }
+
+    // Toggle the current state
+    const currentState = voiceClient.isShowingTranscripts(guild.id);
+    const newState = !currentState;
+
+    voiceClient.setShowTranscripts(guild.id, newState);
+
+    if (newState) {
+        await interaction.reply('📝 **Transcripts enabled!** I\'ll now show what people say in this text channel.');
+    } else {
+        await interaction.reply('📝 **Transcripts disabled.** Voice-only mode - nothing will be posted in chat.');
+    }
+
+    logger.info('VOICE', `Transcripts ${newState ? 'enabled' : 'disabled'} by ${interaction.user.tag}`);
 
     return true;
 }
