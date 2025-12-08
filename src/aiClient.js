@@ -146,6 +146,123 @@ export class AIClient {
     }
 
     /**
+     * Stream a chat completion with a pre-built context array
+     * Used for multi-bot context-aware conversations
+     * @param {Array} messages - Pre-built messages array with context
+     * @param {Function} onChunk - Callback for each text chunk received
+     * @param {Function} onComplete - Callback when stream finishes
+     * @param {Function} onError - Callback for errors
+     * @param {Function} onToolCall - Callback when AI wants to use a tool
+     */
+    async streamChatWithContext(messages, onChunk, onComplete, onError, onToolCall = null) {
+        const url = `${this.baseUrl}/v1/chat/completions`;
+
+        const body = {
+            model: this.model,
+            messages: messages,
+            stream: true,
+            tools: TOOLS,
+            tool_choice: "auto"
+        };
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-App-Name': 'cheapshot'
+                },
+                body: JSON.stringify(body)
+            });
+
+            if (!response.ok) {
+                throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let fullText = '';
+            let buffer = '';
+            let toolCalls = [];
+            let currentToolCall = null;
+
+            while (true) {
+                const { done, value } = await reader.read();
+
+                if (done) {
+                    if (buffer.trim()) {
+                        const result = this.parseSSELine(buffer);
+                        if (result) {
+                            if (result.content) {
+                                fullText += result.content;
+                                await onChunk(result.content, fullText);
+                            }
+                            if (result.toolCall) {
+                                toolCalls.push(result.toolCall);
+                            }
+                        }
+                    }
+                    break;
+                }
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    const result = this.parseSSELine(line);
+                    if (result) {
+                        if (result.content) {
+                            fullText += result.content;
+                            await onChunk(result.content, fullText);
+                        }
+                        if (result.toolCall) {
+                            toolCalls.push(result.toolCall);
+                        }
+                        if (result.toolCallDelta) {
+                            if (!currentToolCall) {
+                                currentToolCall = { name: '', arguments: '' };
+                            }
+                            if (result.toolCallDelta.name) {
+                                currentToolCall.name = result.toolCallDelta.name;
+                            }
+                            if (result.toolCallDelta.arguments) {
+                                currentToolCall.arguments += result.toolCallDelta.arguments;
+                            }
+                        }
+                        if (result.finishReason === 'tool_calls' && currentToolCall) {
+                            try {
+                                const args = JSON.parse(currentToolCall.arguments);
+                                toolCalls.push({
+                                    name: currentToolCall.name,
+                                    arguments: args
+                                });
+                            } catch (e) {
+                                console.warn('Failed to parse tool call arguments:', e);
+                            }
+                            currentToolCall = null;
+                        }
+                    }
+                }
+            }
+
+            if (toolCalls.length > 0 && onToolCall) {
+                for (const toolCall of toolCalls) {
+                    await onToolCall(toolCall);
+                }
+            }
+
+            await onComplete(fullText);
+            return { text: fullText, toolCalls };
+
+        } catch (error) {
+            console.error('[AI] Context streaming error:', error);
+            await onError(error);
+            throw error;
+        }
+    }
+
+    /**
      * Parse a single SSE line and extract content or tool calls
      * @param {string} line - SSE line to parse
      * @returns {object|null} - Extracted content, tool call, or null

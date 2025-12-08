@@ -1,21 +1,13 @@
-import { Client, GatewayIntentBits, Partials, EmbedBuilder, AttachmentBuilder } from 'discord.js';
+import { EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { config } from './config.js';
 import { AIClient } from './aiClient.js';
 import { RequestQueue } from './queue.js';
 import { ImageQueue } from './imageQueue.js';
 import { ImageClient } from './imageClient.js';
 import { logger } from './logger.js';
-
-// Initialize Discord client
-const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.DirectMessages
-    ],
-    partials: [Partials.Channel]
-});
+import { botManager } from './botManager.js';
+import { loadBalancer } from './loadBalancer.js';
+import { contextStore } from './contextStore.js';
 
 // Initialize clients and queues
 const aiClient = new AIClient();
@@ -155,9 +147,11 @@ function forceSplitLongChunk(chunk, maxLength) {
 }
 
 /**
- * Handle incoming messages
+ * Handle incoming messages (called by bot manager)
+ * @param {Object} message - Discord message
+ * @param {Object} bot - The bot that claimed this message
  */
-client.on('messageCreate', async (message) => {
+async function handleMessage(message, bot) {
     if (message.author.bot) return;
 
     const isDM = !message.guild;
@@ -175,23 +169,60 @@ client.on('messageCreate', async (message) => {
 
     logger.message(message.author.tag, userMessage, message.channel.id);
 
+    // Add to context store
+    await contextStore.addUserMessage(
+        message.channel.id,
+        message.author.id,
+        message.author.tag,
+        userMessage
+    );
+
+    // Add pending request
+    const requestId = await contextStore.addPendingRequest(
+        message.channel.id,
+        message.author.id,
+        message.author.tag,
+        userMessage
+    );
+
     await message.channel.sendTyping();
 
     try {
-        await requestQueue.enqueue(async () => {
-            logger.requestQueue(requestQueue.activeCount, requestQueue.maxConcurrent);
-            await handleAIResponse(message, userMessage);
-        });
+        // Pick the best bot for this request
+        let selectedBot = loadBalancer.pickBot(message.channel.id);
+        
+        if (!selectedBot) {
+            // All bots at capacity, queue the request
+            await requestQueue.enqueue(async () => {
+                selectedBot = loadBalancer.pickBot(message.channel.id) || bot;
+                await handleAIResponse(message, userMessage, selectedBot, requestId);
+            });
+        } else {
+            // Bot available, process immediately
+            botManager.startRequest(selectedBot);
+            try {
+                await handleAIResponse(message, userMessage, selectedBot, requestId);
+            } finally {
+                botManager.endRequest(selectedBot);
+            }
+        }
     } catch (error) {
         logger.error('QUEUE', 'Queue error', error);
         await message.reply('❌ Sorry, I encountered an error. Please try again later.');
+    } finally {
+        // Remove pending request
+        await contextStore.removePendingRequest(message.channel.id, requestId);
     }
-});
+}
 
 /**
  * Handle AI response with real-time streaming
+ * @param {Object} message - Discord message
+ * @param {string} userMessage - User's message content
+ * @param {Object} bot - Selected bot for this request
+ * @param {string} requestId - Pending request ID
  */
-async function handleAIResponse(message, userMessage) {
+async function handleAIResponse(message, userMessage, bot, requestId) {
     let replyMessage = null;
     let lastUpdateLength = 0;
     let pendingContent = '';
@@ -218,6 +249,11 @@ async function handleAIResponse(message, userMessage) {
             displayText += ' ▌';
         }
 
+        // Record bot action for rate limiting
+        if (bot) {
+            botManager.recordBotAction(bot, message.channel.id);
+        }
+
         replyMessage.edit(displayText).catch(() => { });
     };
 
@@ -239,10 +275,26 @@ async function handleAIResponse(message, userMessage) {
         replyMessage = await message.reply('🤔 *Thinking...*');
         lastEditTime = Date.now();
 
+        // Record the initial send
+        if (bot) {
+            botManager.recordBotAction(bot, message.channel.id);
+        }
+
         logger.aiRequest(message.author.tag, userMessage);
 
-        await aiClient.streamChat(
-            userMessage,
+        // Get context-aware messages for AI
+        const contextMessages = await contextStore.getContextSnapshot(
+            message.channel.id,
+            config.systemPrompt,
+            {
+                userId: message.author.id,
+                username: message.author.tag,
+                content: userMessage
+            }
+        );
+
+        await aiClient.streamChatWithContext(
+            contextMessages,
             // onChunk
             (chunk, fullText) => {
                 pendingContent = fullText;
@@ -420,33 +472,50 @@ async function handleImageGeneration(originalMessage, args) {
 }
 
 /**
- * Bot ready event
+ * Start the multi-bot system
  */
-client.on('clientReady', () => {
-    logger.startup(
-        client.user.tag,
-        config.aiModel,
-        config.onyxApiBase,
-        config.maxConcurrentRequests
-    );
-
-    client.user.setPresence({
-        activities: [{ name: 'AI + Image Gen | CheapShot', type: 3 }],
-        status: 'online'
-    });
-});
+async function start() {
+    console.log('🔄 Starting CheapShot Multi-Bot System...');
+    console.log(`📊 Configured tokens: ${config.discordTokens.length}`);
+    
+    try {
+        // Initialize all bots
+        await botManager.initialize();
+        
+        // Setup message handler on all bots
+        botManager.onMessage(handleMessage);
+        
+        logger.info('STARTUP', `CheapShot Multi-Bot System ready with ${botManager.getBotCount()} bot(s)`);
+        logger.info('STARTUP', `AI Model: ${config.aiModel}`);
+        logger.info('STARTUP', `API Base: ${config.onyxApiBase}`);
+        
+        if (config.allowedChannelId) {
+            logger.info('STARTUP', `Restricted to channel: ${config.allowedChannelId}`);
+        }
+    } catch (error) {
+        logger.error('STARTUP', 'Failed to start bot system', error);
+        process.exit(1);
+    }
+}
 
 /**
  * Handle errors
  */
-client.on('error', (error) => {
-    logger.error('DISCORD', 'Client error', error);
-});
-
 process.on('unhandledRejection', (error) => {
     logger.error('SYSTEM', 'Unhandled rejection', error);
 });
 
-// Login
-console.log('🔄 Starting CheapShot Discord Bot...');
-client.login(config.discordToken);
+process.on('SIGINT', async () => {
+    logger.info('SHUTDOWN', 'Received SIGINT, shutting down...');
+    await botManager.shutdown();
+    process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+    logger.info('SHUTDOWN', 'Received SIGTERM, shutting down...');
+    await botManager.shutdown();
+    process.exit(0);
+});
+
+// Start the bot system
+start();

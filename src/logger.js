@@ -221,8 +221,18 @@ export const logger = {
         dashboard.log('{red-fg}❌{/red-fg}', `{red-fg}${category}: ${message}{/red-fg}`);
     },
 
+    warn(category, message, data = null) {
+        writeToFile('WARN', category, message, data);
+        dashboard.log('{yellow-fg}⚠️{/yellow-fg}', `{yellow-fg}${category}: ${message}{/yellow-fg}`);
+    },
+
+    info(category, message, data = null) {
+        writeToFile('INFO', category, message, data);
+        dashboard.log('{cyan-fg}ℹ️{/cyan-fg}', `${category}: ${message}`);
+    },
+
     // Debug method for other files
-    debug(category, message, data) {
+    debug(category, message, data = null) {
         writeToFile('DEBUG', category, message, data);
     }
 };
