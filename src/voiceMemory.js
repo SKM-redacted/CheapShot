@@ -16,8 +16,8 @@ class VoiceMemory {
         this.memoryDir = path.join(__dirname, '..', 'data');
         this.memoryFile = path.join(this.memoryDir, 'voice_memory.json');
 
-        // Memory expiry time (5 minutes)
-        this.EXPIRY_MS = 5 * 60 * 1000;
+        // Memory expiry time (10 minutes)
+        this.EXPIRY_MS = 10 * 60 * 1000;
 
         // Cleanup interval (run every minute)
         this.CLEANUP_INTERVAL_MS = 60 * 1000;

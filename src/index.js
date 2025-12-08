@@ -555,10 +555,11 @@ async function start() {
         botManager.onInteraction(handleInteraction);
 
         // Setup AI response callback for voice conversations - now with streaming and memory!
-        voiceClient.setAIResponseCallback(async (guildId, userId, username, transcript, onSentence) => {
+        voiceClient.setAIResponseCallback(async (guildId, userId, username, transcript, onSentence, isCancelled) => {
             try {
                 // Use streaming voice chat for faster response
                 // Now includes 5-minute short-term memory!
+                // Also passes isCancelled so cancelled responses don't pollute memory
                 let fullResponse = '';
                 await aiClient.streamVoiceChat(
                     guildId,        // Pass guildId for memory context
@@ -572,7 +573,9 @@ async function start() {
                     },
                     async (complete) => {
                         fullResponse = complete;
-                    }
+                    },
+                    null,  // systemPromptOverride
+                    isCancelled  // Pass cancellation check to avoid saving cancelled responses
                 );
                 return fullResponse;
             } catch (error) {

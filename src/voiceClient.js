@@ -10,6 +10,8 @@ import { sttClient } from './sttClient.js';
 import { ttsClient } from './ttsClient.js';
 import { perceptionFilter } from './perceptionFilter.js';
 import { inputFilter } from './inputFilter.js';
+import { responseGatekeeper } from './responseGatekeeper.js';
+import { voiceMemory } from './voiceMemory.js';
 import { logger } from './logger.js';
 
 /**
@@ -24,10 +26,9 @@ class VoiceClient {
         this.aiResponseCallback = null; // Callback for generating AI responses
         this.TRANSCRIPT_DEBOUNCE_MS = 1200; // Wait 1.2s after last transcript before triggering AI
 
-        // Response cooldown - prevents rapid AI calls when user pauses mid-sentence
-        this.responseTracking = new Map(); // guildId -> { inProgress: boolean, lastResponseTime: number, pendingTranscripts: [] }
-        this.RESPONSE_COOLDOWN_MS = 3000; // If AI responded within this time, queue new transcripts
-        this.PENDING_FLUSH_DELAY_MS = 2000; // Wait this long after AI finishes before sending queued transcripts
+        // Response tracking - uses delay instead of queueing for natural pacing
+        this.responseTracking = new Map(); // guildId -> { inProgress: boolean, lastResponseTime: number }
+        this.RESPONSE_COOLDOWN_MS = 3000; // If within this time, add a pause before next response
     }
 
     /**
@@ -360,8 +361,33 @@ class VoiceClient {
                     if (connectionInfo.conversationMode && this.aiResponseCallback) {
                         // Input filter will buffer incomplete transcripts and merge continuations
                         inputFilter.process(guildId, userId, fullTranscript, async (completeTranscript) => {
-                            // Check response cooldown - are we currently responding or just finished?
-                            await this.queueOrRespond(guildId, userId, memberInfo.displayName, completeTranscript);
+                            // Get recent conversation context so gatekeeper knows if bot just asked a question
+                            const recentContext = voiceMemory.getFormattedContext(guildId);
+
+                            // SPECULATIVE EXECUTION: Run gatekeeper and AI response generation in parallel
+                            // This eliminates the 3-second gatekeeper delay!
+                            const gatekeeperPromise = responseGatekeeper.shouldRespond(
+                                completeTranscript,
+                                memberInfo.displayName,
+                                recentContext
+                            );
+
+                            // Start generating response speculatively
+                            const responsePromise = this.queueOrRespond(guildId, userId, memberInfo.displayName, completeTranscript, true);
+
+                            // Wait for gatekeeper decision
+                            const shouldRespond = await gatekeeperPromise;
+
+                            if (!shouldRespond) {
+                                logger.info('VOICE', `[GATEKEEPER] Not responding to: "${completeTranscript}"`);
+                                // Cancel the speculative response by setting a flag
+                                this.cancelPendingResponse(guildId);
+                                return;
+                            }
+
+                            // Gatekeeper approved - let the response complete
+                            logger.info('VOICE', `[GATEKEEPER] Approved: "${completeTranscript}"`);
+                            await responsePromise;
                         });
                     }
                 }, this.TRANSCRIPT_DEBOUNCE_MS);
@@ -373,86 +399,78 @@ class VoiceClient {
     }
 
     /**
+     * Cancel a pending speculative response
+     * @param {string} guildId - Guild ID
+     */
+    cancelPendingResponse(guildId) {
+        let tracking = this.responseTracking.get(guildId);
+        if (tracking) {
+            tracking.cancelled = true;
+            logger.debug('VOICE', `[SPECULATIVE] Cancelled pending response for guild ${guildId}`);
+        }
+    }
+
+    /**
      * Queue transcript or respond immediately based on cooldown
-     * Prevents rapid AI calls when user pauses mid-sentence
+     * Supports speculative execution - starts generating but waits for approval
      * @param {string} guildId - Guild ID
      * @param {string} userId - User ID
      * @param {string} username - User's display name
      * @param {string} transcript - The transcript to process
+     * @param {boolean} speculative - If true, this is speculative and may be cancelled
      */
-    async queueOrRespond(guildId, userId, username, transcript) {
+    async queueOrRespond(guildId, userId, username, transcript, speculative = false) {
         // Get or create response tracking for this guild
         let tracking = this.responseTracking.get(guildId);
         if (!tracking) {
             tracking = {
                 inProgress: false,
                 lastResponseTime: 0,
-                pendingTranscripts: [],
-                pendingTimer: null,
-                lastUserId: null,
-                lastUsername: null
+                cancelled: false
             };
             this.responseTracking.set(guildId, tracking);
         }
 
+        // Reset cancelled flag for this new response
+        tracking.cancelled = false;
+
         const now = Date.now();
         const timeSinceLastResponse = now - tracking.lastResponseTime;
 
-        // If AI is currently responding OR we just finished recently, queue this transcript
-        if (tracking.inProgress || timeSinceLastResponse < this.RESPONSE_COOLDOWN_MS) {
-            logger.info('VOICE', `[COOLDOWN] Queueing transcript (in progress: ${tracking.inProgress}, last: ${timeSinceLastResponse}ms ago): "${transcript}"`);
-
-            tracking.pendingTranscripts.push(transcript);
-            tracking.lastUserId = userId;
-            tracking.lastUsername = username;
-
-            // Set/reset timer to flush pending transcripts after delay
-            if (tracking.pendingTimer) {
-                clearTimeout(tracking.pendingTimer);
+        // If AI is currently responding, wait for it to finish
+        if (tracking.inProgress) {
+            logger.info('VOICE', `[WAIT] Waiting for current response to finish: "${transcript}"`);
+            while (tracking.inProgress && !tracking.cancelled) {
+                await new Promise(r => setTimeout(r, 100));
             }
-
-            // Only set flush timer if not currently in progress
-            // (if in progress, we'll flush when response completes)
-            if (!tracking.inProgress) {
-                tracking.pendingTimer = setTimeout(() => {
-                    this.flushPendingTranscripts(guildId);
-                }, this.PENDING_FLUSH_DELAY_MS);
+            if (tracking.cancelled) {
+                logger.debug('VOICE', `[SPECULATIVE] Response cancelled while waiting`);
+                return;
             }
+        }
 
+        // Check if cancelled before proceeding
+        if (tracking.cancelled) {
+            logger.debug('VOICE', `[SPECULATIVE] Response cancelled before processing`);
             return;
         }
 
-        // Not in cooldown - respond immediately
-        logger.info('VOICE', `[DIRECT] Processing transcript: "${transcript}"`);
+        // Add a natural pause between responses (1-3 seconds)
+        if (timeSinceLastResponse < this.RESPONSE_COOLDOWN_MS) {
+            const delay = Math.floor(Math.random() * 2000) + 1000; // 1-3 seconds
+            logger.info('VOICE', `[PAUSE] Adding ${delay}ms pause before responding`);
+            await new Promise(r => setTimeout(r, delay));
+
+            // Check if cancelled after pause
+            if (tracking.cancelled) {
+                logger.debug('VOICE', `[SPECULATIVE] Response cancelled during pause`);
+                return;
+            }
+        }
+
+        // Now respond
+        logger.info('VOICE', `[RESPOND] Processing: "${transcript}"`);
         await this.generateAndSpeak(guildId, userId, username, transcript);
-    }
-
-    /**
-     * Flush all pending transcripts as one combined message
-     * @param {string} guildId - Guild ID
-     */
-    async flushPendingTranscripts(guildId) {
-        const tracking = this.responseTracking.get(guildId);
-        if (!tracking || tracking.pendingTranscripts.length === 0) return;
-
-        // Clear timer
-        if (tracking.pendingTimer) {
-            clearTimeout(tracking.pendingTimer);
-            tracking.pendingTimer = null;
-        }
-
-        // Combine all pending transcripts
-        const combined = tracking.pendingTranscripts.join(' ');
-        const userId = tracking.lastUserId;
-        const username = tracking.lastUsername;
-
-        // Clear pending
-        tracking.pendingTranscripts = [];
-
-        if (combined.trim()) {
-            logger.info('VOICE', `[FLUSH] Combined ${tracking.pendingTranscripts.length + 1} transcripts: "${combined}"`);
-            await this.generateAndSpeak(guildId, userId, username, combined);
-        }
     }
 
     /**
@@ -472,11 +490,7 @@ class VoiceClient {
         if (!tracking) {
             tracking = {
                 inProgress: false,
-                lastResponseTime: 0,
-                pendingTranscripts: [],
-                pendingTimer: null,
-                lastUserId: null,
-                lastUsername: null
+                lastResponseTime: 0
             };
             this.responseTracking.set(guildId, tracking);
         }
@@ -492,6 +506,7 @@ class VoiceClient {
             let fullResponse = '';
 
             // The callback now accepts an onSentence function for streaming
+            // Also pass isCancelled callback so AI client can skip saving cancelled responses
             const aiResponse = await this.aiResponseCallback(
                 guildId,
                 userId,
@@ -499,6 +514,12 @@ class VoiceClient {
                 transcript,
                 // onSentence callback - called for each sentence as it's generated
                 async (sentence) => {
+                    // Check if response was cancelled by gatekeeper
+                    if (tracking.cancelled) {
+                        logger.debug('VOICE', `[SPECULATIVE] Skipping sentence - response cancelled`);
+                        return;
+                    }
+
                     // Run through perception filter first
                     const filterResult = perceptionFilter.filter(guildId, sentence, { userId, username });
 
@@ -514,7 +535,9 @@ class VoiceClient {
 
                     // Speak immediately - don't wait for full response!
                     await ttsClient.speak(guildId, connectionInfo.connection, sentence);
-                }
+                },
+                // isCancelled callback - AI client checks this before saving to memory
+                () => tracking.cancelled
             );
 
             // End the filter session
@@ -531,14 +554,6 @@ class VoiceClient {
 
             logger.info('VOICE', `AI responded with ${sentenceCount} sentences`);
 
-            // Flush any pending transcripts that came in while we were responding
-            if (tracking.pendingTranscripts.length > 0) {
-                logger.info('VOICE', `Flushing ${tracking.pendingTranscripts.length} pending transcripts after response`);
-                // Small delay before flushing to let user finish speaking
-                setTimeout(() => {
-                    this.flushPendingTranscripts(guildId);
-                }, this.PENDING_FLUSH_DELAY_MS);
-            }
         } catch (error) {
             // Make sure to end session and mark complete even on error
             tracking.inProgress = false;

@@ -439,9 +439,10 @@ You're talking to ${username}. Keep it casual and SHORT.`;
      * @param {Function} onSentence - Callback for each complete sentence
      * @param {Function} onComplete - Callback when fully complete
      * @param {string} systemPromptOverride - Optional system prompt override
+     * @param {Function} isCancelled - Optional callback to check if response was cancelled
      * @returns {Promise<string>} Full AI response text
      */
-    async streamVoiceChat(guildId, userMessage, username = 'User', onSentence, onComplete, systemPromptOverride = null) {
+    async streamVoiceChat(guildId, userMessage, username = 'User', onSentence, onComplete, systemPromptOverride = null, isCancelled = null) {
         const url = `${this.baseUrl}/v1/chat/completions`;
 
         // Voice-optimized system prompt - conversational and concise
@@ -584,8 +585,9 @@ You're talking to ${username}. Keep it casual and SHORT.`;
                 }
             }
 
-            // Store bot response in memory
-            if (fullText.trim()) {
+            // Only store bot response in memory if NOT cancelled
+            const wasCancelled = isCancelled ? isCancelled() : false;
+            if (fullText.trim() && !wasCancelled) {
                 voiceMemory.addBotMessage(guildId, fullText.trim());
             }
 
