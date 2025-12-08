@@ -1,3 +1,4 @@
+//renamed the file name
 import { createClient, LiveTranscriptionEvents } from '@deepgram/sdk';
 import { config } from './config.js';
 import { logger } from './logger.js';
