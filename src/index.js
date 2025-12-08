@@ -361,6 +361,10 @@ async function handleAIResponse(message, userMessage, bot, requestId) {
                 }
 
                 logger.aiComplete(message.author.tag, finalText.length, pendingToolCalls.length > 0);
+                
+                // Log which bot responded
+                const botTag = bot?.client?.user?.tag || `Bot ${bot?.id || 'Unknown'}`;
+                logger.info('RESPONSE', `Bot "${botTag}" responded to ${message.author.tag}`);
 
                 // Execute pending tool calls
                 for (const toolCall of pendingToolCalls) {
