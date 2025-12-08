@@ -13,6 +13,47 @@ export class TTSClient {
     constructor() {
         this.deepgram = null;
         this.activeSpeakers = new Map(); // guildId -> { connection, player, queue }
+        this.speedFactor = 0.28; // 0.7 = 70% speed (30% slower), 1.0 = normal speed
+    }
+
+    /**
+     * Slow down audio by stretching samples (linear interpolation)
+     * @param {Buffer} audioBuffer - PCM audio buffer (16-bit signed, little-endian)
+     * @param {number} speedFactor - Speed factor (< 1.0 = slower, > 1.0 = faster)
+     * @returns {Buffer} - Stretched audio buffer
+     */
+    stretchAudio(audioBuffer, speedFactor) {
+        if (speedFactor === 1.0) return audioBuffer;
+
+        // 16-bit samples = 2 bytes per sample
+        const bytesPerSample = 2;
+        const inputSamples = audioBuffer.length / bytesPerSample;
+        const outputSamples = Math.floor(inputSamples / speedFactor);
+        const outputBuffer = Buffer.alloc(outputSamples * bytesPerSample);
+
+        for (let i = 0; i < outputSamples; i++) {
+            // Calculate the position in the input buffer
+            const inputPos = i * speedFactor;
+            const inputIndex = Math.floor(inputPos);
+            const fraction = inputPos - inputIndex;
+
+            // Get surrounding samples for interpolation
+            const sample1 = audioBuffer.readInt16LE(
+                Math.min(inputIndex, inputSamples - 1) * bytesPerSample
+            );
+            const sample2 = audioBuffer.readInt16LE(
+                Math.min(inputIndex + 1, inputSamples - 1) * bytesPerSample
+            );
+
+            // Linear interpolation between samples
+            const interpolatedSample = Math.round(sample1 + fraction * (sample2 - sample1));
+
+            // Clamp to valid 16-bit range
+            const clampedSample = Math.max(-32768, Math.min(32767, interpolatedSample));
+            outputBuffer.writeInt16LE(clampedSample, i * bytesPerSample);
+        }
+
+        return outputBuffer;
     }
 
     /**
@@ -162,8 +203,10 @@ export class TTSClient {
                     // Combine all chunks and play
                     if (audioChunks.length > 0) {
                         const fullAudio = Buffer.concat(audioChunks);
-                        this.playAudio(speaker.player, fullAudio);
-                        logger.debug('TTS', `Playing ${fullAudio.length} bytes of audio`);
+                        // Apply speed adjustment to slow down the voice
+                        const adjustedAudio = this.stretchAudio(fullAudio, this.speedFactor);
+                        this.playAudio(speaker.player, adjustedAudio);
+                        logger.debug('TTS', `Playing ${adjustedAudio.length} bytes of audio (speed: ${this.speedFactor}x)`);
                     }
 
                     // Close the connection

@@ -427,4 +427,133 @@ You're talking to ${username}. Keep it casual and SHORT.`;
             throw error;
         }
     }
+
+    /**
+     * Streaming voice chat - calls onSentence for each complete sentence
+     * This allows TTS to start speaking immediately while AI is still generating
+     * @param {string} userMessage - User's message
+     * @param {string} username - Username for context
+     * @param {Function} onSentence - Callback for each complete sentence
+     * @param {Function} onComplete - Callback when fully complete
+     * @param {string} systemPromptOverride - Optional system prompt override
+     * @returns {Promise<string>} Full AI response text
+     */
+    async streamVoiceChat(userMessage, username = 'User', onSentence, onComplete, systemPromptOverride = null) {
+        const url = `${this.baseUrl}/v1/chat/completions`;
+
+        // Voice-optimized system prompt - conversational and concise
+        const voiceSystemPrompt = systemPromptOverride || `You are CheapShot, chatting by voice in Discord.
+
+CRITICAL RULES:
+- Keep responses brief and conversational (2-3 sentences max).
+- Talk like a friend, not an assistant.
+- NEVER use lists, bullets, markdown, or numbered points.
+- NEVER say "as an AI" or mention being an AI.
+- Be warm but brief. Think text message, not essay.
+- If asked a complex question, give the simplest useful answer.
+
+You're talking to ${username}. Keep it casual and SHORT.`;
+
+        const body = {
+            model: this.model,
+            messages: [
+                {
+                    role: 'system',
+                    content: voiceSystemPrompt
+                },
+                {
+                    role: 'user',
+                    content: `${username}: "${userMessage}"`
+                }
+            ],
+            stream: true,
+            max_tokens: 200
+        };
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-App-Name': 'cheapshot-voice'
+                },
+                body: JSON.stringify(body)
+            });
+
+            if (!response.ok) {
+                throw new Error(`API request failed: ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let fullText = '';
+            let buffer = '';
+            let sentenceBuffer = '';
+
+            // Sentence ending patterns
+            const sentenceEnders = /[.!?]+[\s"']*/;
+
+            while (true) {
+                const { done, value } = await reader.read();
+
+                if (done) {
+                    // Process any remaining text as final sentence
+                    if (sentenceBuffer.trim()) {
+                        await onSentence(sentenceBuffer.trim());
+                    }
+                    break;
+                }
+
+                buffer += decoder.decode(value, { stream: true });
+
+                // Process complete SSE lines
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    const data = line.slice(6).trim();
+                    if (data === '[DONE]') continue;
+
+                    try {
+                        const parsed = JSON.parse(data);
+                        const content = parsed.choices?.[0]?.delta?.content;
+
+                        if (content) {
+                            fullText += content;
+                            sentenceBuffer += content;
+
+                            // Check if we have a complete sentence
+                            const sentences = sentenceBuffer.split(sentenceEnders);
+
+                            // If we have more than one part, we found sentence boundaries
+                            if (sentences.length > 1) {
+                                // Process all complete sentences except the last (incomplete) one
+                                for (let i = 0; i < sentences.length - 1; i++) {
+                                    const sentence = sentences[i].trim();
+                                    if (sentence) {
+                                        // Find the actual ending punctuation
+                                        const match = sentenceBuffer.match(sentenceEnders);
+                                        const punctuation = match ? match[0].trim() : '';
+                                        await onSentence(sentence + punctuation);
+                                    }
+                                }
+                                // Keep the incomplete sentence in the buffer
+                                sentenceBuffer = sentences[sentences.length - 1];
+                            }
+                        }
+                    } catch (e) {
+                        // Skip invalid JSON
+                    }
+                }
+            }
+
+            await onComplete(fullText);
+            return fullText;
+
+        } catch (error) {
+            console.error('[AI] Voice streaming error:', error);
+            throw error;
+        }
+    }
 }

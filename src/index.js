@@ -553,14 +553,30 @@ async function start() {
         // Setup interaction handler for slash commands
         botManager.onInteraction(handleInteraction);
 
-        // Setup AI response callback for voice conversations
-        voiceClient.setAIResponseCallback(async (guildId, userId, username, transcript) => {
+        // Setup AI response callback for voice conversations - now with streaming!
+        voiceClient.setAIResponseCallback(async (guildId, userId, username, transcript, onSentence) => {
             try {
-                // Generate AI response for voice
-                const response = await aiClient.simpleChat(transcript, username);
-                return response;
+                // Use streaming voice chat for faster response
+                let fullResponse = '';
+                await aiClient.streamVoiceChat(
+                    transcript,
+                    username,
+                    async (sentence) => {
+                        // Called for each complete sentence - TTS can start immediately!
+                        if (onSentence && sentence.trim()) {
+                            await onSentence(sentence);
+                        }
+                    },
+                    async (complete) => {
+                        fullResponse = complete;
+                    }
+                );
+                return fullResponse;
             } catch (error) {
                 logger.error('VOICE', `Failed to generate AI response: ${error.message}`);
+                if (onSentence) {
+                    await onSentence("Sorry, I had trouble thinking of a response.");
+                }
                 return "Sorry, I had trouble thinking of a response.";
             }
         });
