@@ -26,8 +26,8 @@ class PerceptionFilter {
             // Maximum characters (prevent runaway responses)
             maxLength: 2000,
 
-            // Minimum words for a fragment to be speakable (avoid "I need a..." style cutoffs)
-            minWords: 2,
+            // Minimum words for a fragment to be speakable
+            minWords: 1,
 
             // Rate limiting (for SEPARATE responses, not sentences within a response)
             duplicateThreshold: 0.85, // How similar messages must be to count as duplicate

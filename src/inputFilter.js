@@ -16,10 +16,11 @@ class InputFilter {
 
         this.settings = {
             // How long to wait for continuation after an incomplete transcript (ms)
-            continuationTimeoutMs: 2500,
+            // Increased to 4.5s to give users time to pause mid-sentence without triggering AI
+            continuationTimeoutMs: 4500,
 
             // Minimum time gap to consider transcripts as separate (ms)
-            mergeWindowMs: 3000,
+            mergeWindowMs: 5000,
 
             // If a sentence has this many words or more, don't flag it as incomplete
             // (even if it ends with a conjunction - it's probably a complete thought)
@@ -79,6 +80,12 @@ class InputFilter {
     looksIncomplete(text) {
         const trimmed = text.trim();
         const wordCount = this.countWords(trimmed);
+
+        // Very short responses (1-2 words) are always complete
+        // This allows "you", "yes", "no", "what", "really", etc. to go through
+        if (wordCount <= 2) {
+            return false;
+        }
 
         // Check STRONG patterns first - these apply regardless of length
         for (const pattern of this.strongIncompleteEndings) {

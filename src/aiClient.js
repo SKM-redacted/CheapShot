@@ -1,5 +1,6 @@
 import { config } from './config.js';
 import { TOOLS } from './imageClient.js';
+import { voiceMemory } from './voiceMemory.js';
 
 /**
  * AI Client for streaming chat completions from Onyx API
@@ -431,6 +432,8 @@ You're talking to ${username}. Keep it casual and SHORT.`;
     /**
      * Streaming voice chat - calls onSentence for each complete sentence
      * This allows TTS to start speaking immediately while AI is still generating
+     * Now includes short-term memory for the last 5 minutes of conversation!
+     * @param {string} guildId - Guild ID for memory context
      * @param {string} userMessage - User's message
      * @param {string} username - Username for context
      * @param {Function} onSentence - Callback for each complete sentence
@@ -438,7 +441,7 @@ You're talking to ${username}. Keep it casual and SHORT.`;
      * @param {string} systemPromptOverride - Optional system prompt override
      * @returns {Promise<string>} Full AI response text
      */
-    async streamVoiceChat(userMessage, username = 'User', onSentence, onComplete, systemPromptOverride = null) {
+    async streamVoiceChat(guildId, userMessage, username = 'User', onSentence, onComplete, systemPromptOverride = null) {
         const url = `${this.baseUrl}/v1/chat/completions`;
 
         // Voice-optimized system prompt - conversational and concise
@@ -454,18 +457,15 @@ CRITICAL RULES:
 
 You're talking to ${username}. Keep it casual and SHORT.`;
 
+        // Store user message in memory BEFORE generating response
+        voiceMemory.addUserMessage(guildId, 'voice-user', username, userMessage);
+
+        // Build messages with conversation history from memory
+        const messages = voiceMemory.buildMessagesWithHistory(guildId, voiceSystemPrompt, username, userMessage);
+
         const body = {
             model: this.model,
-            messages: [
-                {
-                    role: 'system',
-                    content: voiceSystemPrompt
-                },
-                {
-                    role: 'user',
-                    content: `${username}: "${userMessage}"`
-                }
-            ],
+            messages: messages,
             stream: true,
             max_tokens: 200
         };
@@ -489,13 +489,9 @@ You're talking to ${username}. Keep it casual and SHORT.`;
             let fullText = '';
             let buffer = '';
             let chunkBuffer = '';
-            let isFirstChunk = true;
-            let earlyTriggerTimeout = null;
 
-            // Smarter chunking settings - balance speed vs completeness
-            const MIN_WORDS_FIRST = 4;      // Min words for first chunk
+            // Smarter chunking settings - only split on punctuation
             const MIN_WORDS_CLAUSE = 6;     // Min words to send on comma/colon
-            const EARLY_TIMEOUT_MS = 350;   // Slightly longer pause before early send
 
             // Patterns that indicate an INCOMPLETE chunk - don't send these alone
             const incompleteEndings = [
@@ -524,7 +520,7 @@ You're talking to ${username}. Keep it casual and SHORT.`;
                 const { done, value } = await reader.read();
 
                 if (done) {
-                    if (earlyTriggerTimeout) clearTimeout(earlyTriggerTimeout);
+                    // Send any remaining buffer when stream ends
                     if (chunkBuffer.trim()) {
                         await onSentence(chunkBuffer.trim());
                     }
@@ -549,19 +545,12 @@ You're talking to ${username}. Keep it casual and SHORT.`;
                             fullText += content;
                             chunkBuffer += content;
 
-                            // Clear any pending early trigger
-                            if (earlyTriggerTimeout) {
-                                clearTimeout(earlyTriggerTimeout);
-                                earlyTriggerTimeout = null;
-                            }
-
                             // Check for sentence enders (always send on . ! ?)
                             const sentenceMatch = chunkBuffer.match(/^(.*?[.!?]+)\s*(.*)$/s);
                             if (sentenceMatch) {
                                 const sentence = sentenceMatch[1].trim();
                                 if (sentence) {
                                     await onSentence(sentence);
-                                    isFirstChunk = false;
                                 }
                                 chunkBuffer = sentenceMatch[2];
                                 continue;
@@ -575,31 +564,22 @@ You're talking to ${username}. Keep it casual and SHORT.`;
                                 // Need enough words AND must look complete
                                 if (wordCount >= MIN_WORDS_CLAUSE && looksComplete(clause)) {
                                     await onSentence(clause);
-                                    isFirstChunk = false;
                                     chunkBuffer = clauseMatch[2];
                                     continue;
                                 }
                             }
 
-                            // Early trigger for first chunk - but only if it looks complete
-                            if (isFirstChunk) {
-                                const words = chunkBuffer.trim().split(/\s+/);
-                                if (words.length >= MIN_WORDS_FIRST && looksComplete(chunkBuffer) && !earlyTriggerTimeout) {
-                                    earlyTriggerTimeout = setTimeout(async () => {
-                                        if (isFirstChunk && chunkBuffer.trim() && looksComplete(chunkBuffer)) {
-                                            const toSend = chunkBuffer.trim();
-                                            chunkBuffer = '';
-                                            isFirstChunk = false;
-                                            await onSentence(toSend);
-                                        }
-                                    }, EARLY_TIMEOUT_MS);
-                                }
-                            }
+                            // NO early timeout - only split on punctuation to avoid mid-word breaks
                         }
                     } catch (e) {
                         // Skip invalid JSON
                     }
                 }
+            }
+
+            // Store bot response in memory
+            if (fullText.trim()) {
+                voiceMemory.addBotMessage(guildId, fullText.trim());
             }
 
             await onComplete(fullText);

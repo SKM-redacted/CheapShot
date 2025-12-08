@@ -11,6 +11,7 @@ import { contextStore } from './contextStore.js';
 import { voiceClient } from './voiceClient.js';
 import { ttsClient } from './ttsClient.js';
 import { voiceCommands, handleVoiceCommand } from './voiceCommands.js';
+import { voiceMemory } from './voiceMemory.js';
 
 // Initialize clients and queues
 const aiClient = new AIClient();
@@ -553,12 +554,14 @@ async function start() {
         // Setup interaction handler for slash commands
         botManager.onInteraction(handleInteraction);
 
-        // Setup AI response callback for voice conversations - now with streaming!
+        // Setup AI response callback for voice conversations - now with streaming and memory!
         voiceClient.setAIResponseCallback(async (guildId, userId, username, transcript, onSentence) => {
             try {
                 // Use streaming voice chat for faster response
+                // Now includes 5-minute short-term memory!
                 let fullResponse = '';
                 await aiClient.streamVoiceChat(
+                    guildId,        // Pass guildId for memory context
                     transcript,
                     username,
                     async (sentence) => {
@@ -659,6 +662,7 @@ process.on('unhandledRejection', (error) => {
 
 process.on('SIGINT', async () => {
     logger.info('SHUTDOWN', 'Received SIGINT, shutting down...');
+    voiceMemory.shutdown();
     ttsClient.cleanupAll();
     await voiceClient.leaveAll();
     await botManager.shutdown();
@@ -667,6 +671,7 @@ process.on('SIGINT', async () => {
 
 process.on('SIGTERM', async () => {
     logger.info('SHUTDOWN', 'Received SIGTERM, shutting down...');
+    voiceMemory.shutdown();
     ttsClient.cleanupAll();
     await voiceClient.leaveAll();
     await botManager.shutdown();
