@@ -24,11 +24,13 @@ class VoiceClient {
         this.activeConnections = new Map(); // guildId -> { connection, textChannel, userStreams, members }
         this.userTranscriptBuffers = new Map(); // guildId -> Map(userId -> { text, timer, memberInfo })
         this.aiResponseCallback = null; // Callback for generating AI responses
-        this.TRANSCRIPT_DEBOUNCE_MS = 1200; // Wait 1.2s after last transcript before triggering AI
+        this.TRANSCRIPT_DEBOUNCE_MS = 800; // Wait 0.8s after last transcript before triggering AI (faster response)
 
         // Response tracking - uses delay instead of queueing for natural pacing
         this.responseTracking = new Map(); // guildId -> { inProgress: boolean, lastResponseTime: number }
         this.RESPONSE_COOLDOWN_MS = 3000; // If within this time, add a pause before next response
+        this.NATURAL_PAUSE_MIN_MS = 500; // Minimum pause between responses (faster)
+        this.NATURAL_PAUSE_MAX_MS = 1500; // Maximum pause between responses (faster)
     }
 
     /**
@@ -244,7 +246,7 @@ class VoiceClient {
             const audioStream = receiver.subscribe(userId, {
                 end: {
                     behavior: EndBehaviorType.AfterSilence,
-                    duration: 1200, // 1.2s of silence - balances speed vs accuracy
+                    duration: 800, // 0.8s of silence - faster response time
                 }
             });
 
@@ -486,10 +488,13 @@ class VoiceClient {
             return;
         }
 
-        // Add a natural pause between responses (1-3 seconds)
-        if (timeSinceLastResponse < this.RESPONSE_COOLDOWN_MS) {
-            const delay = Math.floor(Math.random() * 2000) + 1000; // 1-3 seconds
-            logger.info('VOICE', `[PAUSE] Adding ${delay}ms pause before responding`);
+        // Only add a pause if bot RECENTLY spoke (back-to-back responses need breathing room)
+        // First response after silence = no delay, respond immediately!
+        // (timeSinceLastResponse already calculated above)
+
+        if (timeSinceLastResponse < this.RESPONSE_COOLDOWN_MS && tracking.lastResponseTime > 0) {
+            const delay = Math.floor(Math.random() * (this.NATURAL_PAUSE_MAX_MS - this.NATURAL_PAUSE_MIN_MS)) + this.NATURAL_PAUSE_MIN_MS;
+            logger.info('VOICE', `[PAUSE] Adding ${delay}ms pause (last response was ${timeSinceLastResponse}ms ago)`);
             await new Promise(r => setTimeout(r, delay));
 
             // Check if cancelled after pause

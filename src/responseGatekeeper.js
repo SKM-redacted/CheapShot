@@ -12,7 +12,8 @@ import { logger } from './logger.js';
 class ResponseGatekeeper {
     constructor() {
         this.baseUrl = config.onyxApiBase;
-        this.model = config.aiModel;
+        // Use dedicated gatekeeper model if set, otherwise fall back to main AI model
+        this.model = config.gatekeeperModel || config.aiModel;
 
         // Cache recent decisions to avoid repeated API calls for similar messages
         this.decisionCache = new Map();
@@ -123,8 +124,27 @@ Only respond with exactly "YES" or "NO".`;
      */
     async shouldRespond(transcript, username, context = '', vcInfo = null) {
         const trimmed = transcript.trim();
+        const lowerTranscript = trimmed.toLowerCase();
         const memberCount = vcInfo?.memberCount || 1;
         const memberNames = vcInfo?.memberNames || [];
+
+        // FAST PATH: 1-on-1 conversation = ALWAYS respond immediately
+        // No filtering needed - there's no one else they could be talking to!
+        // This is the BIGGEST speed optimization - skips ALL processing
+        if (memberCount <= 1) {
+            logger.info('GATEKEEPER', `Fast-pass: 1-on-1 call - responding immediately`);
+            return true;
+        }
+
+        // QUICK-PASS: If the user mentions the bot's name ANYWHERE, ALWAYS respond
+        // This must be checked BEFORE any filters to prevent false negatives
+        const botNameMentions = ['cheapshot', 'cheap shot', 'cheap-shot', 'hey bot', 'yo bot'];
+        for (const mention of botNameMentions) {
+            if (lowerTranscript.includes(mention)) {
+                logger.info('GATEKEEPER', `Quick-pass: Bot name mentioned ("${mention}") - responding`);
+                return true;
+            }
+        }
 
         // QUICK-PASS: If the bot just asked a question, ALWAYS respond to the next thing the user says
         // This is deterministic - don't leave it to AI interpretation
@@ -167,7 +187,9 @@ Only respond with exactly "YES" or "NO".`;
             'haha', 'lol', 'lmao', 'nice', 'cool', 'wow',
             'true', 'false', 'same', 'facts', 'bet',
             'what', 'wait', 'huh', 'oof', 'rip', 'damn', 'dang',
-            'bruh', 'bro', 'dude', 'man', 'yo', 'ay', 'aye'
+            'bruh', 'bro', 'dude', 'man', 'yo', 'ay', 'aye',
+            // Exclamations - never directed at the bot
+            'god', 'jesus', 'christ', 'lord', 'hell', 'shit', 'fuck', 'crap', 'frick', 'dammit', 'damnit'
         ];
         const normalizedTranscript = trimmed.toLowerCase().replace(/[.!?,]/g, '').trim();
         if (obviousFillers.includes(normalizedTranscript)) {

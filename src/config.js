@@ -28,6 +28,9 @@ export const config = {
 
     // AI Model
     aiModel: process.env.AI_MODEL,
+    gatekeeperModel: process.env.GATEKEEPER_MODEL,
+    // Voice uses gatekeeper model for faster responses (usually a smaller/faster model)
+    voiceModel: process.env.VOICE_MODEL || process.env.GATEKEEPER_MODEL || process.env.AI_MODEL,
 
     // Deepgram API for voice transcription
     deepgramApiKey: process.env.DEEPGRAM_API_KEY,
