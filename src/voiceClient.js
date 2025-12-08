@@ -8,6 +8,8 @@ import {
 import { ChannelType } from 'discord.js';
 import { sttClient } from './sttClient.js';
 import { ttsClient } from './ttsClient.js';
+import { perceptionFilter } from './perceptionFilter.js';
+import { inputFilter } from './inputFilter.js';
 import { logger } from './logger.js';
 
 /**
@@ -349,8 +351,13 @@ class VoiceClient {
                     }
 
                     // If conversation mode is enabled and we have an AI callback, generate a response
+                    // But first, pass through input filter to catch incomplete sentences
                     if (connectionInfo.conversationMode && this.aiResponseCallback) {
-                        await this.generateAndSpeak(guildId, userId, memberInfo.displayName, fullTranscript);
+                        // Input filter will buffer incomplete transcripts and merge continuations
+                        inputFilter.process(guildId, userId, fullTranscript, async (completeTranscript) => {
+                            logger.info('VOICE', `[INPUT_FILTER] Processing complete transcript: "${completeTranscript}"`);
+                            await this.generateAndSpeak(guildId, userId, memberInfo.displayName, completeTranscript);
+                        });
                     }
                 }, this.TRANSCRIPT_DEBOUNCE_MS);
 
@@ -375,6 +382,9 @@ class VoiceClient {
         try {
             logger.info('VOICE', `Generating streaming AI response to: "${transcript}"`);
 
+            // Start a new filter session for this response
+            perceptionFilter.startSession(guildId);
+
             let sentenceCount = 0;
             let fullResponse = '';
 
@@ -386,6 +396,14 @@ class VoiceClient {
                 transcript,
                 // onSentence callback - called for each sentence as it's generated
                 async (sentence) => {
+                    // Run through perception filter first
+                    const filterResult = perceptionFilter.filter(guildId, sentence, { userId, username });
+
+                    if (!filterResult.allowed) {
+                        logger.debug('VOICE', `Filtered out sentence: ${filterResult.reason}`);
+                        return; // Skip this sentence
+                    }
+
                     sentenceCount++;
                     fullResponse += sentence + ' ';
 
@@ -396,6 +414,9 @@ class VoiceClient {
                 }
             );
 
+            // End the filter session
+            perceptionFilter.endSession(guildId);
+
             // Only send full response to text channel if showTranscripts is enabled
             if (connectionInfo.showTranscripts && fullResponse.trim()) {
                 await connectionInfo.textChannel.send(`🤖 **CheapShot:** ${fullResponse.trim()}`);
@@ -403,6 +424,8 @@ class VoiceClient {
 
             logger.info('VOICE', `AI responded with ${sentenceCount} sentences`);
         } catch (error) {
+            // Make sure to end session even on error
+            perceptionFilter.endSession(guildId);
             logger.error('VOICE', `Failed to generate/speak AI response: ${error.message}`);
         }
     }
@@ -542,6 +565,12 @@ class VoiceClient {
 
         // Clean up TTS
         ttsClient.cleanup(guildId);
+
+        // Clean up perception filter history
+        perceptionFilter.clearHistory(guildId);
+
+        // Clean up input filter buffers
+        inputFilter.clearGuild(guildId);
 
         this.activeConnections.delete(guildId);
         this.userTranscriptBuffers.delete(guildId);
