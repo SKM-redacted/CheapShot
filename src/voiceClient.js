@@ -7,6 +7,7 @@ import {
 } from '@discordjs/voice';
 import { ChannelType } from 'discord.js';
 import { sttClient } from './sttClient.js';
+import { ttsClient } from './ttsClient.js';
 import { logger } from './logger.js';
 
 /**
@@ -18,6 +19,15 @@ class VoiceClient {
     constructor() {
         this.activeConnections = new Map(); // guildId -> { connection, textChannel, userStreams, members }
         this.userTranscriptBuffers = new Map(); // guildId -> Map(userId -> { words: [], lastUpdate })
+        this.aiResponseCallback = null; // Callback for generating AI responses
+    }
+
+    /**
+     * Set the AI response callback
+     * @param {Function} callback - async function(guildId, userId, username, transcript) => string
+     */
+    setAIResponseCallback(callback) {
+        this.aiResponseCallback = callback;
     }
 
     /**
@@ -50,7 +60,7 @@ class VoiceClient {
                 guildId: guildId,
                 adapterCreator: voiceChannel.guild.voiceAdapterCreator,
                 selfDeaf: false, // We need to hear audio
-                selfMute: true,  // Bot doesn't speak (for now)
+                selfMute: false, // Bot can speak now!
             });
 
             // Wait for connection to be ready
@@ -65,7 +75,8 @@ class VoiceClient {
                 voiceChannel,
                 userStreams: new Map(),     // userId -> { stream, sttConnection }
                 members: new Map(),          // userId -> { username, displayName }
-                isListening: false
+                isListening: false,
+                conversationMode: false      // When true, triggers AI responses
             });
 
             // Initialize user transcript buffers for this guild
@@ -288,7 +299,7 @@ class VoiceClient {
         const connectionInfo = this.activeConnections.get(guildId);
         if (!connectionInfo) return;
 
-        // Only output final transcripts
+        // Only process final transcripts
         if (isFinal && transcript.trim()) {
             try {
                 // Format with user's display name and avatar-like prefix
@@ -296,10 +307,86 @@ class VoiceClient {
                 await connectionInfo.textChannel.send(output);
 
                 logger.info('VOICE', `[${memberInfo.displayName}] "${transcript}" (${(confidence * 100).toFixed(1)}%)`);
+
+                // If conversation mode is enabled and we have an AI callback, generate a response
+                if (connectionInfo.conversationMode && this.aiResponseCallback) {
+                    await this.generateAndSpeak(guildId, userId, memberInfo.displayName, transcript);
+                }
             } catch (error) {
                 logger.error('VOICE', `Failed to send transcript: ${error.message}`);
             }
         }
+    }
+
+    /**
+     * Generate AI response and speak it
+     * @param {string} guildId - Guild ID
+     * @param {string} userId - User ID
+     * @param {string} username - User's display name
+     * @param {string} transcript - User's spoken text
+     */
+    async generateAndSpeak(guildId, userId, username, transcript) {
+        const connectionInfo = this.activeConnections.get(guildId);
+        if (!connectionInfo || !this.aiResponseCallback) return;
+
+        try {
+            // Show typing indicator in text channel
+            await connectionInfo.textChannel.sendTyping();
+
+            // Generate AI response
+            logger.info('VOICE', `Generating AI response to: "${transcript}"`);
+            const aiResponse = await this.aiResponseCallback(guildId, userId, username, transcript);
+
+            if (aiResponse && aiResponse.trim()) {
+                // Send response to text channel
+                await connectionInfo.textChannel.send(`🤖 **CheapShot:** ${aiResponse}`);
+
+                // Speak the response
+                await ttsClient.speak(guildId, connectionInfo.connection, aiResponse);
+
+                logger.info('VOICE', `AI responded: "${aiResponse.substring(0, 100)}..."`);
+            }
+        } catch (error) {
+            logger.error('VOICE', `Failed to generate/speak AI response: ${error.message}`);
+        }
+    }
+
+    /**
+     * Enable or disable conversation mode
+     * @param {string} guildId - Guild ID
+     * @param {boolean} enabled - Whether to enable conversation mode
+     */
+    setConversationMode(guildId, enabled) {
+        const connectionInfo = this.activeConnections.get(guildId);
+        if (connectionInfo) {
+            connectionInfo.conversationMode = enabled;
+            logger.info('VOICE', `Conversation mode ${enabled ? 'enabled' : 'disabled'} for guild ${guildId}`);
+        }
+    }
+
+    /**
+     * Check if conversation mode is enabled
+     * @param {string} guildId - Guild ID
+     * @returns {boolean}
+     */
+    isConversationMode(guildId) {
+        const connectionInfo = this.activeConnections.get(guildId);
+        return connectionInfo?.conversationMode || false;
+    }
+
+    /**
+     * Speak text in the voice channel
+     * @param {string} guildId - Guild ID
+     * @param {string} text - Text to speak
+     */
+    async speak(guildId, text) {
+        const connectionInfo = this.activeConnections.get(guildId);
+        if (!connectionInfo) {
+            logger.error('VOICE', `Not connected to speak in guild ${guildId}`);
+            return false;
+        }
+
+        return await ttsClient.speak(guildId, connectionInfo.connection, text);
     }
 
     /**
@@ -371,6 +458,9 @@ class VoiceClient {
                 } catch (e) { }
             }
         }
+
+        // Clean up TTS
+        ttsClient.cleanup(guildId);
 
         this.activeConnections.delete(guildId);
         this.userTranscriptBuffers.delete(guildId);

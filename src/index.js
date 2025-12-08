@@ -9,6 +9,7 @@ import { botManager } from './botManager.js';
 import { loadBalancer } from './loadBalancer.js';
 import { contextStore } from './contextStore.js';
 import { voiceClient } from './voiceClient.js';
+import { ttsClient } from './ttsClient.js';
 import { voiceCommands, handleVoiceCommand } from './voiceCommands.js';
 
 // Initialize clients and queues
@@ -552,6 +553,18 @@ async function start() {
         // Setup interaction handler for slash commands
         botManager.onInteraction(handleInteraction);
 
+        // Setup AI response callback for voice conversations
+        voiceClient.setAIResponseCallback(async (guildId, userId, username, transcript) => {
+            try {
+                // Generate AI response for voice
+                const response = await aiClient.simpleChat(transcript, username);
+                return response;
+            } catch (error) {
+                logger.error('VOICE', `Failed to generate AI response: ${error.message}`);
+                return "Sorry, I had trouble thinking of a response.";
+            }
+        });
+
         // Update dashboard with bot info
         const primaryBot = botManager.bots[0];
         const botTag = primaryBot?.client?.user?.tag || `CheapShot (${botManager.getBotCount()} bots)`;
@@ -630,6 +643,7 @@ process.on('unhandledRejection', (error) => {
 
 process.on('SIGINT', async () => {
     logger.info('SHUTDOWN', 'Received SIGINT, shutting down...');
+    ttsClient.cleanupAll();
     await voiceClient.leaveAll();
     await botManager.shutdown();
     process.exit(0);
@@ -637,6 +651,7 @@ process.on('SIGINT', async () => {
 
 process.on('SIGTERM', async () => {
     logger.info('SHUTDOWN', 'Received SIGTERM, shutting down...');
+    ttsClient.cleanupAll();
     await voiceClient.leaveAll();
     await botManager.shutdown();
     process.exit(0);

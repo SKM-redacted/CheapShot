@@ -364,4 +364,63 @@ export class AIClient {
             return null;
         }
     }
+
+    /**
+     * Simple non-streaming chat for voice responses
+     * Returns the complete response text (better for TTS)
+     * @param {string} userMessage - User's message
+     * @param {string} username - Username for context
+     * @param {string} systemPromptOverride - Optional system prompt override
+     * @returns {Promise<string>} AI response text
+     */
+    async simpleChat(userMessage, username = 'User', systemPromptOverride = null) {
+        const url = `${this.baseUrl}/v1/chat/completions`;
+
+        // Voice-optimized system prompt
+        const voiceSystemPrompt = systemPromptOverride || `You are CheapShot, a friendly AI assistant having a voice conversation in Discord.
+Keep your responses SHORT and conversational - you're speaking, not typing.
+- Use 1-3 sentences max unless asked for more detail
+- Be natural and casual like a phone call
+- Don't use markdown, bullet points, or formatting - speak naturally
+- Don't say "as an AI" or explain what you are
+- Respond to ${username} directly and warmly`;
+
+        const body = {
+            model: this.model,
+            messages: [
+                {
+                    role: 'system',
+                    content: voiceSystemPrompt
+                },
+                {
+                    role: 'user',
+                    content: `${username} says: "${userMessage}"`
+                }
+            ],
+            stream: false,
+            max_tokens: 300 // Keep responses short for voice
+        };
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-App-Name': 'cheapshot-voice'
+                },
+                body: JSON.stringify(body)
+            });
+
+            if (!response.ok) {
+                throw new Error(`API request failed: ${response.status}`);
+            }
+
+            const data = await response.json();
+            return data.choices?.[0]?.message?.content || "I didn't catch that, could you repeat?";
+
+        } catch (error) {
+            console.error('[AI] Voice chat error:', error);
+            throw error;
+        }
+    }
 }

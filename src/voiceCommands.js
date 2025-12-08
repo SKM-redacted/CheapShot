@@ -30,6 +30,18 @@ export const voiceCommands = [
         .setDescription('Stop listening and transcribing voice')
         .toJSON(),
 
+    // /converse - Enable conversation mode (AI responds with TTS)
+    new SlashCommandBuilder()
+        .setName('converse')
+        .setDescription('Enable conversation mode - AI will respond to speech with voice')
+        .toJSON(),
+
+    // /stopconverse - Disable conversation mode
+    new SlashCommandBuilder()
+        .setName('stopconverse')
+        .setDescription('Disable conversation mode - AI will stop responding with voice')
+        .toJSON(),
+
     // /voice - Combined voice control
     new SlashCommandBuilder()
         .setName('voice')
@@ -43,6 +55,16 @@ export const voiceCommands = [
             subcommand
                 .setName('leave')
                 .setDescription('Leave the voice channel')
+        )
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('converse')
+                .setDescription('Enable conversation mode with AI voice responses')
+        )
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('quiet')
+                .setDescription('Disable conversation mode (listen-only)')
         )
         .addSubcommand(subcommand =>
             subcommand
@@ -71,6 +93,10 @@ export async function handleVoiceCommand(interaction) {
                 return await handleJoin(interaction);
             case 'leave':
                 return await handleLeave(interaction);
+            case 'converse':
+                return await handleConverse(interaction);
+            case 'quiet':
+                return await handleStopConverse(interaction);
             case 'status':
                 return await handleStatus(interaction);
             default:
@@ -88,6 +114,10 @@ export async function handleVoiceCommand(interaction) {
             return await handleListen(interaction);
         case 'stoplisten':
             return await handleStopListen(interaction);
+        case 'converse':
+            return await handleConverse(interaction);
+        case 'stopconverse':
+            return await handleStopConverse(interaction);
         default:
             return false;
     }
@@ -259,6 +289,7 @@ async function handleStatus(interaction) {
 
     const isConnected = voiceClient.isConnected(guild.id);
     const isListening = voiceClient.isListening(guild.id);
+    const isConversing = voiceClient.isConversationMode(guild.id);
     const connectionInfo = voiceClient.getConnectionInfo(guild.id);
     const activeUsers = voiceClient.getActiveUserCount(guild.id);
 
@@ -269,6 +300,7 @@ async function handleStatus(interaction) {
     } else {
         status += `🟢 Connected to: **${connectionInfo?.voiceChannel?.name || 'Unknown'}**\n`;
         status += `🎤 Listening: ${isListening ? '**Yes**' : '**No**'}\n`;
+        status += `💬 Conversation Mode: ${isConversing ? '**Enabled** (AI responds with voice)' : '**Disabled**'}\n`;
         status += `👥 Users being transcribed: **${activeUsers}**\n`;
         status += `📝 Cached members: ${connectionInfo?.members?.size || 0}`;
     }
@@ -277,6 +309,75 @@ async function handleStatus(interaction) {
         content: status,
         ephemeral: true
     });
+
+    return true;
+}
+
+/**
+ * Handle /converse command - Enable conversation mode
+ */
+async function handleConverse(interaction) {
+    const { member, guild, channel } = interaction;
+
+    if (!voiceClient.isConnected(guild.id)) {
+        // Try to join first
+        const voiceChannel = member.voice?.channel;
+        if (!voiceChannel) {
+            await interaction.reply({
+                content: '❌ You need to be in a voice channel first!',
+                ephemeral: true
+            });
+            return true;
+        }
+
+        await interaction.deferReply();
+
+        // Join the voice channel
+        const connection = await voiceClient.join(voiceChannel, channel);
+        if (!connection) {
+            await interaction.editReply('❌ Failed to join the voice channel.');
+            return true;
+        }
+
+        // Start listening
+        await voiceClient.startListening(guild.id);
+    } else {
+        await interaction.deferReply();
+
+        // Make sure we're listening
+        if (!voiceClient.isListening(guild.id)) {
+            await voiceClient.startListening(guild.id);
+        }
+    }
+
+    // Enable conversation mode
+    voiceClient.setConversationMode(guild.id, true);
+
+    await interaction.editReply('💬 **Conversation mode enabled!** I\'ll listen and respond with voice. Just speak naturally!');
+    logger.info('VOICE', `Conversation mode enabled by ${member.user.tag}`);
+
+    return true;
+}
+
+/**
+ * Handle /stopconverse command - Disable conversation mode
+ */
+async function handleStopConverse(interaction) {
+    const { guild } = interaction;
+
+    if (!voiceClient.isConnected(guild.id)) {
+        await interaction.reply({
+            content: '❌ I\'m not in any voice channel!',
+            ephemeral: true
+        });
+        return true;
+    }
+
+    // Disable conversation mode but keep listening
+    voiceClient.setConversationMode(guild.id, false);
+
+    await interaction.reply('🔇 **Conversation mode disabled.** I\'ll still transcribe but won\'t respond with voice.');
+    logger.info('VOICE', `Conversation mode disabled by ${interaction.user.tag}`);
 
     return true;
 }
