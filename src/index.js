@@ -1,4 +1,4 @@
-import { EmbedBuilder, AttachmentBuilder } from 'discord.js';
+import { EmbedBuilder, AttachmentBuilder, REST, Routes } from 'discord.js';
 import { config } from './config.js';
 import { AIClient } from './aiClient.js';
 import { RequestQueue } from './queue.js';
@@ -8,6 +8,8 @@ import { logger } from './logger.js';
 import { botManager } from './botManager.js';
 import { loadBalancer } from './loadBalancer.js';
 import { contextStore } from './contextStore.js';
+import { voiceClient } from './voiceClient.js';
+import { voiceCommands, handleVoiceCommand } from './voiceCommands.js';
 
 // Initialize clients and queues
 const aiClient = new AIClient();
@@ -541,8 +543,14 @@ async function start() {
         // Initialize all bots
         await botManager.initialize();
 
+        // Register slash commands on first bot
+        await registerSlashCommands();
+
         // Setup message handler on all bots
         botManager.onMessage(handleMessage);
+
+        // Setup interaction handler for slash commands
+        botManager.onInteraction(handleInteraction);
 
         // Update dashboard with bot info
         const primaryBot = botManager.bots[0];
@@ -552,6 +560,7 @@ async function start() {
         logger.info('STARTUP', `CheapShot Multi-Bot System ready with ${botManager.getBotCount()} bot(s)`);
         logger.info('STARTUP', `AI Model: ${config.aiModel}`);
         logger.info('STARTUP', `API Base: ${config.onyxApiBase}`);
+        logger.info('STARTUP', `Voice transcription: ${config.deepgramApiKey ? 'Enabled' : 'Disabled (no API key)'}`);
 
         if (config.allowedChannelId) {
             logger.info('STARTUP', `Restricted to channel: ${config.allowedChannelId}`);
@@ -559,6 +568,56 @@ async function start() {
     } catch (error) {
         logger.error('STARTUP', 'Failed to start bot system', error);
         process.exit(1);
+    }
+}
+
+/**
+ * Register slash commands with Discord
+ */
+async function registerSlashCommands() {
+    const primaryBot = botManager.bots[0];
+    if (!primaryBot) return;
+
+    try {
+        const rest = new REST({ version: '10' }).setToken(config.discordTokens[0]);
+
+        logger.info('STARTUP', 'Registering slash commands...');
+
+        // Register commands globally
+        await rest.put(
+            Routes.applicationCommands(primaryBot.client.user.id),
+            { body: voiceCommands }
+        );
+
+        logger.info('STARTUP', `Registered ${voiceCommands.length} slash commands`);
+    } catch (error) {
+        logger.error('STARTUP', 'Failed to register slash commands', error);
+    }
+}
+
+/**
+ * Handle slash command interactions
+ * @param {Object} interaction - Discord interaction
+ * @param {Object} bot - The bot that received the interaction
+ */
+async function handleInteraction(interaction, bot) {
+    if (!interaction.isChatInputCommand()) return;
+
+    try {
+        // Try voice commands first
+        const handled = await handleVoiceCommand(interaction);
+        if (handled) return;
+
+        // Add more command handlers here in the future
+    } catch (error) {
+        logger.error('INTERACTION', 'Error handling interaction', error);
+        try {
+            if (interaction.replied || interaction.deferred) {
+                await interaction.editReply('❌ An error occurred processing your command.');
+            } else {
+                await interaction.reply({ content: '❌ An error occurred.', ephemeral: true });
+            }
+        } catch (e) { }
     }
 }
 
@@ -571,12 +630,14 @@ process.on('unhandledRejection', (error) => {
 
 process.on('SIGINT', async () => {
     logger.info('SHUTDOWN', 'Received SIGINT, shutting down...');
+    await voiceClient.leaveAll();
     await botManager.shutdown();
     process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
     logger.info('SHUTDOWN', 'Received SIGTERM, shutting down...');
+    await voiceClient.leaveAll();
     await botManager.shutdown();
     process.exit(0);
 });

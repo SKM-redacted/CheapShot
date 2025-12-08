@@ -29,6 +29,9 @@ export const config = {
     // AI Model
     aiModel: process.env.AI_MODEL,
 
+    // Deepgram API for voice transcription
+    deepgramApiKey: process.env.DEEPGRAM_API_KEY,
+
     // Queue settings (less relevant with multi-bot, but kept for compatibility)
     maxConcurrentRequests: parseInt(process.env.MAX_CONCURRENT_REQUESTS) || 3,
 
