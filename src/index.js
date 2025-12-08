@@ -190,7 +190,7 @@ async function handleMessage(message, bot) {
     try {
         // Pick the best bot for this request
         let selectedBot = loadBalancer.pickBot(message.channel.id);
-        
+
         if (!selectedBot) {
             // All bots at capacity, queue the request
             await requestQueue.enqueue(async () => {
@@ -228,33 +228,72 @@ async function handleAIResponse(message, userMessage, bot, requestId) {
     let pendingContent = '';
     let pendingToolCalls = [];
 
-    const CHAR_BATCH_SIZE = 20; // Update every 20 characters (faster, more real-time)
-    const MIN_UPDATE_INTERVAL = 400; // 400ms between edits (2.5 updates/sec max)
+    const botCount = botManager.getBotCount();
+
+    // Discord rate limit: 5 edits per 5 seconds per channel (burst with refill)
+    // Strategy: Start with fast burst updates (100ms), then slow to 1/sec after burst depleted
+    const CHAR_BATCH_SIZE = 2; // Near instant character-by-character feel
+    const BURST_INTERVAL = 100; // 100ms for burst mode (feels instant)
+    const SUSTAINED_INTERVAL = 1050; // ~1 sec after burst depleted
+    const BURST_LIMIT = 4; // Use 4 of 5 burst slots, leave 1 for safety
     const MAX_LENGTH = 1900;
+
+    let burstEditsUsed = 0;
+    let burstStartTime = Date.now();
 
     let lastEditTime = 0;
     let editTimer = null;
     let forceUpdateTimer = null;
+    let editCount = 0;
+    const streamingCursors = ['▌', '▍', '▎', '▏', '▐', '▕']; // Animated cursor
 
-    const fireEdit = (text, isFinal = false) => {
+    // Calculate current interval based on burst state
+    const getCurrentInterval = () => {
+        const now = Date.now();
+        const timeSinceBurstStart = now - burstStartTime;
+
+        // Reset burst bucket every 5 seconds
+        if (timeSinceBurstStart >= 5000) {
+            burstEditsUsed = 0;
+            burstStartTime = now;
+        }
+
+        // If we have burst capacity, use fast interval
+        if (burstEditsUsed < BURST_LIMIT) {
+            return BURST_INTERVAL;
+        }
+
+        // Otherwise, use sustained interval
+        return SUSTAINED_INTERVAL;
+    };
+
+    const fireEdit = async (text, isFinal = false) => {
         if (!replyMessage) return;
 
         let displayText = text;
         if (displayText.length > MAX_LENGTH) {
-            // During streaming, show first chunk with indicator that more is coming
             displayText = displayText.substring(0, MAX_LENGTH - 50) + '\n\n*...continued below when complete*';
         }
 
         if (!isFinal) {
-            displayText += ' ▌';
+            // Fast-cycling animated cursor for visual feedback
+            displayText += ' ' + streamingCursors[editCount % streamingCursors.length];
         }
 
-        // Record bot action for rate limiting
+        // Track for bot rate limiting
         if (bot) {
             botManager.recordBotAction(bot, message.channel.id);
         }
 
-        replyMessage.edit(displayText).catch(() => { });
+        editCount++;
+        burstEditsUsed++;
+
+        try {
+            await replyMessage.edit(displayText);
+        } catch (e) {
+            // Rate limited - force sustained mode
+            burstEditsUsed = BURST_LIMIT;
+        }
     };
 
     const scheduleEdit = () => {
@@ -262,14 +301,20 @@ async function handleAIResponse(message, userMessage, bot, requestId) {
 
         const now = Date.now();
         const timeSinceLastEdit = now - lastEditTime;
-        const delay = Math.max(0, MIN_UPDATE_INTERVAL - timeSinceLastEdit);
+        const interval = getCurrentInterval();
+        const delay = Math.max(0, interval - timeSinceLastEdit);
 
-        editTimer = setTimeout(() => {
+        editTimer = setTimeout(async () => {
             editTimer = null;
             lastEditTime = Date.now();
-            fireEdit(pendingContent, false);
+            await fireEdit(pendingContent, false);
         }, delay);
     };
+
+    // Log bot count for parallel request capacity
+    if (botCount > 1) {
+        logger.debug('STREAM', `Burst streaming enabled, ${botCount} bots available for parallel requests`);
+    }
 
     try {
         replyMessage = await message.reply('🤔 *Thinking...*');
@@ -311,13 +356,13 @@ async function handleAIResponse(message, userMessage, bot, requestId) {
                     lastUpdateLength = fullText.length;
                     scheduleEdit();
                 } else {
-                    // Force update after 600ms if no threshold met (for short messages)
+                    // Force update after 200ms if no threshold met (for short messages)
                     forceUpdateTimer = setTimeout(() => {
                         if (pendingContent.length > lastUpdateLength) {
                             lastUpdateLength = pendingContent.length;
                             scheduleEdit();
                         }
-                    }, 600);
+                    }, 200);
                 }
             },
             // onComplete
@@ -332,6 +377,10 @@ async function handleAIResponse(message, userMessage, bot, requestId) {
                 }
 
                 let finalText = fullText || "Let me help you with that!";
+
+                // Strip any trailing streaming cursor characters
+                const cursorPattern = /\s*[▌▍▎▏▐▕]+\s*$/;
+                finalText = finalText.replace(cursorPattern, '').trim();
 
                 // Split message into chunks if it exceeds the limit
                 const chunks = splitMessage(finalText, MAX_LENGTH);
@@ -361,7 +410,7 @@ async function handleAIResponse(message, userMessage, bot, requestId) {
                 }
 
                 logger.aiComplete(message.author.tag, finalText.length, pendingToolCalls.length > 0);
-                
+
                 // Log which bot responded
                 const botTag = bot?.client?.user?.tag || `Bot ${bot?.id || 'Unknown'}`;
                 logger.info('RESPONSE', `Bot "${botTag}" responded to ${message.author.tag}`);
@@ -481,23 +530,23 @@ async function handleImageGeneration(originalMessage, args) {
 async function start() {
     console.log('🔄 Starting CheapShot Multi-Bot System...');
     console.log(`📊 Configured tokens: ${config.discordTokens.length}`);
-    
+
     try {
         // Initialize all bots
         await botManager.initialize();
-        
+
         // Setup message handler on all bots
         botManager.onMessage(handleMessage);
-        
+
         // Update dashboard with bot info
         const primaryBot = botManager.bots[0];
         const botTag = primaryBot?.client?.user?.tag || `CheapShot (${botManager.getBotCount()} bots)`;
         logger.startup(botTag, config.aiModel, config.onyxApiBase, config.maxConcurrentRequests);
-        
+
         logger.info('STARTUP', `CheapShot Multi-Bot System ready with ${botManager.getBotCount()} bot(s)`);
         logger.info('STARTUP', `AI Model: ${config.aiModel}`);
         logger.info('STARTUP', `API Base: ${config.onyxApiBase}`);
-        
+
         if (config.allowedChannelId) {
             logger.info('STARTUP', `Restricted to channel: ${config.allowedChannelId}`);
         }

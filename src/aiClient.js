@@ -165,33 +165,63 @@ export class AIClient {
             tool_choice: "auto"
         };
 
-        try {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-App-Name': 'cheapshot'
-                },
-                body: JSON.stringify(body)
-            });
+        const MAX_RETRIES = 2;
+        let lastError = null;
 
-            if (!response.ok) {
-                throw new Error(`API request failed: ${response.status} ${response.statusText}`);
-            }
+        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-App-Name': 'cheapshot'
+                    },
+                    body: JSON.stringify(body)
+                });
 
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let fullText = '';
-            let buffer = '';
-            let toolCalls = [];
-            let currentToolCall = null;
+                // Retry on 5xx server errors
+                if (response.status >= 500 && attempt < MAX_RETRIES) {
+                    console.warn(`[AI] Server error ${response.status}, retrying (${attempt + 1}/${MAX_RETRIES})...`);
+                    await new Promise(r => setTimeout(r, 1000 * (attempt + 1))); // Exponential backoff
+                    continue;
+                }
 
-            while (true) {
-                const { done, value } = await reader.read();
+                if (!response.ok) {
+                    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+                }
 
-                if (done) {
-                    if (buffer.trim()) {
-                        const result = this.parseSSELine(buffer);
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let fullText = '';
+                let buffer = '';
+                let toolCalls = [];
+                let currentToolCall = null;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+
+                    if (done) {
+                        if (buffer.trim()) {
+                            const result = this.parseSSELine(buffer);
+                            if (result) {
+                                if (result.content) {
+                                    fullText += result.content;
+                                    await onChunk(result.content, fullText);
+                                }
+                                if (result.toolCall) {
+                                    toolCalls.push(result.toolCall);
+                                }
+                            }
+                        }
+                        break;
+                    }
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        const result = this.parseSSELine(line);
                         if (result) {
                             if (result.content) {
                                 fullText += result.content;
@@ -200,65 +230,58 @@ export class AIClient {
                             if (result.toolCall) {
                                 toolCalls.push(result.toolCall);
                             }
-                        }
-                    }
-                    break;
-                }
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                    const result = this.parseSSELine(line);
-                    if (result) {
-                        if (result.content) {
-                            fullText += result.content;
-                            await onChunk(result.content, fullText);
-                        }
-                        if (result.toolCall) {
-                            toolCalls.push(result.toolCall);
-                        }
-                        if (result.toolCallDelta) {
-                            if (!currentToolCall) {
-                                currentToolCall = { name: '', arguments: '' };
+                            if (result.toolCallDelta) {
+                                if (!currentToolCall) {
+                                    currentToolCall = { name: '', arguments: '' };
+                                }
+                                if (result.toolCallDelta.name) {
+                                    currentToolCall.name = result.toolCallDelta.name;
+                                }
+                                if (result.toolCallDelta.arguments) {
+                                    currentToolCall.arguments += result.toolCallDelta.arguments;
+                                }
                             }
-                            if (result.toolCallDelta.name) {
-                                currentToolCall.name = result.toolCallDelta.name;
+                            if (result.finishReason === 'tool_calls' && currentToolCall) {
+                                try {
+                                    const args = JSON.parse(currentToolCall.arguments);
+                                    toolCalls.push({
+                                        name: currentToolCall.name,
+                                        arguments: args
+                                    });
+                                } catch (e) {
+                                    console.warn('Failed to parse tool call arguments:', e);
+                                }
+                                currentToolCall = null;
                             }
-                            if (result.toolCallDelta.arguments) {
-                                currentToolCall.arguments += result.toolCallDelta.arguments;
-                            }
-                        }
-                        if (result.finishReason === 'tool_calls' && currentToolCall) {
-                            try {
-                                const args = JSON.parse(currentToolCall.arguments);
-                                toolCalls.push({
-                                    name: currentToolCall.name,
-                                    arguments: args
-                                });
-                            } catch (e) {
-                                console.warn('Failed to parse tool call arguments:', e);
-                            }
-                            currentToolCall = null;
                         }
                     }
                 }
-            }
 
-            if (toolCalls.length > 0 && onToolCall) {
-                for (const toolCall of toolCalls) {
-                    await onToolCall(toolCall);
+                if (toolCalls.length > 0 && onToolCall) {
+                    for (const toolCall of toolCalls) {
+                        await onToolCall(toolCall);
+                    }
                 }
+
+                await onComplete(fullText);
+                return { text: fullText, toolCalls };
+
+            } catch (error) {
+                lastError = error;
+                if (attempt < MAX_RETRIES) {
+                    console.warn(`[AI] Request failed, retrying (${attempt + 1}/${MAX_RETRIES})...`);
+                    await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+                    continue;
+                }
+                console.error('[AI] Context streaming error:', error);
+                await onError(error);
+                throw error;
             }
+        }
 
-            await onComplete(fullText);
-            return { text: fullText, toolCalls };
-
-        } catch (error) {
-            console.error('[AI] Context streaming error:', error);
-            await onError(error);
-            throw error;
+        // Should not reach here, but just in case
+        if (lastError) {
+            throw lastError;
         }
     }
 
