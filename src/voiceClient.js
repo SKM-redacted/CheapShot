@@ -8,16 +8,16 @@ import {
 import { ChannelType } from 'discord.js';
 import { sttClient } from './sttClient.js';
 import { logger } from './logger.js';
-import prism from 'prism-media';
 
 /**
  * Voice Client for Discord
  * Handles joining voice channels and receiving audio streams
+ * Uses per-user audio streams to accurately identify speakers
  */
 class VoiceClient {
     constructor() {
-        this.activeConnections = new Map(); // guildId -> { connection, textChannel, audioStreams }
-        this.userTranscripts = new Map(); // guildId -> Map(userId -> { interim, final[] })
+        this.activeConnections = new Map(); // guildId -> { connection, textChannel, userStreams, members }
+        this.userTranscriptBuffers = new Map(); // guildId -> Map(userId -> { words: [], lastUpdate })
     }
 
     /**
@@ -58,17 +58,21 @@ class VoiceClient {
 
             logger.info('VOICE', `Joined voice channel "${voiceChannel.name}" in guild "${voiceChannel.guild.name}"`);
 
-            // Store connection info
+            // Store connection info with per-user tracking
             this.activeConnections.set(guildId, {
                 connection,
                 textChannel,
                 voiceChannel,
-                audioStreams: new Map(),
+                userStreams: new Map(),     // userId -> { stream, sttConnection }
+                members: new Map(),          // userId -> { username, displayName }
                 isListening: false
             });
 
-            // Initialize user transcripts for this guild
-            this.userTranscripts.set(guildId, new Map());
+            // Initialize user transcript buffers for this guild
+            this.userTranscriptBuffers.set(guildId, new Map());
+
+            // Cache current voice channel members
+            await this.cacheVoiceMembers(guildId, voiceChannel);
 
             // Setup connection event handlers
             connection.on(VoiceConnectionStatus.Disconnected, async () => {
@@ -77,9 +81,7 @@ class VoiceClient {
                         entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
                         entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
                     ]);
-                    // Seems to be reconnecting, don't destroy
                 } catch (error) {
-                    // Not reconnecting, clean up
                     connection.destroy();
                     this.cleanup(guildId);
                 }
@@ -93,6 +95,65 @@ class VoiceClient {
         } catch (error) {
             logger.error('VOICE', `Failed to join voice channel: ${error.message}`);
             return null;
+        }
+    }
+
+    /**
+     * Cache voice channel members for user identification
+     * @param {string} guildId - Guild ID
+     * @param {Object} voiceChannel - Voice channel
+     */
+    async cacheVoiceMembers(guildId, voiceChannel) {
+        const connectionInfo = this.activeConnections.get(guildId);
+        if (!connectionInfo) return;
+
+        try {
+            // Get all members in the voice channel
+            for (const [memberId, member] of voiceChannel.members) {
+                if (!member.user.bot) { // Skip bots
+                    connectionInfo.members.set(memberId, {
+                        id: memberId,
+                        username: member.user.username,
+                        displayName: member.displayName || member.user.username,
+                        discriminator: member.user.discriminator
+                    });
+                    logger.debug('VOICE', `Cached member: ${member.displayName} (${memberId})`);
+                }
+            }
+        } catch (error) {
+            logger.error('VOICE', `Failed to cache voice members: ${error.message}`);
+        }
+    }
+
+    /**
+     * Get member info from cache or fetch it
+     * @param {string} guildId - Guild ID
+     * @param {string} userId - User ID
+     * @returns {Object} Member info
+     */
+    async getMemberInfo(guildId, userId) {
+        const connectionInfo = this.activeConnections.get(guildId);
+        if (!connectionInfo) return { displayName: 'Unknown User', username: 'unknown' };
+
+        // Check cache first
+        if (connectionInfo.members.has(userId)) {
+            return connectionInfo.members.get(userId);
+        }
+
+        // Try to fetch from guild
+        try {
+            const guild = connectionInfo.voiceChannel.guild;
+            const member = await guild.members.fetch(userId);
+            const info = {
+                id: userId,
+                username: member.user.username,
+                displayName: member.displayName || member.user.username,
+                discriminator: member.user.discriminator
+            };
+            connectionInfo.members.set(userId, info);
+            return info;
+        } catch (e) {
+            return { displayName: `User ${userId.slice(-4)}`, username: 'unknown' };
         }
     }
 
@@ -121,107 +182,120 @@ class VoiceClient {
             }
         }
 
-        // Create STT connection
-        const sttConnection = await sttClient.createConnection(guildId, (error, transcript, isFinal, confidence, isUtteranceEnd) => {
-            if (error) {
-                logger.error('VOICE', `STT error: ${error.message}`);
-                return;
-            }
-
-            // Handle transcripts - we'll aggregate them per-speaker
-            if (transcript) {
-                this.handleTranscript(guildId, transcript, isFinal, confidence);
-            }
-        });
-
-        if (!sttConnection) {
-            await connectionInfo.textChannel.send('❌ Failed to connect to transcription service.');
-            return false;
-        }
-
         // Get the receiver from the connection
         const receiver = connectionInfo.connection.receiver;
 
         // Listen for when users start speaking
-        receiver.speaking.on('start', (userId) => {
-            this.startUserStream(guildId, userId, receiver);
+        receiver.speaking.on('start', async (userId) => {
+            await this.handleUserSpeaking(guildId, userId, receiver);
         });
 
         connectionInfo.isListening = true;
         logger.info('VOICE', `Started listening in guild ${guildId}`);
 
-        await connectionInfo.textChannel.send('🎤 **Now listening!** I\'ll transcribe what people say in the voice channel.');
+        await connectionInfo.textChannel.send('🎤 **Now listening!** I\'ll transcribe what people say and show who said it.');
 
         return true;
     }
 
     /**
-     * Start streaming audio from a specific user
+     * Handle when a user starts speaking
+     * Creates or reuses a per-user STT connection
      * @param {string} guildId - Guild ID
      * @param {string} userId - User ID
      * @param {Object} receiver - Voice receiver
      */
-    startUserStream(guildId, userId, receiver) {
+    async handleUserSpeaking(guildId, userId, receiver) {
         const connectionInfo = this.activeConnections.get(guildId);
-        if (!connectionInfo || connectionInfo.audioStreams.has(userId)) {
-            return;
+        if (!connectionInfo || connectionInfo.userStreams.has(userId)) {
+            return; // Already have a stream for this user
         }
 
         try {
+            // Get member info for display
+            const memberInfo = await this.getMemberInfo(guildId, userId);
+            logger.debug('VOICE', `${memberInfo.displayName} started speaking`);
+
             // Subscribe to the user's audio
             const audioStream = receiver.subscribe(userId, {
                 end: {
                     behavior: EndBehaviorType.AfterSilence,
-                    duration: 1000, // 1 second of silence ends the stream
+                    duration: 1500, // 1.5 seconds of silence ends the stream
                 }
             });
 
-            // Create an Opus decoder to convert to PCM
-            // Deepgram can handle raw Opus, so we'll send it directly
-            const opusStream = audioStream;
+            // Create a dedicated STT connection for this user
+            const sttConnectionId = `${guildId}-${userId}`;
+            const sttConnection = await sttClient.createConnection(
+                sttConnectionId,
+                async (error, transcript, isFinal, confidence) => {
+                    if (error) {
+                        logger.error('VOICE', `STT error for user ${userId}: ${error.message}`);
+                        return;
+                    }
 
-            // Store the stream
-            connectionInfo.audioStreams.set(userId, opusStream);
+                    if (transcript && transcript.trim()) {
+                        await this.handleUserTranscript(guildId, userId, transcript, isFinal, confidence, memberInfo);
+                    }
+                }
+            );
+
+            if (!sttConnection) {
+                logger.error('VOICE', `Failed to create STT connection for user ${userId}`);
+                return;
+            }
+
+            // Store the stream info
+            connectionInfo.userStreams.set(userId, {
+                audioStream,
+                sttConnectionId,
+                memberInfo
+            });
 
             // Forward audio to STT
-            opusStream.on('data', (chunk) => {
-                sttClient.sendAudio(guildId, chunk);
+            audioStream.on('data', (chunk) => {
+                sttClient.sendAudio(sttConnectionId, chunk);
             });
 
-            opusStream.on('end', () => {
-                connectionInfo.audioStreams.delete(userId);
-                logger.debug('VOICE', `Audio stream ended for user ${userId} in guild ${guildId}`);
+            audioStream.on('end', async () => {
+                // Clean up when user stops speaking
+                await sttClient.closeConnection(sttConnectionId);
+                connectionInfo.userStreams.delete(userId);
+                logger.debug('VOICE', `${memberInfo.displayName} stopped speaking`);
             });
 
-            opusStream.on('error', (error) => {
-                logger.error('VOICE', `Audio stream error for user ${userId}: ${error.message}`);
-                connectionInfo.audioStreams.delete(userId);
+            audioStream.on('error', async (error) => {
+                logger.error('VOICE', `Audio stream error for ${memberInfo.displayName}: ${error.message}`);
+                await sttClient.closeConnection(sttConnectionId);
+                connectionInfo.userStreams.delete(userId);
             });
 
-            logger.debug('VOICE', `Started audio stream for user ${userId} in guild ${guildId}`);
         } catch (error) {
-            logger.error('VOICE', `Failed to start user stream: ${error.message}`);
+            logger.error('VOICE', `Failed to handle user speaking: ${error.message}`);
         }
     }
 
     /**
-     * Handle incoming transcript
+     * Handle incoming transcript for a specific user
      * @param {string} guildId - Guild ID
+     * @param {string} userId - User ID
      * @param {string} transcript - The transcribed text
      * @param {boolean} isFinal - Whether this is a final result
      * @param {number} confidence - Confidence score
+     * @param {Object} memberInfo - Member display info
      */
-    async handleTranscript(guildId, transcript, isFinal, confidence) {
+    async handleUserTranscript(guildId, userId, transcript, isFinal, confidence, memberInfo) {
         const connectionInfo = this.activeConnections.get(guildId);
         if (!connectionInfo) return;
 
-        // For now, just output final transcripts to the text channel
+        // Only output final transcripts
         if (isFinal && transcript.trim()) {
             try {
-                // Format the output
-                const output = `🗣️ **Transcript:** ${transcript}`;
+                // Format with user's display name and avatar-like prefix
+                const output = `🗣️ **${memberInfo.displayName}:** ${transcript}`;
                 await connectionInfo.textChannel.send(output);
-                logger.info('VOICE', `Transcript: "${transcript}" (confidence: ${(confidence * 100).toFixed(1)}%)`);
+
+                logger.info('VOICE', `[${memberInfo.displayName}] "${transcript}" (${(confidence * 100).toFixed(1)}%)`);
             } catch (error) {
                 logger.error('VOICE', `Failed to send transcript: ${error.message}`);
             }
@@ -241,14 +315,14 @@ class VoiceClient {
             return;
         }
 
-        // Close STT connection
-        await sttClient.closeConnection(guildId);
-
-        // Clear audio streams
-        for (const [userId, stream] of connectionInfo.audioStreams) {
-            stream.destroy();
+        // Clean up all user streams and STT connections
+        for (const [userId, streamInfo] of connectionInfo.userStreams) {
+            try {
+                streamInfo.audioStream.destroy();
+                await sttClient.closeConnection(streamInfo.sttConnectionId);
+            } catch (e) { }
         }
-        connectionInfo.audioStreams.clear();
+        connectionInfo.userStreams.clear();
 
         connectionInfo.isListening = false;
 
@@ -263,7 +337,6 @@ class VoiceClient {
     async leave(guildId) {
         const connectionInfo = this.activeConnections.get(guildId);
         if (!connectionInfo) {
-            // Try to get connection directly
             const connection = getVoiceConnection(guildId);
             if (connection) {
                 connection.destroy();
@@ -290,17 +363,17 @@ class VoiceClient {
     cleanup(guildId) {
         const connectionInfo = this.activeConnections.get(guildId);
         if (connectionInfo) {
-            // Clear audio streams
-            for (const stream of connectionInfo.audioStreams.values()) {
+            // Clean up all user streams
+            for (const [userId, streamInfo] of connectionInfo.userStreams) {
                 try {
-                    stream.destroy();
+                    streamInfo.audioStream.destroy();
+                    sttClient.closeConnection(streamInfo.sttConnectionId);
                 } catch (e) { }
             }
         }
 
         this.activeConnections.delete(guildId);
-        this.userTranscripts.delete(guildId);
-        sttClient.closeConnection(guildId);
+        this.userTranscriptBuffers.delete(guildId);
     }
 
     /**
@@ -337,6 +410,16 @@ class VoiceClient {
      */
     getConnectionCount() {
         return this.activeConnections.size;
+    }
+
+    /**
+     * Get count of users currently being transcribed
+     * @param {string} guildId - Guild ID
+     * @returns {number}
+     */
+    getActiveUserCount(guildId) {
+        const connectionInfo = this.activeConnections.get(guildId);
+        return connectionInfo?.userStreams?.size || 0;
     }
 
     /**

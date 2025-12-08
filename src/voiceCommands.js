@@ -260,6 +260,7 @@ async function handleStatus(interaction) {
     const isConnected = voiceClient.isConnected(guild.id);
     const isListening = voiceClient.isListening(guild.id);
     const connectionInfo = voiceClient.getConnectionInfo(guild.id);
+    const activeUsers = voiceClient.getActiveUserCount(guild.id);
 
     let status = '📊 **Voice Status**\n\n';
 
@@ -268,7 +269,8 @@ async function handleStatus(interaction) {
     } else {
         status += `🟢 Connected to: **${connectionInfo?.voiceChannel?.name || 'Unknown'}**\n`;
         status += `🎤 Listening: ${isListening ? '**Yes**' : '**No**'}\n`;
-        status += `👥 Active audio streams: ${connectionInfo?.audioStreams?.size || 0}`;
+        status += `👥 Users being transcribed: **${activeUsers}**\n`;
+        status += `📝 Cached members: ${connectionInfo?.members?.size || 0}`;
     }
 
     await interaction.reply({
