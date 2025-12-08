@@ -83,7 +83,7 @@ class BotManager {
         }, 5000);
 
         // Ready event
-        client.once('ready', () => {
+        client.once('clientReady', () => {
             bot.ready = true;
             logger.info('BOT_MANAGER', `Bot ${index} ready: ${client.user.tag}`);
             
