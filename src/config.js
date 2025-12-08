@@ -4,21 +4,11 @@ dotenv.config();
 
 /**
  * Parse Discord tokens from environment
- * Supports: DISCORD_TOKENS (comma-separated) or DISCORD_TOKEN_1, DISCORD_TOKEN_2, etc.
- * Falls back to single DISCORD_TOKEN for backwards compatibility
+ * Uses DISCORD_TOKEN_1, DISCORD_TOKEN_2, etc.
  */
 function parseDiscordTokens() {
     const tokens = [];
     
-    // Method 1: Comma-separated DISCORD_TOKENS
-    if (process.env.DISCORD_TOKENS) {
-        const parsed = process.env.DISCORD_TOKENS.split(',')
-            .map(t => t.trim())
-            .filter(t => t.length > 0);
-        tokens.push(...parsed);
-    }
-    
-    // Method 2: Individual DISCORD_TOKEN_1, DISCORD_TOKEN_2, etc.
     for (let i = 1; i <= 20; i++) {
         const token = process.env[`DISCORD_TOKEN_${i}`];
         if (token && token.trim()) {
@@ -26,21 +16,12 @@ function parseDiscordTokens() {
         }
     }
     
-    // Method 3: Fallback to single DISCORD_TOKEN (backwards compatibility)
-    if (tokens.length === 0 && process.env.DISCORD_TOKEN) {
-        tokens.push(process.env.DISCORD_TOKEN.trim());
-    }
-    
-    // Remove duplicates
-    return [...new Set(tokens)];
+    return tokens;
 }
 
 export const config = {
     // Discord - Multiple tokens support
     discordTokens: parseDiscordTokens(),
-    
-    // Legacy single token (for backwards compatibility)
-    discordToken: process.env.DISCORD_TOKEN,
 
     // Onyx API
     onyxApiBase: process.env.ONYX_API_BASE,
@@ -86,7 +67,7 @@ KEEP IT CLEAN:
 };
 
 // Validate required config
-if (!config.discordToken) {
-    console.error('❌ DISCORD_TOKEN is required in .env file');
+if (config.discordTokens.length === 0) {
+    console.error('❌ At least one DISCORD_TOKEN_N is required in .env file');
     process.exit(1);
 }
