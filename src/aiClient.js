@@ -492,9 +492,33 @@ You're talking to ${username}. Keep it casual and SHORT.`;
             let isFirstChunk = true;
             let earlyTriggerTimeout = null;
 
-            // AGGRESSIVE first-word settings
-            const MIN_WORDS_EARLY = 3;      // Send after just 3 words for first chunk
-            const EARLY_TIMEOUT_MS = 200;   // Or after 200ms pause in generation
+            // Smarter chunking settings - balance speed vs completeness
+            const MIN_WORDS_FIRST = 4;      // Min words for first chunk
+            const MIN_WORDS_CLAUSE = 6;     // Min words to send on comma/colon
+            const EARLY_TIMEOUT_MS = 350;   // Slightly longer pause before early send
+
+            // Patterns that indicate an INCOMPLETE chunk - don't send these alone
+            const incompleteEndings = [
+                /\b(what|who|where|when|why|how|which)\s*$/i,  // Question words
+                /\b(the|a|an)\s*$/i,                           // Articles
+                /\b(is|are|was|were|am|be|been)\s*$/i,         // Linking verbs
+                /\b(to|for|with|at|by|from|in|on|of)\s*$/i,    // Prepositions
+                /\b(and|but|or|so|if|that|because)\s*$/i,      // Conjunctions
+                /\b(I|you|we|they|he|she|it)\s*$/i,            // Pronouns alone
+                /\b(I'm|you're|we're|they're|he's|she's|it's)\s*$/i,  // Contractions
+            ];
+
+            // Check if a chunk looks complete enough to send
+            const looksComplete = (text) => {
+                const trimmed = text.trim();
+                // Very short = not complete
+                if (trimmed.split(/\s+/).length < 3) return false;
+                // Check incomplete endings
+                for (const pattern of incompleteEndings) {
+                    if (pattern.test(trimmed)) return false;
+                }
+                return true;
+            };
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -531,24 +555,25 @@ You're talking to ${username}. Keep it casual and SHORT.`;
                                 earlyTriggerTimeout = null;
                             }
 
-                            // Check for sentence enders (always send)
+                            // Check for sentence enders (always send on . ! ?)
                             const sentenceMatch = chunkBuffer.match(/^(.*?[.!?]+)\s*(.*)$/s);
                             if (sentenceMatch) {
-                                if (sentenceMatch[1].trim()) {
-                                    await onSentence(sentenceMatch[1].trim());
+                                const sentence = sentenceMatch[1].trim();
+                                if (sentence) {
+                                    await onSentence(sentence);
                                     isFirstChunk = false;
                                 }
                                 chunkBuffer = sentenceMatch[2];
                                 continue;
                             }
 
-                            // Check for clauses
+                            // Check for clauses (comma, semicolon, colon) - but only if complete
                             const clauseMatch = chunkBuffer.match(/^(.*?[,;:])\s+(.*)$/s);
                             if (clauseMatch) {
                                 const clause = clauseMatch[1].trim();
                                 const wordCount = clause.split(/\s+/).length;
-                                const threshold = isFirstChunk ? MIN_WORDS_EARLY : 4;
-                                if (wordCount >= threshold) {
+                                // Need enough words AND must look complete
+                                if (wordCount >= MIN_WORDS_CLAUSE && looksComplete(clause)) {
                                     await onSentence(clause);
                                     isFirstChunk = false;
                                     chunkBuffer = clauseMatch[2];
@@ -556,12 +581,12 @@ You're talking to ${username}. Keep it casual and SHORT.`;
                                 }
                             }
 
-                            // AGGRESSIVE: For first chunk, trigger early after MIN_WORDS_EARLY
+                            // Early trigger for first chunk - but only if it looks complete
                             if (isFirstChunk) {
                                 const words = chunkBuffer.trim().split(/\s+/);
-                                if (words.length >= MIN_WORDS_EARLY && !earlyTriggerTimeout) {
+                                if (words.length >= MIN_WORDS_FIRST && looksComplete(chunkBuffer) && !earlyTriggerTimeout) {
                                     earlyTriggerTimeout = setTimeout(async () => {
-                                        if (isFirstChunk && chunkBuffer.trim()) {
+                                        if (isFirstChunk && chunkBuffer.trim() && looksComplete(chunkBuffer)) {
                                             const toSend = chunkBuffer.trim();
                                             chunkBuffer = '';
                                             isFirstChunk = false;

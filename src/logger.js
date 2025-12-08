@@ -13,19 +13,46 @@ if (!fs.existsSync(LOGS_DIR)) {
     fs.mkdirSync(LOGS_DIR, { recursive: true });
 }
 
-function getDateString() {
-    return new Date().toISOString().split('T')[0];
+// PST timezone helper
+function getPSTDate() {
+    return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
 }
 
+function formatPSTTimestamp(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return {
+        date: `${year}-${month}-${day}`,
+        time: `${hours}-${minutes}-${seconds}`,
+        full: `${year}-${month}-${day} ${hours}:${minutes}:${seconds} PST`
+    };
+}
+
+// Generate unique log file name on startup (per session) - in PST
+function getSessionTimestamp() {
+    const pst = formatPSTTimestamp(getPSTDate());
+    return `${pst.date}_${pst.time}`;
+}
+
+// Create log file name ONCE at startup
+const SESSION_LOG_FILE = path.join(LOGS_DIR, `${getSessionTimestamp()}.log`);
+
+// Write session start marker
+const startTime = formatPSTTimestamp(getPSTDate());
+fs.writeFileSync(SESSION_LOG_FILE, `=== Session started at ${startTime.full} ===\n`);
+
 function getTimestamp() {
-    return new Date().toISOString();
+    return formatPSTTimestamp(getPSTDate()).full;
 }
 
 /**
- * Write to log file
+ * Write to log file (always writes to session-specific file)
  */
 function writeToFile(level, category, message, data = null) {
-    const logFile = path.join(LOGS_DIR, `${getDateString()}.log`);
     const entry = {
         timestamp: getTimestamp(),
         level,
@@ -34,7 +61,7 @@ function writeToFile(level, category, message, data = null) {
         ...(data && { data })
     };
     const line = JSON.stringify(entry) + '\n';
-    fs.appendFile(logFile, line, () => { });
+    fs.appendFile(SESSION_LOG_FILE, line, () => { });
 }
 
 /**

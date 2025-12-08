@@ -7,6 +7,7 @@ import { logger } from './logger.js';
  * Example: "Honestly, this is a pretty cool project, and I'm" + "pretty happy with how it is."
  * 
  * Solution: Detect incomplete endings and buffer until we get a complete thought
+ * BUT: Be smart about sentence length - longer sentences are likely complete even with trailing words
  */
 class InputFilter {
     constructor() {
@@ -18,45 +19,41 @@ class InputFilter {
             continuationTimeoutMs: 2500,
 
             // Minimum time gap to consider transcripts as separate (ms)
-            // If new transcript arrives within this time of an incomplete one, merge them
-            mergeWindowMs: 3000
+            mergeWindowMs: 3000,
+
+            // If a sentence has this many words or more, don't flag it as incomplete
+            // (even if it ends with a conjunction - it's probably a complete thought)
+            minWordsForComplete: 8
         };
 
-        // Patterns that indicate an incomplete sentence (ends with these)
-        this.incompleteEndings = [
-            // Trailing conjunctions/connectors
+        // STRONG incomplete patterns - these almost always mean incomplete regardless of length
+        this.strongIncompleteEndings = [
+            // Trailing "I'm", "you're", etc. - very clearly incomplete
+            /\b(I'm|I am|you're|you are|we're|we are|they're|they are|he's|she's|it's)\s*$/i,
+
+            // Ends with just an article - definitely incomplete
+            /\b(a|an|the)\s*$/i,
+
+            // Ends with comma - mid-sentence
+            /,\s*$/,
+        ];
+
+        // WEAK incomplete patterns - only flag if sentence is SHORT (< minWordsForComplete)
+        this.weakIncompleteEndings = [
+            // Trailing conjunctions
             /\b(and|but|or|so|because|since|while|when|if|although|though|unless|until|as|that)\s*$/i,
 
             // Trailing prepositions
-            /\b(to|for|with|at|by|from|in|on|of|about|into|through|during|before|after|above|below|between|under|over)\s*$/i,
-
-            // Trailing articles
-            /\b(a|an|the)\s*$/i,
-
-            // Trailing pronouns that expect more (I'm, you're, etc.)
-            /\b(I'm|I am|you're|you are|we're|we are|they're|they are|he's|she's|it's|he is|she is|it is)\s*$/i,
-
-            // Trailing verbs that expect objects
-            /\b(is|are|was|were|have|has|had|do|does|did|will|would|could|should|can|may|might|must)\s*$/i,
-
-            // Ends with comma (likely mid-sentence)
-            /,\s*$/,
-
-            // Trailing "like" or "just" (filler words often mid-sentence)
-            /\b(like|just|really|actually|basically|literally)\s*$/i,
+            /\b(to|for|with|at|by|from|in|on|of|about|into|through|during|before|after)\s*$/i,
         ];
 
-        // Patterns that indicate a standalone continuation (starts with these)
-        // If new transcript starts with these and we have a pending incomplete, merge
+        // Patterns that indicate a standalone continuation
         this.continuationStarts = [
             // Lowercase start (likely continuation)
             /^[a-z]/,
 
             // Starts with common continuation words
             /^(pretty|really|very|so|quite|just|also|too|still|already|even|only)\b/i,
-
-            // Starts with verb/adjective (likely completing a thought)
-            /^(happy|glad|excited|going|doing|working|feeling|thinking|looking)\b/i,
         ];
     }
 
@@ -68,16 +65,36 @@ class InputFilter {
     }
 
     /**
+     * Count words in a string
+     */
+    countWords(text) {
+        return text.trim().split(/\s+/).filter(w => w.length > 0).length;
+    }
+
+    /**
      * Check if a transcript looks incomplete
      * @param {string} text - The transcript text
      * @returns {boolean} True if it looks incomplete
      */
     looksIncomplete(text) {
         const trimmed = text.trim();
+        const wordCount = this.countWords(trimmed);
 
-        for (const pattern of this.incompleteEndings) {
+        // Check STRONG patterns first - these apply regardless of length
+        for (const pattern of this.strongIncompleteEndings) {
             if (pattern.test(trimmed)) {
+                logger.debug('INPUT_FILTER', `Strong incomplete pattern matched: "${trimmed}"`);
                 return true;
+            }
+        }
+
+        // Check WEAK patterns - only if sentence is short
+        if (wordCount < this.settings.minWordsForComplete) {
+            for (const pattern of this.weakIncompleteEndings) {
+                if (pattern.test(trimmed)) {
+                    logger.debug('INPUT_FILTER', `Weak incomplete pattern matched (${wordCount} words): "${trimmed}"`);
+                    return true;
+                }
             }
         }
 
@@ -202,7 +219,7 @@ class InputFilter {
     }
 
     /**
-     * Flush all pending transcripts for a user (e.g., when they stop speaking)
+     * Flush all pending transcripts for a user
      * @param {string} guildId - Guild ID
      * @param {string} userId - User ID
      * @param {Function} onComplete - Callback

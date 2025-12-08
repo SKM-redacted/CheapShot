@@ -23,6 +23,11 @@ class VoiceClient {
         this.userTranscriptBuffers = new Map(); // guildId -> Map(userId -> { text, timer, memberInfo })
         this.aiResponseCallback = null; // Callback for generating AI responses
         this.TRANSCRIPT_DEBOUNCE_MS = 1200; // Wait 1.2s after last transcript before triggering AI
+
+        // Response cooldown - prevents rapid AI calls when user pauses mid-sentence
+        this.responseTracking = new Map(); // guildId -> { inProgress: boolean, lastResponseTime: number, pendingTranscripts: [] }
+        this.RESPONSE_COOLDOWN_MS = 3000; // If AI responded within this time, queue new transcripts
+        this.PENDING_FLUSH_DELAY_MS = 2000; // Wait this long after AI finishes before sending queued transcripts
     }
 
     /**
@@ -355,8 +360,8 @@ class VoiceClient {
                     if (connectionInfo.conversationMode && this.aiResponseCallback) {
                         // Input filter will buffer incomplete transcripts and merge continuations
                         inputFilter.process(guildId, userId, fullTranscript, async (completeTranscript) => {
-                            logger.info('VOICE', `[INPUT_FILTER] Processing complete transcript: "${completeTranscript}"`);
-                            await this.generateAndSpeak(guildId, userId, memberInfo.displayName, completeTranscript);
+                            // Check response cooldown - are we currently responding or just finished?
+                            await this.queueOrRespond(guildId, userId, memberInfo.displayName, completeTranscript);
                         });
                     }
                 }, this.TRANSCRIPT_DEBOUNCE_MS);
@@ -364,6 +369,89 @@ class VoiceClient {
             } catch (error) {
                 logger.error('VOICE', `Failed to process transcript: ${error.message}`);
             }
+        }
+    }
+
+    /**
+     * Queue transcript or respond immediately based on cooldown
+     * Prevents rapid AI calls when user pauses mid-sentence
+     * @param {string} guildId - Guild ID
+     * @param {string} userId - User ID
+     * @param {string} username - User's display name
+     * @param {string} transcript - The transcript to process
+     */
+    async queueOrRespond(guildId, userId, username, transcript) {
+        // Get or create response tracking for this guild
+        let tracking = this.responseTracking.get(guildId);
+        if (!tracking) {
+            tracking = {
+                inProgress: false,
+                lastResponseTime: 0,
+                pendingTranscripts: [],
+                pendingTimer: null,
+                lastUserId: null,
+                lastUsername: null
+            };
+            this.responseTracking.set(guildId, tracking);
+        }
+
+        const now = Date.now();
+        const timeSinceLastResponse = now - tracking.lastResponseTime;
+
+        // If AI is currently responding OR we just finished recently, queue this transcript
+        if (tracking.inProgress || timeSinceLastResponse < this.RESPONSE_COOLDOWN_MS) {
+            logger.info('VOICE', `[COOLDOWN] Queueing transcript (in progress: ${tracking.inProgress}, last: ${timeSinceLastResponse}ms ago): "${transcript}"`);
+
+            tracking.pendingTranscripts.push(transcript);
+            tracking.lastUserId = userId;
+            tracking.lastUsername = username;
+
+            // Set/reset timer to flush pending transcripts after delay
+            if (tracking.pendingTimer) {
+                clearTimeout(tracking.pendingTimer);
+            }
+
+            // Only set flush timer if not currently in progress
+            // (if in progress, we'll flush when response completes)
+            if (!tracking.inProgress) {
+                tracking.pendingTimer = setTimeout(() => {
+                    this.flushPendingTranscripts(guildId);
+                }, this.PENDING_FLUSH_DELAY_MS);
+            }
+
+            return;
+        }
+
+        // Not in cooldown - respond immediately
+        logger.info('VOICE', `[DIRECT] Processing transcript: "${transcript}"`);
+        await this.generateAndSpeak(guildId, userId, username, transcript);
+    }
+
+    /**
+     * Flush all pending transcripts as one combined message
+     * @param {string} guildId - Guild ID
+     */
+    async flushPendingTranscripts(guildId) {
+        const tracking = this.responseTracking.get(guildId);
+        if (!tracking || tracking.pendingTranscripts.length === 0) return;
+
+        // Clear timer
+        if (tracking.pendingTimer) {
+            clearTimeout(tracking.pendingTimer);
+            tracking.pendingTimer = null;
+        }
+
+        // Combine all pending transcripts
+        const combined = tracking.pendingTranscripts.join(' ');
+        const userId = tracking.lastUserId;
+        const username = tracking.lastUsername;
+
+        // Clear pending
+        tracking.pendingTranscripts = [];
+
+        if (combined.trim()) {
+            logger.info('VOICE', `[FLUSH] Combined ${tracking.pendingTranscripts.length + 1} transcripts: "${combined}"`);
+            await this.generateAndSpeak(guildId, userId, username, combined);
         }
     }
 
@@ -378,6 +466,21 @@ class VoiceClient {
     async generateAndSpeak(guildId, userId, username, transcript) {
         const connectionInfo = this.activeConnections.get(guildId);
         if (!connectionInfo || !this.aiResponseCallback) return;
+
+        // Mark response as in progress
+        let tracking = this.responseTracking.get(guildId);
+        if (!tracking) {
+            tracking = {
+                inProgress: false,
+                lastResponseTime: 0,
+                pendingTranscripts: [],
+                pendingTimer: null,
+                lastUserId: null,
+                lastUsername: null
+            };
+            this.responseTracking.set(guildId, tracking);
+        }
+        tracking.inProgress = true;
 
         try {
             logger.info('VOICE', `Generating streaming AI response to: "${transcript}"`);
@@ -417,14 +520,29 @@ class VoiceClient {
             // End the filter session
             perceptionFilter.endSession(guildId);
 
+            // Mark response as complete
+            tracking.inProgress = false;
+            tracking.lastResponseTime = Date.now();
+
             // Only send full response to text channel if showTranscripts is enabled
             if (connectionInfo.showTranscripts && fullResponse.trim()) {
                 await connectionInfo.textChannel.send(`🤖 **CheapShot:** ${fullResponse.trim()}`);
             }
 
             logger.info('VOICE', `AI responded with ${sentenceCount} sentences`);
+
+            // Flush any pending transcripts that came in while we were responding
+            if (tracking.pendingTranscripts.length > 0) {
+                logger.info('VOICE', `Flushing ${tracking.pendingTranscripts.length} pending transcripts after response`);
+                // Small delay before flushing to let user finish speaking
+                setTimeout(() => {
+                    this.flushPendingTranscripts(guildId);
+                }, this.PENDING_FLUSH_DELAY_MS);
+            }
         } catch (error) {
-            // Make sure to end session even on error
+            // Make sure to end session and mark complete even on error
+            tracking.inProgress = false;
+            tracking.lastResponseTime = Date.now();
             perceptionFilter.endSession(guildId);
             logger.error('VOICE', `Failed to generate/speak AI response: ${error.message}`);
         }
@@ -571,6 +689,13 @@ class VoiceClient {
 
         // Clean up input filter buffers
         inputFilter.clearGuild(guildId);
+
+        // Clean up response tracking
+        const tracking = this.responseTracking.get(guildId);
+        if (tracking && tracking.pendingTimer) {
+            clearTimeout(tracking.pendingTimer);
+        }
+        this.responseTracking.delete(guildId);
 
         this.activeConnections.delete(guildId);
         this.userTranscriptBuffers.delete(guildId);
