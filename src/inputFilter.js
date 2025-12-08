@@ -16,15 +16,16 @@ class InputFilter {
 
         this.settings = {
             // How long to wait for continuation after an incomplete transcript (ms)
-            // Increased to 4.5s to give users time to pause mid-sentence without triggering AI
-            continuationTimeoutMs: 4500,
+            // 3 seconds is a good balance between catching continuations and responsiveness
+            continuationTimeoutMs: 3000,
 
             // Minimum time gap to consider transcripts as separate (ms)
-            mergeWindowMs: 5000,
+            // If a new transcript arrives within this window, consider merging
+            mergeWindowMs: 4000,
 
             // If a sentence has this many words or more, don't flag it as incomplete
             // (even if it ends with a conjunction - it's probably a complete thought)
-            minWordsForComplete: 8
+            minWordsForComplete: 6
         };
 
         // STRONG incomplete patterns - these almost always mean incomplete regardless of length
@@ -37,24 +38,33 @@ class InputFilter {
 
             // Ends with comma - mid-sentence
             /,\s*$/,
+
+            // Ends with "didn't", "couldn't", etc without completing the thought
+            /\b(didn't|couldn't|wouldn't|shouldn't|can't|won't|isn't|aren't|wasn't|weren't)\s*$/i,
         ];
 
         // WEAK incomplete patterns - only flag if sentence is SHORT (< minWordsForComplete)
         this.weakIncompleteEndings = [
             // Trailing conjunctions
-            /\b(and|but|or|so|because|since|while|when|if|although|though|unless|until|as|that)\s*$/i,
+            /\b(and|but|or|so|because|since|while|when|if|although|though|unless|until|as|that)\\s*$/i,
 
             // Trailing prepositions
             /\b(to|for|with|at|by|from|in|on|of|about|into|through|during|before|after)\s*$/i,
+
+            // Trailing verbs that expect an object
+            /\b(is|are|was|were|have|has|had|do|does|did|will|would|could|should|might|may)\s*$/i,
         ];
 
-        // Patterns that indicate a standalone continuation
+        // Patterns that indicate a standalone continuation (less strict now)
         this.continuationStarts = [
             // Lowercase start (likely continuation)
             /^[a-z]/,
 
             // Starts with common continuation words
-            /^(pretty|really|very|so|quite|just|also|too|still|already|even|only)\b/i,
+            /^(pretty|really|very|so|quite|just|also|too|still|already|even|only|going|trying|getting|making|doing)\b/i,
+
+            // Starts with pronouns that might continue a thought
+            /^(it|that|this|which|who|what)\b/i,
         ];
     }
 
@@ -148,8 +158,13 @@ class InputFilter {
 
             // Check if this looks like a continuation
             const timeSincePending = now - pending.timestamp;
+
+            // ALWAYS merge if:
+            // 1. Within merge window AND
+            // 2. Previous was incomplete OR new one looks like a continuation
+            // This is intentionally aggressive - better to merge too much than split too much
             const shouldMerge = timeSincePending < this.settings.mergeWindowMs &&
-                (this.looksContinuation(trimmed) || pending.wasIncomplete);
+                (pending.wasIncomplete || this.looksContinuation(trimmed));
 
             if (shouldMerge) {
                 // Merge the transcripts
@@ -176,7 +191,7 @@ class InputFilter {
                 return true;
             } else {
                 // Not a continuation - flush the old one first, then process new
-                logger.debug('INPUT_FILTER', `Not a continuation, flushing old and processing new`);
+                logger.debug('INPUT_FILTER', `Not a continuation (${timeSincePending}ms gap), flushing old and processing new`);
                 this.pendingTranscripts.delete(key);
                 onComplete(pending.text);
 

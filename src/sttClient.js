@@ -52,16 +52,16 @@ export class STTClient {
 
         try {
             const connection = this.deepgram.listen.live({
-                model: 'nova-2',           // Deepgram's latest model
+                model: 'nova-2',           // Deepgram's latest & most accurate model
                 language: 'en-US',
-                smart_format: true,         // Better formatting
+                smart_format: true,         // Better formatting (numbers, dates, etc)
                 interim_results: true,      // Get partial results for real-time feel
-                utterance_end_ms: 1000,     // Detect end of utterance
+                utterance_end_ms: 1500,     // Detect end of utterance (longer for natural pauses)
                 vad_events: true,           // Voice Activity Detection
                 punctuate: true,            // Add punctuation
                 encoding: 'opus',           // Discord uses Opus
                 sample_rate: 48000,         // Discord's sample rate
-                channels: 2,                // Stereo
+                channels: 2,                // Stereo - Discord audio format
             });
 
             // Store callback
