@@ -361,27 +361,39 @@ class VoiceClient {
                     if (connectionInfo.conversationMode && this.aiResponseCallback) {
                         // Input filter will buffer incomplete transcripts and merge continuations
                         inputFilter.process(guildId, userId, fullTranscript, async (completeTranscript) => {
+                            // Generate a unique message ID for this specific transcript
+                            // This ensures each message response is independently trackable
+                            const messageId = `${guildId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
                             // Get recent conversation context so gatekeeper knows if bot just asked a question
                             const recentContext = voiceMemory.getFormattedContext(guildId);
+
+                            // Get VC member info for smarter gatekeeper decisions
+                            // Count humans only (exclude bots)
+                            const vcMembers = connectionInfo.voiceChannel.members.filter(m => !m.user.bot);
+                            const memberCount = vcMembers.size;
+                            const memberNames = vcMembers.map(m => m.displayName);
+                            const vcInfo = { memberCount, memberNames };
 
                             // SPECULATIVE EXECUTION: Run gatekeeper and AI response generation in parallel
                             // This eliminates the 3-second gatekeeper delay!
                             const gatekeeperPromise = responseGatekeeper.shouldRespond(
                                 completeTranscript,
                                 memberInfo.displayName,
-                                recentContext
+                                recentContext,
+                                vcInfo
                             );
 
-                            // Start generating response speculatively
-                            const responsePromise = this.queueOrRespond(guildId, userId, memberInfo.displayName, completeTranscript, true);
+                            // Start generating response speculatively (pass messageId for cancellation tracking)
+                            const responsePromise = this.queueOrRespond(guildId, userId, memberInfo.displayName, completeTranscript, true, messageId);
 
                             // Wait for gatekeeper decision
                             const shouldRespond = await gatekeeperPromise;
 
                             if (!shouldRespond) {
                                 logger.info('VOICE', `[GATEKEEPER] Not responding to: "${completeTranscript}"`);
-                                // Cancel the speculative response by setting a flag
-                                this.cancelPendingResponse(guildId);
+                                // Cancel THIS SPECIFIC message's response
+                                this.cancelPendingResponse(guildId, messageId);
                                 return;
                             }
 
@@ -399,14 +411,25 @@ class VoiceClient {
     }
 
     /**
-     * Cancel a pending speculative response
+     * Cancel a pending speculative response for a specific message
+     * Also clears any TTS audio that was already generated for this message
      * @param {string} guildId - Guild ID
+     * @param {string} messageId - Unique message ID to cancel
      */
-    cancelPendingResponse(guildId) {
+    cancelPendingResponse(guildId, messageId = null) {
         let tracking = this.responseTracking.get(guildId);
         if (tracking) {
             tracking.cancelled = true;
-            logger.debug('VOICE', `[SPECULATIVE] Cancelled pending response for guild ${guildId}`);
+            tracking.cancelledMessageId = messageId;
+            logger.debug('VOICE', `[SPECULATIVE] Cancelled response ${messageId ? messageId.slice(-12) : 'all'} for guild ${guildId}`);
+
+            // CRITICAL: Also cancel any TTS audio that was already generated/queued for THIS message
+            // This prevents the race condition where audio plays after cancel
+            if (messageId) {
+                ttsClient.cancelMessage(guildId, messageId);
+            } else {
+                ttsClient.stop(guildId);
+            }
         }
     }
 
@@ -418,39 +441,47 @@ class VoiceClient {
      * @param {string} username - User's display name
      * @param {string} transcript - The transcript to process
      * @param {boolean} speculative - If true, this is speculative and may be cancelled
+     * @param {string} messageId - Unique ID for this specific message (for cancellation tracking)
      */
-    async queueOrRespond(guildId, userId, username, transcript, speculative = false) {
+    async queueOrRespond(guildId, userId, username, transcript, speculative = false, messageId = null) {
         // Get or create response tracking for this guild
         let tracking = this.responseTracking.get(guildId);
         if (!tracking) {
             tracking = {
                 inProgress: false,
                 lastResponseTime: 0,
-                cancelled: false
+                cancelled: false,
+                cancelledMessageId: null  // Track which specific message got cancelled
             };
             this.responseTracking.set(guildId, tracking);
         }
 
-        // Reset cancelled flag for this new response
-        tracking.cancelled = false;
+        // Reset cancelled flag if this is a DIFFERENT message than the one that was cancelled
+        if (tracking.cancelledMessageId !== messageId) {
+            tracking.cancelled = false;
+            tracking.cancelledMessageId = null;
+        }
 
         const now = Date.now();
         const timeSinceLastResponse = now - tracking.lastResponseTime;
 
+        // Helper to check if THIS SPECIFIC message was cancelled
+        const isCancelledForMe = () => tracking.cancelled && tracking.cancelledMessageId === messageId;
+
         // If AI is currently responding, wait for it to finish
         if (tracking.inProgress) {
             logger.info('VOICE', `[WAIT] Waiting for current response to finish: "${transcript}"`);
-            while (tracking.inProgress && !tracking.cancelled) {
+            while (tracking.inProgress && !isCancelledForMe()) {
                 await new Promise(r => setTimeout(r, 100));
             }
-            if (tracking.cancelled) {
+            if (isCancelledForMe()) {
                 logger.debug('VOICE', `[SPECULATIVE] Response cancelled while waiting`);
                 return;
             }
         }
 
         // Check if cancelled before proceeding
-        if (tracking.cancelled) {
+        if (isCancelledForMe()) {
             logger.debug('VOICE', `[SPECULATIVE] Response cancelled before processing`);
             return;
         }
@@ -462,15 +493,15 @@ class VoiceClient {
             await new Promise(r => setTimeout(r, delay));
 
             // Check if cancelled after pause
-            if (tracking.cancelled) {
+            if (isCancelledForMe()) {
                 logger.debug('VOICE', `[SPECULATIVE] Response cancelled during pause`);
                 return;
             }
         }
 
-        // Now respond
+        // Now respond (pass messageId for tracking within generateAndSpeak)
         logger.info('VOICE', `[RESPOND] Processing: "${transcript}"`);
-        await this.generateAndSpeak(guildId, userId, username, transcript);
+        await this.generateAndSpeak(guildId, userId, username, transcript, messageId);
     }
 
     /**
@@ -480,8 +511,9 @@ class VoiceClient {
      * @param {string} userId - User ID
      * @param {string} username - User's display name
      * @param {string} transcript - User's spoken text
+     * @param {string} messageId - Unique message ID for cancellation tracking
      */
-    async generateAndSpeak(guildId, userId, username, transcript) {
+    async generateAndSpeak(guildId, userId, username, transcript, messageId = null) {
         const connectionInfo = this.activeConnections.get(guildId);
         if (!connectionInfo || !this.aiResponseCallback) return;
 
@@ -514,8 +546,8 @@ class VoiceClient {
                 transcript,
                 // onSentence callback - called for each sentence as it's generated
                 async (sentence) => {
-                    // Check if response was cancelled by gatekeeper
-                    if (tracking.cancelled) {
+                    // Check if THIS SPECIFIC message was cancelled by gatekeeper
+                    if (tracking.cancelled && tracking.cancelledMessageId === messageId) {
                         logger.debug('VOICE', `[SPECULATIVE] Skipping sentence - response cancelled`);
                         return;
                     }
@@ -534,10 +566,11 @@ class VoiceClient {
                     logger.info('VOICE', `Speaking sentence ${sentenceCount}: "${sentence.substring(0, 50)}..."`);
 
                     // Speak immediately - don't wait for full response!
-                    await ttsClient.speak(guildId, connectionInfo.connection, sentence);
+                    // Pass messageId so TTS can track which audio belongs to which message
+                    await ttsClient.speak(guildId, connectionInfo.connection, sentence, { messageId });
                 },
                 // isCancelled callback - AI client checks this before saving to memory
-                () => tracking.cancelled
+                () => tracking.cancelled && tracking.cancelledMessageId === messageId
             );
 
             // End the filter session

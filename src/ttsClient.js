@@ -81,7 +81,7 @@ export class TTSClient {
      * @param {string} guildId - Guild ID
      * @param {Object} voiceConnection - Discord voice connection
      * @param {string} text - Text to speak
-     * @param {Object} options - TTS options
+     * @param {Object} options - TTS options (can include messageId for cancellation tracking)
      * @returns {Promise<boolean>} Success
      */
     async speak(guildId, voiceConnection, text, options = {}) {
@@ -100,10 +100,12 @@ export class TTSClient {
         if (!speaker) {
             speaker = {
                 player: createAudioPlayer(),
-                audioQueue: [],        // Queue of ready-to-play audio buffers
+                audioQueue: [],        // Queue of { audioBuffer, messageId } objects
                 isPlaying: false,      // Is the player currently playing audio?
+                currentMessageId: null, // messageId of currently playing audio
                 pendingOrder: [],      // Array of generation IDs in order
-                pendingAudio: new Map(), // generationId -> audioBuffer (completed generations waiting for ordering)
+                pendingAudio: new Map(), // generationId -> { audioBuffer, messageId }
+                pendingMessageIds: new Map(), // generationId -> messageId
                 nextGenerationId: 0
             };
 
@@ -113,12 +115,14 @@ export class TTSClient {
             // Handle player state changes - when audio finishes, play next
             speaker.player.on(AudioPlayerStatus.Idle, () => {
                 speaker.isPlaying = false;
+                speaker.currentMessageId = null;
                 this.playNextAudio(guildId);
             });
 
             speaker.player.on('error', (error) => {
                 logger.error('TTS', `Audio player error: ${error.message}`);
                 speaker.isPlaying = false;
+                speaker.currentMessageId = null;
                 this.playNextAudio(guildId);
             });
 
@@ -128,6 +132,10 @@ export class TTSClient {
         // Assign a generation ID to maintain order
         const generationId = speaker.nextGenerationId++;
         speaker.pendingOrder.push(generationId);
+
+        // Track messageId for this generation (for cancellation)
+        const messageId = options.messageId || null;
+        speaker.pendingMessageIds.set(generationId, messageId);
 
         // Start generating audio IMMEDIATELY in parallel - don't wait!
         this.generateAudio(guildId, generationId, text, options);
@@ -153,8 +161,9 @@ export class TTSClient {
             const audioBuffer = await this.generateTTSBuffer(text, options);
 
             if (audioBuffer && speaker) {
-                // Store the completed audio
-                speaker.pendingAudio.set(generationId, audioBuffer);
+                // Store the completed audio with its messageId
+                const messageId = speaker.pendingMessageIds.get(generationId) || null;
+                speaker.pendingAudio.set(generationId, { audioBuffer, messageId });
                 logger.debug('TTS', `Generation #${generationId} complete (${audioBuffer.length} bytes)`);
 
                 // Check if we can move any audio to the playback queue
@@ -167,6 +176,7 @@ export class TTSClient {
             if (speaker) {
                 const idx = speaker.pendingOrder.indexOf(generationId);
                 if (idx !== -1) speaker.pendingOrder.splice(idx, 1);
+                speaker.pendingMessageIds.delete(generationId);
                 this.flushPendingToQueue(guildId);
             }
         }
@@ -185,10 +195,11 @@ export class TTSClient {
             const nextId = speaker.pendingOrder[0];
             if (speaker.pendingAudio.has(nextId)) {
                 // This one is ready - move to playback queue
-                const audioBuffer = speaker.pendingAudio.get(nextId);
+                const { audioBuffer, messageId } = speaker.pendingAudio.get(nextId);
                 speaker.pendingAudio.delete(nextId);
+                speaker.pendingMessageIds.delete(nextId);
                 speaker.pendingOrder.shift();
-                speaker.audioQueue.push(audioBuffer);
+                speaker.audioQueue.push({ audioBuffer, messageId });
                 logger.debug('TTS', `Queued audio #${nextId} for playback`);
             } else {
                 // Not ready yet - stop here to maintain order
@@ -216,8 +227,9 @@ export class TTSClient {
             return; // Already playing
         }
 
-        const audioBuffer = speaker.audioQueue.shift();
+        const { audioBuffer, messageId } = speaker.audioQueue.shift();
         speaker.isPlaying = true;
+        speaker.currentMessageId = messageId;
 
         this.playAudio(speaker.player, audioBuffer);
     }
@@ -313,7 +325,50 @@ export class TTSClient {
     }
 
     /**
-     * Stop speaking in a guild
+     * Cancel all audio for a specific message ID
+     * Removes pending and queued audio, stops playback if it's playing this message
+     * @param {string} guildId - Guild ID
+     * @param {string} messageId - Message ID to cancel
+     */
+    cancelMessage(guildId, messageId) {
+        const speaker = this.activeSpeakers.get(guildId);
+        if (!speaker || !messageId) return;
+
+        let cancelled = false;
+
+        // Remove from pending generations
+        for (const [genId, msgId] of speaker.pendingMessageIds.entries()) {
+            if (msgId === messageId) {
+                speaker.pendingMessageIds.delete(genId);
+                speaker.pendingAudio.delete(genId);
+                const idx = speaker.pendingOrder.indexOf(genId);
+                if (idx !== -1) speaker.pendingOrder.splice(idx, 1);
+                cancelled = true;
+            }
+        }
+
+        // Remove from audio queue
+        const originalLength = speaker.audioQueue.length;
+        speaker.audioQueue = speaker.audioQueue.filter(item => item.messageId !== messageId);
+        if (speaker.audioQueue.length < originalLength) {
+            cancelled = true;
+        }
+
+        // Stop current playback if it's for this message
+        if (speaker.currentMessageId === messageId) {
+            speaker.player.stop();
+            speaker.isPlaying = false;
+            speaker.currentMessageId = null;
+            cancelled = true;
+        }
+
+        if (cancelled) {
+            logger.debug('TTS', `Cancelled audio for message ${messageId.slice(-12)}`);
+        }
+    }
+
+    /**
+     * Stop speaking in a guild (clears ALL audio)
      * @param {string} guildId - Guild ID
      */
     stop(guildId) {
@@ -322,8 +377,10 @@ export class TTSClient {
             speaker.audioQueue = [];
             speaker.pendingOrder = [];
             speaker.pendingAudio.clear();
+            speaker.pendingMessageIds.clear();
             speaker.player.stop();
             speaker.isPlaying = false;
+            speaker.currentMessageId = null;
         }
     }
 

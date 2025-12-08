@@ -54,7 +54,7 @@ export class STTClient {
             const connection = this.deepgram.listen.live({
                 model: 'nova-2',           // Deepgram's latest & most accurate model
                 language: 'en-US',
-                smart_format: true,         // Better formatting (numbers, dates, etc)
+                smart_format: false,        // OFF - gives verbatim transcription, no AI rephrasing
                 interim_results: true,      // Get partial results for real-time feel
                 utterance_end_ms: 1500,     // Detect end of utterance (longer for natural pauses)
                 vad_events: true,           // Voice Activity Detection
