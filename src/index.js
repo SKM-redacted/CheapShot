@@ -340,9 +340,15 @@ async function handleAIResponse(message, userMessage, bot, requestId) {
 
         await aiClient.streamChatWithContext(
             contextMessages,
-            // onChunk
-            (chunk, fullText) => {
+            // onChunk - called for each piece of streaming content
+            async (chunk, fullText) => {
                 pendingContent = fullText;
+
+                // Reset burst timer on first content (streaming just started)
+                if (editCount === 0) {
+                    burstStartTime = Date.now();
+                    burstEditsUsed = 0;
+                }
 
                 // Clear any pending force update
                 if (forceUpdateTimer) {
@@ -350,19 +356,19 @@ async function handleAIResponse(message, userMessage, bot, requestId) {
                     forceUpdateTimer = null;
                 }
 
-                // Update if character threshold reached
+                // Update immediately on first chunk, then batch
                 const newChars = fullText.length - lastUpdateLength;
-                if (newChars >= CHAR_BATCH_SIZE) {
+                if (editCount === 0 || newChars >= CHAR_BATCH_SIZE) {
                     lastUpdateLength = fullText.length;
                     scheduleEdit();
                 } else {
-                    // Force update after 200ms if no threshold met (for short messages)
+                    // Force update after 150ms if no threshold met
                     forceUpdateTimer = setTimeout(() => {
                         if (pendingContent.length > lastUpdateLength) {
                             lastUpdateLength = pendingContent.length;
                             scheduleEdit();
                         }
-                    }, 200);
+                    }, 150);
                 }
             },
             // onComplete
