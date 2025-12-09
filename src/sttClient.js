@@ -69,7 +69,7 @@ export class STTClient {
 
             // Setup event handlers
             connection.on(LiveTranscriptionEvents.Open, () => {
-                logger.info('STT', `Transcription connection opened for guild ${guildId}`);
+                // Connection opened - no logging needed
             });
 
             connection.on(LiveTranscriptionEvents.Transcript, (data) => {
@@ -105,13 +105,11 @@ export class STTClient {
             });
 
             connection.on(LiveTranscriptionEvents.Close, () => {
-                logger.info('STT', `Transcription connection closed for guild ${guildId}`);
                 this.connections.delete(guildId);
                 this.transcriptCallbacks.delete(guildId);
             });
 
             this.connections.set(guildId, connection);
-            logger.info('STT', `Created transcription connection for guild ${guildId}`);
             return connection;
         } catch (error) {
             logger.error('STT', `Failed to create transcription connection for guild ${guildId}`, error);
@@ -145,7 +143,6 @@ export class STTClient {
         if (connection) {
             try {
                 connection.finish();
-                logger.info('STT', `Closed transcription connection for guild ${guildId}`);
             } catch (error) {
                 logger.debug('STT', `Error closing connection for guild ${guildId}: ${error.message}`);
             }

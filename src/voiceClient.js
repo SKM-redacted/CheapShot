@@ -338,8 +338,6 @@ class VoiceClient {
                     buffer.text = transcript.trim();
                 }
 
-                // Log each fragment for debugging
-                logger.debug('VOICE', `[${memberInfo.displayName}] Fragment: "${transcript}" (buffered: "${buffer.text}")`);
 
                 // Set debounce timer - wait for user to finish speaking
                 buffer.timer = setTimeout(async () => {
@@ -349,8 +347,6 @@ class VoiceClient {
 
                     if (!fullTranscript) return;
 
-                    // Log the complete transcript
-                    logger.info('VOICE', `[${memberInfo.displayName}] "${fullTranscript}" (${(confidence * 100).toFixed(1)}%)`);
 
                     // Only send to text channel if showTranscripts is enabled
                     if (connectionInfo.showTranscripts) {

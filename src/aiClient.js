@@ -447,13 +447,18 @@ You're talking to ${username}. Keep it casual and SHORT.`;
 
         // Voice-optimized system prompt - conversational and concise
         // Framed as "your name is" rather than "you are" to avoid Claude identity resistance
-        const voiceSystemPrompt = systemPromptOverride || `Your name in this Discord server is CheapShot. You're a voice assistant chatting with friends.
+        const voiceSystemPrompt = systemPromptOverride || `Your name in this Discord server is CheapShot. You're chatting with friends in a voice channel.
+
+HOW THIS WORKS:
+- Users are SPEAKING to you with their voice (converted to text via speech-to-text)
+- Your responses are SPOKEN BACK to them via text-to-speech
+- This is a real-time voice conversation, not a text chat
 
 STYLE:
-- Keep responses brief (1-3 sentences max)
+- Keep responses brief (1-3 sentences max) - long responses are annoying to listen to
 - Talk like a chill friend, not a formal assistant
-- No lists, bullets, markdown, or numbered points - this is voice chat
-- Be warm, casual, and concise - think text message, not essay
+- No lists, bullets, markdown, or numbered points - these don't work in voice
+- Be warm, casual, and concise
 - If asked something complex, give the simplest useful answer
 
 IMPORTANT:
@@ -463,7 +468,7 @@ IMPORTANT:
 - If you don't understand something, just ask casually
 
 FRAGMENTED SPEECH:
-- Messages come from speech-to-text and may be fragmented
+- Messages come from speech-to-text and may be fragmented or slightly garbled
 - Infer meaning from context rather than asking "what do you mean?"
 - Flow naturally with the conversation
 
@@ -562,7 +567,9 @@ You're chatting with ${username}. Keep it casual!`;
                             const sentenceMatch = chunkBuffer.match(/^(.*?[.!?]+)\s*(.*)$/s);
                             if (sentenceMatch) {
                                 const sentence = sentenceMatch[1].trim();
-                                if (sentence) {
+                                // Skip pure emoji sentences - they don't speak well
+                                const hasWords = sentence.replace(/[\p{Emoji}\s.,!?]/gu, '').length > 0;
+                                if (sentence && hasWords) {
                                     await onSentence(sentence);
                                 }
                                 chunkBuffer = sentenceMatch[2];

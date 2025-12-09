@@ -146,36 +146,60 @@ Only respond with exactly "YES" or "NO".`;
             }
         }
 
-        // QUICK-PASS: If the bot just asked a question, ALWAYS respond to the next thing the user says
-        // This is deterministic - don't leave it to AI interpretation
+        // CONVERSATIONAL CONTEXT: If the bot just spoke, the next message is probably a response to us
+        // This makes conversations flow naturally without requiring the bot's name every time
         if (context && memberCount > 1) {
-            // Parse context to find the bot's last message
-            const lines = context.split('\n');
-            let lastBotMessage = null;
-            let lastBotTimestamp = null;
+            // First check if this is a pure filler word - NEVER quick-pass these
+            const fillerCheck = trimmed.toLowerCase().replace(/[.!?,]/g, '').trim();
+            const pureFillers = ['yeah', 'yep', 'yup', 'yes', 'no', 'nope', 'nah', 'ok', 'okay', 'sure', 'right', 'alright', 'mhm', 'hmm', 'uh', 'um'];
 
-            for (let i = lines.length - 1; i >= 0; i--) {
-                const line = lines[i];
-                // Match: [Xs ago] You said: "message"
-                const botMatch = line.match(/\[(\d+)s? ago\] You said: "(.+)"/);
-                if (botMatch) {
-                    lastBotTimestamp = parseInt(botMatch[1]);
-                    lastBotMessage = botMatch[2];
-                    break;
-                }
-                // Also match minute format: [Xm ago] You said: "message"  
-                const botMatchMin = line.match(/\[(\d+)m ago\] You said: "(.+)"/);
-                if (botMatchMin) {
-                    lastBotTimestamp = parseInt(botMatchMin[1]) * 60;
-                    lastBotMessage = botMatchMin[2];
-                    break;
-                }
-            }
+            if (!pureFillers.includes(fillerCheck)) {
+                // Parse context to find the bot's last message and who was talking
+                const lines = context.split('\n');
+                let lastBotTimestamp = null;
+                let lastBotMessage = null;
+                let lastUserBeforeBot = null;
 
-            // If bot asked a question in the last 30 seconds, auto-approve response
-            if (lastBotMessage && lastBotMessage.includes('?') && lastBotTimestamp !== null && lastBotTimestamp <= 30) {
-                logger.info('GATEKEEPER', `Quick-pass: Bot asked "${lastBotMessage.substring(0, 40)}..." ${lastBotTimestamp}s ago - responding to answer`);
-                return true;
+                for (let i = lines.length - 1; i >= 0; i--) {
+                    const line = lines[i];
+
+                    // Match bot messages: [Xs ago] You said: "message"
+                    const botMatch = line.match(/\[(\d+)s? ago\] You said: "(.+)"/);
+                    if (botMatch && lastBotTimestamp === null) {
+                        lastBotTimestamp = parseInt(botMatch[1]);
+                        lastBotMessage = botMatch[2];
+                    }
+
+                    // Match minute format
+                    const botMatchMin = line.match(/\[(\d+)m ago\] You said: "(.+)"/);
+                    if (botMatchMin && lastBotTimestamp === null) {
+                        lastBotTimestamp = parseInt(botMatchMin[1]) * 60;
+                        lastBotMessage = botMatchMin[2];
+                    }
+
+                    // Match user messages to see who was talking to bot
+                    const userMatch = line.match(/\[\d+[sm]? ago\] (\w+) said:/);
+                    if (userMatch && lastBotTimestamp !== null && lastUserBeforeBot === null) {
+                        lastUserBeforeBot = userMatch[1];
+                        break; // Found the user who was talking to the bot
+                    }
+                }
+
+                const wordCount = trimmed.split(/\s+/).length;
+
+                // Quick-pass criteria:
+                // 1. Bot spoke within the last 15 seconds
+                // 2. Response has some substance (3+ words)
+                // 3. Either: bot asked a question OR this user was just talking to the bot
+                if (lastBotTimestamp !== null && lastBotTimestamp <= 15 && wordCount >= 3) {
+                    const botAskedQuestion = lastBotMessage && lastBotMessage.includes('?');
+                    const sameUserContinuing = lastUserBeforeBot && username.toLowerCase().includes(lastUserBeforeBot.toLowerCase().substring(0, 4));
+
+                    if (botAskedQuestion || sameUserContinuing) {
+                        logger.info('GATEKEEPER', `Conversation quick-pass: Bot spoke ${lastBotTimestamp}s ago, ${botAskedQuestion ? 'asked question' : 'same user continuing'}`);
+                        return true;
+                    }
+                }
             }
         }
 
