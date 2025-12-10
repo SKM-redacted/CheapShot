@@ -160,7 +160,14 @@ async function handleMessage(message, bot) {
 
     const isDM = !message.guild;
 
-    if (!isDM && config.allowedChannelId && message.channel.id !== config.allowedChannelId) {
+    // Allow DMs only from the owner
+    if (isDM) {
+        if (!config.ownerId || message.author.id !== config.ownerId) {
+            return; // Ignore DMs from non-owners
+        }
+        // Owner DM - proceed with response
+        logger.info('DM', `Received DM from owner: ${message.author.tag}`);
+    } else if (config.allowedChannelId && message.channel.id !== config.allowedChannelId) {
         return;
     }
 
@@ -555,11 +562,18 @@ async function start() {
         botManager.onInteraction(handleInteraction);
 
         // Setup AI response callback for voice conversations - now with streaming and memory!
-        voiceClient.setAIResponseCallback(async (guildId, userId, username, transcript, onSentence, isCancelled) => {
+        // Also includes sentiment analysis for tone-aware responses!
+        voiceClient.setAIResponseCallback(async (guildId, userId, username, transcript, onSentence, isCancelled, sentimentData) => {
             try {
+                // Log sentiment if available
+                if (sentimentData && sentimentData.description) {
+                    logger.debug('VOICE', `[SENTIMENT] ${username}'s tone: ${sentimentData.description}`);
+                }
+
                 // Use streaming voice chat for faster response
                 // Now includes 5-minute short-term memory!
                 // Also passes isCancelled so cancelled responses don't pollute memory
+                // sentimentData provides emotional context for smarter AI responses
                 let fullResponse = '';
                 await aiClient.streamVoiceChat(
                     guildId,        // Pass guildId for memory context
@@ -575,7 +589,8 @@ async function start() {
                         fullResponse = complete;
                     },
                     null,  // systemPromptOverride
-                    isCancelled  // Pass cancellation check to avoid saving cancelled responses
+                    isCancelled,  // Pass cancellation check to avoid saving cancelled responses
+                    sentimentData  // Pass sentiment for tone-aware responses
                 );
                 return fullResponse;
             } catch (error) {

@@ -254,14 +254,14 @@ class VoiceClient {
             const sttConnectionId = `${guildId}-${userId}`;
             const sttConnection = await sttClient.createConnection(
                 sttConnectionId,
-                async (error, transcript, isFinal, confidence) => {
+                async (error, transcript, isFinal, confidence, isUtteranceEnd, sentimentData) => {
                     if (error) {
                         logger.error('VOICE', `STT error for user ${userId}: ${error.message}`);
                         return;
                     }
 
                     if (transcript && transcript.trim()) {
-                        await this.handleUserTranscript(guildId, userId, transcript, isFinal, confidence, memberInfo);
+                        await this.handleUserTranscript(guildId, userId, transcript, isFinal, confidence, memberInfo, sentimentData);
                     }
                 }
             );
@@ -309,8 +309,9 @@ class VoiceClient {
      * @param {boolean} isFinal - Whether this is a final result
      * @param {number} confidence - Confidence score
      * @param {Object} memberInfo - Member display info
+     * @param {Object} sentimentData - Sentiment analysis from Deepgram { sentiment, score, intensity }
      */
-    async handleUserTranscript(guildId, userId, transcript, isFinal, confidence, memberInfo) {
+    async handleUserTranscript(guildId, userId, transcript, isFinal, confidence, memberInfo, sentimentData = null) {
         const connectionInfo = this.activeConnections.get(guildId);
         if (!connectionInfo) return;
 
@@ -322,7 +323,7 @@ class VoiceClient {
                 let buffer = this.userTranscriptBuffers.get(bufferKey);
 
                 if (!buffer) {
-                    buffer = { text: '', timer: null, memberInfo };
+                    buffer = { text: '', timer: null, memberInfo, sentimentScores: [], sentimentLabels: [] };
                     this.userTranscriptBuffers.set(bufferKey, buffer);
                 }
 
@@ -338,15 +339,44 @@ class VoiceClient {
                     buffer.text = transcript.trim();
                 }
 
+                // Collect sentiment data for averaging later
+                if (sentimentData && sentimentData.score !== undefined) {
+                    buffer.sentimentScores.push(sentimentData.score);
+                    buffer.sentimentLabels.push(sentimentData.sentiment);
+                }
+
 
                 // Set debounce timer - wait for user to finish speaking
                 buffer.timer = setTimeout(async () => {
                     const fullTranscript = buffer.text.trim();
+                    const sentimentScores = [...buffer.sentimentScores];
+                    const sentimentLabels = [...buffer.sentimentLabels];
                     buffer.text = '';
                     buffer.timer = null;
+                    buffer.sentimentScores = [];
+                    buffer.sentimentLabels = [];
 
                     if (!fullTranscript) return;
 
+                    // Calculate aggregated sentiment for the full utterance
+                    let aggregatedSentiment = null;
+                    if (sentimentScores.length > 0) {
+                        const avgScore = sentimentScores.reduce((a, b) => a + b, 0) / sentimentScores.length;
+                        // Determine overall sentiment from average score
+                        let overallSentiment = 'neutral';
+                        if (avgScore > 0.25) overallSentiment = 'positive';
+                        else if (avgScore < -0.25) overallSentiment = 'negative';
+
+                        aggregatedSentiment = {
+                            sentiment: overallSentiment,
+                            score: Math.round(avgScore * 100) / 100, // Round to 2 decimal places
+                            intensity: Math.round(Math.abs(avgScore) * 100) / 100,
+                            // Provide human-readable description for AI
+                            description: this.getSentimentDescription(avgScore)
+                        };
+
+                        logger.debug('VOICE', `[SENTIMENT] ${memberInfo.displayName}: ${aggregatedSentiment.description} (score: ${aggregatedSentiment.score})`);
+                    }
 
                     // Only send to text channel if showTranscripts is enabled
                     if (connectionInfo.showTranscripts) {
@@ -371,7 +401,7 @@ class VoiceClient {
                             const vcMembers = connectionInfo.voiceChannel.members.filter(m => !m.user.bot);
                             const memberCount = vcMembers.size;
                             const memberNames = vcMembers.map(m => m.displayName);
-                            const vcInfo = { memberCount, memberNames };
+                            const vcInfo = { memberCount, memberNames, sentiment: aggregatedSentiment };
 
                             // SPECULATIVE EXECUTION: Run gatekeeper and AI response generation in parallel
                             // This eliminates the 3-second gatekeeper delay!
@@ -383,7 +413,7 @@ class VoiceClient {
                             );
 
                             // Start generating response speculatively (pass messageId for cancellation tracking)
-                            const responsePromise = this.queueOrRespond(guildId, userId, memberInfo.displayName, completeTranscript, true, messageId);
+                            const responsePromise = this.queueOrRespond(guildId, userId, memberInfo.displayName, completeTranscript, true, messageId, aggregatedSentiment);
 
                             // Wait for gatekeeper decision
                             const shouldRespond = await gatekeeperPromise;
@@ -409,6 +439,21 @@ class VoiceClient {
     }
 
     /**
+     * Get human-readable sentiment description for AI context
+     * @param {number} score - Sentiment score from -1 to 1
+     * @returns {string} Human-readable description
+     */
+    getSentimentDescription(score) {
+        if (score >= 0.6) return 'very positive/excited';
+        if (score >= 0.3) return 'positive/happy';
+        if (score >= 0.1) return 'slightly positive';
+        if (score <= -0.6) return 'very negative/upset';
+        if (score <= -0.3) return 'negative/frustrated';
+        if (score <= -0.1) return 'slightly negative';
+        return 'neutral';
+    }
+
+    /**
      * Cancel a pending speculative response for a specific message
      * Also clears any TTS audio that was already generated for this message
      * @param {string} guildId - Guild ID
@@ -419,6 +464,11 @@ class VoiceClient {
         if (tracking) {
             tracking.cancelled = true;
             tracking.cancelledMessageId = messageId;
+
+            // CRITICAL FIX: Reset inProgress to false so the next message doesn't get stuck waiting
+            // The cancelled response's generateAndSpeak will exit early, but we need to unblock immediately
+            tracking.inProgress = false;
+
             logger.debug('VOICE', `[SPECULATIVE] Cancelled response ${messageId ? messageId.slice(-12) : 'all'} for guild ${guildId}`);
 
             // CRITICAL: Also cancel any TTS audio that was already generated/queued for THIS message
@@ -440,8 +490,9 @@ class VoiceClient {
      * @param {string} transcript - The transcript to process
      * @param {boolean} speculative - If true, this is speculative and may be cancelled
      * @param {string} messageId - Unique ID for this specific message (for cancellation tracking)
+     * @param {Object} sentimentData - Aggregated sentiment data { sentiment, score, intensity, description }
      */
-    async queueOrRespond(guildId, userId, username, transcript, speculative = false, messageId = null) {
+    async queueOrRespond(guildId, userId, username, transcript, speculative = false, messageId = null, sentimentData = null) {
         // Get or create response tracking for this guild
         let tracking = this.responseTracking.get(guildId);
         if (!tracking) {
@@ -454,8 +505,9 @@ class VoiceClient {
             this.responseTracking.set(guildId, tracking);
         }
 
-        // Reset cancelled flag if this is a DIFFERENT message than the one that was cancelled
-        if (tracking.cancelledMessageId !== messageId) {
+        // Reset cancelled flag for new messages
+        // A new message should start fresh, not inherit cancelled state from old messages
+        if (messageId && tracking.cancelledMessageId !== messageId) {
             tracking.cancelled = false;
             tracking.cancelledMessageId = null;
         }
@@ -500,9 +552,9 @@ class VoiceClient {
             }
         }
 
-        // Now respond (pass messageId for tracking within generateAndSpeak)
+        // Now respond (pass messageId and sentiment for tracking within generateAndSpeak)
         logger.info('VOICE', `[RESPOND] Processing: "${transcript}"`);
-        await this.generateAndSpeak(guildId, userId, username, transcript, messageId);
+        await this.generateAndSpeak(guildId, userId, username, transcript, messageId, sentimentData);
     }
 
     /**
@@ -513,8 +565,9 @@ class VoiceClient {
      * @param {string} username - User's display name
      * @param {string} transcript - User's spoken text
      * @param {string} messageId - Unique message ID for cancellation tracking
+     * @param {Object} sentimentData - Aggregated sentiment data { sentiment, score, intensity, description }
      */
-    async generateAndSpeak(guildId, userId, username, transcript, messageId = null) {
+    async generateAndSpeak(guildId, userId, username, transcript, messageId = null, sentimentData = null) {
         const connectionInfo = this.activeConnections.get(guildId);
         if (!connectionInfo || !this.aiResponseCallback) return;
 
@@ -540,6 +593,7 @@ class VoiceClient {
 
             // The callback now accepts an onSentence function for streaming
             // Also pass isCancelled callback so AI client can skip saving cancelled responses
+            // sentimentData provides emotional context: { sentiment, score, intensity, description }
             const aiResponse = await this.aiResponseCallback(
                 guildId,
                 userId,
@@ -571,7 +625,9 @@ class VoiceClient {
                     await ttsClient.speak(guildId, connectionInfo.connection, sentence, { messageId });
                 },
                 // isCancelled callback - AI client checks this before saving to memory
-                () => tracking.cancelled && tracking.cancelledMessageId === messageId
+                () => tracking.cancelled && tracking.cancelledMessageId === messageId,
+                // Sentiment data - emotional context for smarter AI responses
+                sentimentData
             );
 
             // End the filter session

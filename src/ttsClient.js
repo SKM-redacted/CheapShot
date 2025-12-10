@@ -242,7 +242,7 @@ export class TTSClient {
      */
     async generateTTSBuffer(text, options = {}) {
         return new Promise((resolve, reject) => {
-            const model = options.voice || 'aura-2-helena-en';
+            const model = options.voice || 'aura-2-thalia-en';
             const audioChunks = [];
 
             try {

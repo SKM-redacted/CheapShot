@@ -440,10 +440,19 @@ You're talking to ${username}. Keep it casual and SHORT.`;
      * @param {Function} onComplete - Callback when fully complete
      * @param {string} systemPromptOverride - Optional system prompt override
      * @param {Function} isCancelled - Optional callback to check if response was cancelled
+     * @param {Object} sentimentData - Optional sentiment data { sentiment, score, intensity, description }
      * @returns {Promise<string>} Full AI response text
      */
-    async streamVoiceChat(guildId, userMessage, username = 'User', onSentence, onComplete, systemPromptOverride = null, isCancelled = null) {
+    async streamVoiceChat(guildId, userMessage, username = 'User', onSentence, onComplete, systemPromptOverride = null, isCancelled = null, sentimentData = null) {
         const url = `${this.baseUrl}/v1/chat/completions`;
+
+        // Build sentiment-aware tone guide if sentiment data is available
+        let sentimentContext = '';
+        if (sentimentData && sentimentData.description) {
+            sentimentContext = `\n\nTONE AWARENESS:
+- The user's voice sounds: ${sentimentData.description} (score: ${sentimentData.score})
+- Match their energy appropriately - if they sound excited, be more upbeat; if frustrated, be understanding; if neutral, be chill`;
+        }
 
         // Voice-optimized system prompt - conversational and concise
         // Framed as "your name is" rather than "you are" to avoid Claude identity resistance
@@ -470,7 +479,7 @@ IMPORTANT:
 FRAGMENTED SPEECH:
 - Messages come from speech-to-text and may be fragmented or slightly garbled
 - Infer meaning from context rather than asking "what do you mean?"
-- Flow naturally with the conversation
+- Flow naturally with the conversation${sentimentContext}
 
 You're chatting with ${username}. Keep it casual!`;
 

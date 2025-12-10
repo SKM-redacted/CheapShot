@@ -41,6 +41,9 @@ export const config = {
     // Channel restriction (only respond in this channel, empty = all channels)
     allowedChannelId: process.env.ALLOWED_CHANNEL_ID,
 
+    // Owner ID - user who can DM the bot directly
+    ownerId: process.env.OWNER_ID,
+
     // System prompt for the AI
     systemPrompt: process.env.SYSTEM_PROMPT || `You are CheapShot, a helpful and friendly AI assistant in a Discord server.
 You help users with their questions, provide information, and engage in helpful conversations.

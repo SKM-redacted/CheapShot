@@ -62,6 +62,8 @@ export class STTClient {
                 encoding: 'opus',           // Discord uses Opus
                 sample_rate: 48000,         // Discord's sample rate
                 channels: 2,                // Stereo - Discord audio format
+                // Audio Intelligence features for emotional context
+                sentiment: true,            // Analyze emotional tone (-1 to +1 score)
             });
 
             // Store callback
@@ -79,8 +81,23 @@ export class STTClient {
                     const isFinal = data.is_final || false;
                     const confidence = data.channel.alternatives[0].confidence || 0;
 
+                    // Extract sentiment analysis data if available
+                    // sentiment_info contains: { sentiment, sentiment_score }
+                    // sentiment: 'positive', 'negative', or 'neutral'
+                    // sentiment_score: -1.0 (most negative) to +1.0 (most positive)
+                    let sentimentData = null;
+                    const sentimentInfo = data.channel?.alternatives?.[0]?.sentiment_info;
+                    if (sentimentInfo) {
+                        sentimentData = {
+                            sentiment: sentimentInfo.sentiment || 'neutral',
+                            score: sentimentInfo.sentiment_score || 0,
+                            // Calculate intensity (how strong the emotion is)
+                            intensity: Math.abs(sentimentInfo.sentiment_score || 0)
+                        };
+                    }
+
                     if (transcript && transcript.trim()) {
-                        callback(null, transcript.trim(), isFinal, confidence);
+                        callback(null, transcript.trim(), isFinal, confidence, false, sentimentData);
                     }
                 }
             });
