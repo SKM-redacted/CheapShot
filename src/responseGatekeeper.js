@@ -1,6 +1,5 @@
 import { config } from './config.js';
 import { logger } from './logger.js';
-import { gatekeeperTrainer } from './gatekeeperTrainer.js';
 
 /**
  * Response Gatekeeper - Uses AI to decide if we should respond
@@ -136,10 +135,6 @@ Only respond with exactly "YES" or "NO".`;
         for (const mention of botNameMentions) {
             if (lowerTranscript.includes(mention)) {
                 logger.info('GATEKEEPER', `Quick-pass: Bot name mentioned ("${mention}") - responding`);
-                gatekeeperTrainer.logDecision({
-                    transcript, username, context, memberCount, memberNames,
-                    decision: true, decisionSource: 'quick_pass', filterReason: `bot name: ${mention}`
-                });
                 return true;
             }
         }
@@ -196,10 +191,6 @@ Only respond with exactly "YES" or "NO".`;
                     if (botAskedQuestion || sameUserContinuing) {
                         const reason = botAskedQuestion ? 'bot asked question' : 'same user continuing';
                         logger.info('GATEKEEPER', `Conversation quick-pass: Bot spoke ${lastBotTimestamp}s ago, ${reason}`);
-                        gatekeeperTrainer.logDecision({
-                            transcript, username, context, memberCount, memberNames,
-                            decision: true, decisionSource: 'quick_pass', filterReason: reason
-                        });
                         return true;
                     }
                 }
@@ -221,10 +212,6 @@ Only respond with exactly "YES" or "NO".`;
         const normalizedTranscript = trimmed.toLowerCase().replace(/[.!?,]/g, '').trim();
         if (obviousFillers.includes(normalizedTranscript)) {
             logger.debug('GATEKEEPER', `Quick filter: "${transcript}" is obvious filler`);
-            gatekeeperTrainer.logDecision({
-                transcript, username, context, memberCount, memberNames,
-                decision: false, decisionSource: 'quick_filter', filterReason: 'obvious filler'
-            });
             return false;
         }
 
@@ -318,10 +305,6 @@ Only respond with exactly "YES" or "NO".`;
         for (const pattern of casualPhrases) {
             if (pattern.test(trimmed)) {
                 logger.debug('GATEKEEPER', `Quick filter: "${transcript}" matches casual phrase pattern`);
-                gatekeeperTrainer.logDecision({
-                    transcript, username, context, memberCount, memberNames,
-                    decision: false, decisionSource: 'quick_filter', filterReason: `pattern: ${pattern.toString().substring(0, 30)}`
-                });
                 return false;
             }
         }
@@ -333,10 +316,6 @@ Only respond with exactly "YES" or "NO".`;
             // If it's mostly the same word repeated, filter it out
             if (uniqueWords.size === 1 || (uniqueWords.size <= 2 && words.length >= 3)) {
                 logger.debug('GATEKEEPER', `Quick filter: "${transcript}" is repeated words`);
-                gatekeeperTrainer.logDecision({
-                    transcript, username, context, memberCount, memberNames,
-                    decision: false, decisionSource: 'quick_filter', filterReason: 'repeated words'
-                });
                 return false;
             }
         }
@@ -346,18 +325,10 @@ Only respond with exactly "YES" or "NO".`;
         const strippedInput = trimmed.replace(/[^a-zA-Z0-9]/g, '');
         if (strippedInput.length <= 2) {
             logger.debug('GATEKEEPER', `Quick filter: "${transcript}" is too short (${strippedInput.length} chars)`);
-            gatekeeperTrainer.logDecision({
-                transcript, username, context, memberCount, memberNames,
-                decision: false, decisionSource: 'quick_filter', filterReason: 'too short'
-            });
             return false;
         }
         if (/^\d+\.?$/.test(trimmed)) {
             logger.debug('GATEKEEPER', `Quick filter: "${transcript}" is just a number`);
-            gatekeeperTrainer.logDecision({
-                transcript, username, context, memberCount, memberNames,
-                decision: false, decisionSource: 'quick_filter', filterReason: 'just a number'
-            });
             return false;
         }
 
@@ -376,10 +347,6 @@ Only respond with exactly "YES" or "NO".`;
             for (const pattern of fragmentPatterns) {
                 if (pattern.test(trimmed)) {
                     logger.debug('GATEKEEPER', `Quick filter: "${transcript}" is a fragment`);
-                    gatekeeperTrainer.logDecision({
-                        transcript, username, context, memberCount, memberNames,
-                        decision: false, decisionSource: 'quick_filter', filterReason: 'fragment'
-                    });
                     return false;
                 }
             }
@@ -388,10 +355,6 @@ Only respond with exactly "YES" or "NO".`;
         // Single random words without question marks AND without context are not worth responding to
         if (wordCount === 1 && !trimmed.includes('?') && !context) {
             logger.debug('GATEKEEPER', `Quick filter: "${transcript}" is single word without context`);
-            gatekeeperTrainer.logDecision({
-                transcript, username, context, memberCount, memberNames,
-                decision: false, decisionSource: 'quick_filter', filterReason: 'single word no context'
-            });
             return false;
         }
 
@@ -452,13 +415,6 @@ Only respond with exactly "YES" or "NO".`;
 
             // Cache the decision
             this.cacheDecision(cacheKey, shouldRespond);
-
-            // Log for training (include sentiment for richer training data)
-            gatekeeperTrainer.logDecision({
-                transcript, username, context, memberCount, memberNames,
-                decision: shouldRespond, decisionSource: 'ai', filterReason: null,
-                sentiment: sentiment ? { label: sentiment.sentiment, score: sentiment.score } : null
-            });
 
             const sentimentLog = sentiment ? ` [${sentiment.description}]` : '';
             logger.info('GATEKEEPER', `"${transcript}"${sentimentLog} -> ${shouldRespond ? 'RESPOND' : 'IGNORE'}`);
