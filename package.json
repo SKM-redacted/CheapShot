@@ -2,11 +2,11 @@
     "name": "cheapshot-discord-bot",
     "version": "1.0.0",
     "description": "CheapShot - A Discord AI assistant powered by Onyx/Claude",
-    "main": "src/index.js",
+    "main": "src/ai/index.js",
     "type": "module",
     "scripts": {
-        "start": "node src/index.js",
-        "dev": "node --watch src/index.js"
+        "start": "node src/ai/index.js",
+        "dev": "node --watch src/ai/index.js"
     },
     "keywords": [
         "discord",
