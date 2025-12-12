@@ -6,7 +6,7 @@ A Discord AI assistant powered by OpenAI-compatible API endpoints. Features real
 
 ## Features
 
-- **Real-time Streaming**: Watch the AI response appear in real-time as it's generated
+- **Real-time Streaming**: Watch the AI response appear in real-time as iterated
 - **Request Queue**: Limits concurrent AI requests (default: 3) to prevent server overload
 - **Claude Opus Model**: Uses the smartest Claude model for high-quality responses
 - **Mention or DM**: Works with @mentions in servers or direct messages

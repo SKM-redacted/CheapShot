@@ -13,11 +13,14 @@ const __dirname = path.dirname(__filename);
 class VoiceMemory {
     constructor() {
         // Path to the memory file
-        this.memoryDir = path.join(__dirname, '..', 'data');
+        this.memoryDir = path.join(__dirname, '..', '..', 'data');
         this.memoryFile = path.join(this.memoryDir, 'voice_memory.json');
 
         // Memory expiry time (10 minutes)
         this.EXPIRY_MS = 10 * 60 * 1000;
+
+        // Max messages per guild (oldest non-permanent get deleted)
+        this.MAX_MESSAGES = 100;
 
         // Cleanup interval (run every minute)
         this.CLEANUP_INTERVAL_MS = 60 * 1000;
@@ -64,9 +67,9 @@ class VoiceMemory {
                 let expiredCount = 0;
 
                 for (const [guildId, guildData] of Object.entries(parsed)) {
-                    // Filter messages that aren't expired
+                    // Filter messages that aren't expired OR are permanent
                     const validMessages = guildData.messages.filter(
-                        msg => (now - msg.timestamp) < this.EXPIRY_MS
+                        msg => msg.permanent || (now - msg.timestamp) < this.EXPIRY_MS
                     );
 
                     if (validMessages.length > 0) {
@@ -129,6 +132,9 @@ class VoiceMemory {
 
         guildData.lastUpdated = now;
 
+        // Enforce message limit
+        this.enforceMessageLimit(guildId);
+
         logger.debug('VOICE_MEMORY', `[${guildId}] Added user message from ${username}: "${content.substring(0, 50)}..."`);
 
         // Save to file
@@ -157,6 +163,9 @@ class VoiceMemory {
 
         guildData.lastUpdated = now;
 
+        // Enforce message limit
+        this.enforceMessageLimit(guildId);
+
         logger.debug('VOICE_MEMORY', `[${guildId}] Added bot response: "${content.substring(0, 50)}..."`);
 
         // Save to file
@@ -176,9 +185,9 @@ class VoiceMemory {
         const now = Date.now();
         const guildData = this.cache.get(guildId);
 
-        // Filter out expired messages
+        // Filter out expired messages (permanent messages never expire)
         const validMessages = guildData.messages.filter(
-            msg => (now - msg.timestamp) < this.EXPIRY_MS
+            msg => msg.permanent || (now - msg.timestamp) < this.EXPIRY_MS
         );
 
         // Update cache with filtered messages
@@ -302,9 +311,9 @@ class VoiceMemory {
         for (const [guildId, guildData] of this.cache) {
             const originalCount = guildData.messages.length;
 
-            // Filter out expired messages
+            // Filter out expired messages (permanent messages never expire)
             guildData.messages = guildData.messages.filter(
-                msg => (now - msg.timestamp) < this.EXPIRY_MS
+                msg => msg.permanent || (now - msg.timestamp) < this.EXPIRY_MS
             );
 
             const removed = originalCount - guildData.messages.length;
@@ -320,6 +329,43 @@ class VoiceMemory {
         if (totalRemoved > 0 || guildsCleared > 0) {
             logger.info('VOICE_MEMORY', `Cleanup: removed ${totalRemoved} expired messages, cleared ${guildsCleared} guilds`);
             this.saveToFile();
+        }
+    }
+
+    /**
+     * Enforce max message limit per guild
+     * Removes oldest non-permanent messages when limit exceeded
+     * @param {string} guildId - Guild ID
+     */
+    enforceMessageLimit(guildId) {
+        if (!this.cache.has(guildId)) return;
+
+        const guildData = this.cache.get(guildId);
+
+        if (guildData.messages.length <= this.MAX_MESSAGES) return;
+
+        // Separate permanent and non-permanent messages
+        const permanentMessages = guildData.messages.filter(msg => msg.permanent);
+        const temporaryMessages = guildData.messages.filter(msg => !msg.permanent);
+
+        // Calculate how many temporary messages we can keep
+        const maxTemporary = this.MAX_MESSAGES - permanentMessages.length;
+
+        if (maxTemporary <= 0) {
+            // All slots taken by permanent messages, keep only permanent
+            guildData.messages = permanentMessages;
+            logger.warn('VOICE_MEMORY', `[${guildId}] All message slots used by permanent messages`);
+        } else if (temporaryMessages.length > maxTemporary) {
+            // Remove oldest temporary messages (they're already in order by timestamp)
+            const removed = temporaryMessages.length - maxTemporary;
+            const keptTemporary = temporaryMessages.slice(removed);
+
+            // Merge and sort by timestamp
+            guildData.messages = [...permanentMessages, ...keptTemporary].sort(
+                (a, b) => a.timestamp - b.timestamp
+            );
+
+            logger.debug('VOICE_MEMORY', `[${guildId}] Removed ${removed} oldest messages (limit: ${this.MAX_MESSAGES})`);
         }
     }
 
