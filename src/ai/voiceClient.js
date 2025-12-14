@@ -849,6 +849,15 @@ class VoiceClient {
     }
 
     /**
+     * Check if connected to a voice channel in a guild
+     * @param {string} guildId - Guild ID
+     * @returns {boolean}
+     */
+    isConnected(guildId) {
+        return this.activeConnections.has(guildId);
+    }
+
+    /**
      * Get active connection count
      * @returns {number}
      */

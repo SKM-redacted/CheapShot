@@ -1,5 +1,7 @@
 import { ChannelType, PermissionFlagsBits } from 'discord.js';
 import { logger } from './logger.js';
+import { voiceClient } from './voiceClient.js';
+import { voiceMemory } from './voiceMemory.js';
 
 /**
  * Discord Tool Handlers
@@ -717,5 +719,1259 @@ export async function handleSetupServerStructure(guild, args) {
         },
         details: results,
         summary: `Created ${results.categories.success} categories, ${results.text_channels.success} text channels, ${results.voice_channels.success} voice channels${totalFailed > 0 ? ` (${totalFailed} failed)` : ''}`
+    };
+}
+
+// ============================================================
+// ROLE MANAGEMENT HANDLERS
+// ============================================================
+
+/**
+ * Color name to hex code mapping
+ */
+const COLOR_MAP = {
+    'red': 0xE74C3C,
+    'blue': 0x3498DB,
+    'green': 0x2ECC71,
+    'purple': 0x9B59B6,
+    'orange': 0xE67E22,
+    'yellow': 0xF1C40F,
+    'pink': 0xE91E63,
+    'cyan': 0x00BCD4,
+    'gold': 0xFFD700,
+    'navy': 0x001F3F,
+    'teal': 0x008080,
+    'lime': 0x00FF00,
+    'coral': 0xFF7F50,
+    'crimson': 0xDC143C,
+    'indigo': 0x4B0082,
+    'violet': 0xEE82EE,
+    'salmon': 0xFA8072,
+    'magenta': 0xFF00FF,
+    'aqua': 0x00FFFF,
+    'maroon': 0x800000,
+    'white': 0xFFFFFF,
+    'black': 0x000000,
+    'gray': 0x808080,
+    'grey': 0x808080,
+    'silver': 0xC0C0C0,
+    'bronze': 0xCD7F32,
+    'default': 0x000000
+};
+
+/**
+ * Parse a color string into a Discord.js compatible color value
+ * @param {string} colorInput - Hex code or color name
+ * @returns {number|null} Color as a number, or null if invalid
+ */
+function parseColor(colorInput) {
+    if (!colorInput) return null;
+
+    const lowerColor = colorInput.toLowerCase().trim();
+
+    // Check if it's a named color
+    if (COLOR_MAP[lowerColor] !== undefined) {
+        return COLOR_MAP[lowerColor];
+    }
+
+    // Try to parse as hex code
+    let hexStr = lowerColor.replace('#', '').replace('0x', '');
+
+    // Validate hex format (3 or 6 characters)
+    if (/^[0-9a-f]{6}$/i.test(hexStr)) {
+        return parseInt(hexStr, 16);
+    }
+    if (/^[0-9a-f]{3}$/i.test(hexStr)) {
+        // Expand 3-char hex to 6-char
+        hexStr = hexStr.split('').map(c => c + c).join('');
+        return parseInt(hexStr, 16);
+    }
+
+    return null;
+}
+
+/**
+ * Parse permission names into PermissionFlagsBits values
+ * @param {string[]} permissionNames - Array of permission names
+ * @returns {{valid: bigint[], invalid: string[]}} Valid permission bits and invalid names
+ */
+function parsePermissions(permissionNames) {
+    const valid = [];
+    const invalid = [];
+
+    for (const name of permissionNames) {
+        // Try exact match first
+        if (PermissionFlagsBits[name] !== undefined) {
+            valid.push(PermissionFlagsBits[name]);
+            continue;
+        }
+
+        // Try case-insensitive match
+        const matchKey = Object.keys(PermissionFlagsBits).find(
+            key => key.toLowerCase() === name.toLowerCase()
+        );
+
+        if (matchKey) {
+            valid.push(PermissionFlagsBits[matchKey]);
+        } else {
+            invalid.push(name);
+        }
+    }
+
+    return { valid, invalid };
+}
+
+/**
+ * Find a role by name (exact or partial match)
+ * @param {Object} guild - Discord guild object
+ * @param {string} name - Role name to find
+ * @returns {Object|null} The role if found, or null
+ */
+function findRole(guild, name) {
+    const lowerName = name.toLowerCase();
+
+    // Try exact match first
+    let role = guild.roles.cache.find(r => r.name.toLowerCase() === lowerName);
+    if (role) return role;
+
+    // Try partial match
+    role = guild.roles.cache.find(r => r.name.toLowerCase().includes(lowerName));
+    return role;
+}
+
+/**
+ * Find a member by name, display name, or ID
+ * @param {Object} guild - Discord guild object
+ * @param {string} identifier - Username, display name, mention, or ID
+ * @returns {Promise<Object|null>} The member if found, or null
+ */
+async function findMember(guild, identifier) {
+    // Clean up mentions
+    let cleanId = identifier.replace(/<@!?(\d+)>/, '$1').trim();
+    const lowerName = cleanId.toLowerCase();
+
+    // If it looks like an ID, try to fetch directly
+    if (/^\d{17,19}$/.test(cleanId)) {
+        try {
+            const member = await guild.members.fetch(cleanId);
+            return member;
+        } catch (e) {
+            // Not found by ID
+        }
+    }
+
+    // Search by username or display name
+    const members = await guild.members.fetch({ query: cleanId, limit: 10 });
+
+    // Try exact username match
+    let member = members.find(m =>
+        m.user.username.toLowerCase() === lowerName ||
+        m.user.tag.toLowerCase() === lowerName ||
+        m.displayName.toLowerCase() === lowerName
+    );
+    if (member) return member;
+
+    // Try partial match
+    member = members.find(m =>
+        m.user.username.toLowerCase().includes(lowerName) ||
+        m.displayName.toLowerCase().includes(lowerName)
+    );
+
+    return member;
+}
+
+/**
+ * Handler for creating a role
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { name, color?, hoist?, mentionable?, permissions? }
+ * @returns {Promise<{success: boolean, role?: Object, error?: string}>}
+ */
+export async function handleCreateRole(guild, args) {
+    const { name, color, hoist = false, mentionable = false, permissions = [] } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot create role: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    if (!name || typeof name !== 'string') {
+        logger.error('TOOL', 'Cannot create role: Invalid name');
+        return { success: false, error: 'Invalid role name' };
+    }
+
+    try {
+        logger.info('TOOL', `Creating role "${name}" in guild ${guild.name}`);
+
+        const roleOptions = {
+            name: name,
+            hoist: Boolean(hoist),
+            mentionable: Boolean(mentionable),
+            reason: 'Created by CheapShot AI via tool call'
+        };
+
+        // Parse and apply color
+        if (color) {
+            const parsedColor = parseColor(color);
+            if (parsedColor !== null) {
+                roleOptions.color = parsedColor;
+            } else {
+                logger.warn('TOOL', `Invalid color "${color}", using default`);
+            }
+        }
+
+        // Parse and apply permissions
+        if (permissions && permissions.length > 0) {
+            const { valid, invalid } = parsePermissions(permissions);
+            if (valid.length > 0) {
+                roleOptions.permissions = valid;
+            }
+            if (invalid.length > 0) {
+                logger.warn('TOOL', `Invalid permissions ignored: ${invalid.join(', ')}`);
+            }
+        }
+
+        const role = await guild.roles.create(roleOptions);
+
+        logger.info('TOOL', `Role "${name}" created successfully (ID: ${role.id})`);
+
+        return {
+            success: true,
+            role: {
+                id: role.id,
+                name: role.name,
+                color: role.hexColor,
+                hoist: role.hoist,
+                mentionable: role.mentionable,
+                position: role.position
+            }
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to create role: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to create role'
+        };
+    }
+}
+
+/**
+ * Handler for deleting a role
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { name }
+ * @returns {Promise<{success: boolean, deleted?: Object, error?: string}>}
+ */
+export async function handleDeleteRole(guild, args) {
+    const { name } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot delete role: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    if (!name || typeof name !== 'string') {
+        logger.error('TOOL', 'Cannot delete role: Invalid name');
+        return { success: false, error: 'Invalid role name' };
+    }
+
+    try {
+        const role = findRole(guild, name);
+
+        if (!role) {
+            logger.warn('TOOL', `No role found matching "${name}"`);
+            return { success: false, error: `No role found matching "${name}"` };
+        }
+
+        // Check if role is manageable
+        if (!role.editable) {
+            return { success: false, error: `Cannot delete role "${role.name}" - it's higher than my highest role or is a bot role` };
+        }
+
+        const roleName = role.name;
+        const roleId = role.id;
+
+        logger.info('TOOL', `Deleting role "${roleName}" (ID: ${roleId}) in guild ${guild.name}`);
+
+        await role.delete('Deleted by CheapShot AI via tool call');
+
+        logger.info('TOOL', `Role "${roleName}" deleted successfully`);
+
+        return {
+            success: true,
+            deleted: {
+                id: roleId,
+                name: roleName
+            }
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to delete role: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to delete role'
+        };
+    }
+}
+
+/**
+ * Handler for bulk deleting multiple roles at once
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { roles: Array<string> }
+ * @returns {Promise<{success: boolean, deleted?: Array, failed?: Array, summary?: string, error?: string}>}
+ */
+export async function handleDeleteRolesBulk(guild, args) {
+    const { roles = [] } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot bulk delete roles: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    if (!Array.isArray(roles) || roles.length === 0) {
+        logger.error('TOOL', 'Cannot bulk delete roles: No roles specified');
+        return { success: false, error: 'No roles specified for deletion' };
+    }
+
+    logger.info('TOOL', `Bulk deleting ${roles.length} roles in parallel`);
+
+    // Execute all deletions in parallel
+    const deletePromises = roles.map(async (roleName) => {
+        try {
+            const result = await handleDeleteRole(guild, { name: roleName });
+            return {
+                name: roleName,
+                ...result
+            };
+        } catch (error) {
+            return {
+                name: roleName,
+                success: false,
+                error: error.message
+            };
+        }
+    });
+
+    const results = await Promise.all(deletePromises);
+
+    const deleted = results.filter(r => r.success);
+    const failed = results.filter(r => !r.success);
+
+    logger.info('TOOL', `Bulk role delete complete: ${deleted.length} deleted, ${failed.length} failed`);
+
+    return {
+        success: deleted.length > 0,
+        deleted: deleted.map(r => ({ name: r.deleted?.name || r.name })),
+        failed: failed.map(r => ({ name: r.name, error: r.error })),
+        summary: `Deleted ${deleted.length} role${deleted.length !== 1 ? 's' : ''}${failed.length > 0 ? `, ${failed.length} failed` : ''}`
+    };
+}
+
+/**
+ * Handler for editing a role
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { name, new_name?, color?, hoist?, mentionable?, add_permissions?, remove_permissions? }
+ * @returns {Promise<{success: boolean, role?: Object, changes?: Array, error?: string}>}
+ */
+export async function handleEditRole(guild, args) {
+    const { name, new_name, color, hoist, mentionable, add_permissions = [], remove_permissions = [] } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot edit role: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    if (!name || typeof name !== 'string') {
+        logger.error('TOOL', 'Cannot edit role: Invalid name');
+        return { success: false, error: 'Invalid role name' };
+    }
+
+    try {
+        const role = findRole(guild, name);
+
+        if (!role) {
+            logger.warn('TOOL', `No role found matching "${name}"`);
+            return { success: false, error: `No role found matching "${name}"` };
+        }
+
+        // Check if role is editable
+        if (!role.editable) {
+            return { success: false, error: `Cannot edit role "${role.name}" - it's higher than my highest role or is a bot role` };
+        }
+
+        const changes = [];
+        const editOptions = {
+            reason: 'Edited by CheapShot AI via tool call'
+        };
+
+        // Apply new name
+        if (new_name && new_name !== role.name) {
+            editOptions.name = new_name;
+            changes.push(`renamed from "${role.name}" to "${new_name}"`);
+        }
+
+        // Apply new color
+        if (color !== undefined) {
+            const parsedColor = parseColor(color);
+            if (parsedColor !== null) {
+                editOptions.color = parsedColor;
+                changes.push(`color changed to ${color}`);
+            }
+        }
+
+        // Apply hoist setting
+        if (hoist !== undefined && hoist !== role.hoist) {
+            editOptions.hoist = Boolean(hoist);
+            changes.push(`hoist ${hoist ? 'enabled' : 'disabled'}`);
+        }
+
+        // Apply mentionable setting
+        if (mentionable !== undefined && mentionable !== role.mentionable) {
+            editOptions.mentionable = Boolean(mentionable);
+            changes.push(`mentionable ${mentionable ? 'enabled' : 'disabled'}`);
+        }
+
+        // Handle permission changes
+        if (add_permissions.length > 0 || remove_permissions.length > 0) {
+            let currentPerms = role.permissions.bitfield;
+
+            if (add_permissions.length > 0) {
+                const { valid, invalid } = parsePermissions(add_permissions);
+                for (const perm of valid) {
+                    currentPerms |= perm;
+                }
+                if (valid.length > 0) {
+                    changes.push(`added ${valid.length} permission(s)`);
+                }
+            }
+
+            if (remove_permissions.length > 0) {
+                const { valid, invalid } = parsePermissions(remove_permissions);
+                for (const perm of valid) {
+                    currentPerms &= ~perm;
+                }
+                if (valid.length > 0) {
+                    changes.push(`removed ${valid.length} permission(s)`);
+                }
+            }
+
+            editOptions.permissions = currentPerms;
+        }
+
+        if (changes.length === 0) {
+            return { success: false, error: 'No changes specified' };
+        }
+
+        logger.info('TOOL', `Editing role "${role.name}": ${changes.join(', ')}`);
+
+        const updatedRole = await role.edit(editOptions);
+
+        logger.info('TOOL', `Role "${updatedRole.name}" edited successfully`);
+
+        return {
+            success: true,
+            role: {
+                id: updatedRole.id,
+                name: updatedRole.name,
+                color: updatedRole.hexColor,
+                hoist: updatedRole.hoist,
+                mentionable: updatedRole.mentionable,
+                position: updatedRole.position
+            },
+            changes
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to edit role: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to edit role'
+        };
+    }
+}
+
+/**
+ * Handler for listing roles
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { include_permissions? }
+ * @returns {Promise<{success: boolean, roles?: Array, summary?: string, error?: string}>}
+ */
+export async function handleListRoles(guild, args) {
+    const { include_permissions = false } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot list roles: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    try {
+        // Get all roles sorted by position (highest first, excluding @everyone)
+        const roles = guild.roles.cache
+            .filter(r => r.name !== '@everyone')
+            .sort((a, b) => b.position - a.position)
+            .map(r => {
+                const roleData = {
+                    name: r.name,
+                    id: r.id,
+                    color: r.hexColor,
+                    members: r.members.size,
+                    hoist: r.hoist,
+                    mentionable: r.mentionable,
+                    position: r.position
+                };
+
+                if (include_permissions) {
+                    // Get key permissions as readable names
+                    const keyPerms = [];
+                    if (r.permissions.has(PermissionFlagsBits.Administrator)) keyPerms.push('Administrator');
+                    if (r.permissions.has(PermissionFlagsBits.ManageChannels)) keyPerms.push('ManageChannels');
+                    if (r.permissions.has(PermissionFlagsBits.ManageRoles)) keyPerms.push('ManageRoles');
+                    if (r.permissions.has(PermissionFlagsBits.ManageMessages)) keyPerms.push('ManageMessages');
+                    if (r.permissions.has(PermissionFlagsBits.KickMembers)) keyPerms.push('KickMembers');
+                    if (r.permissions.has(PermissionFlagsBits.BanMembers)) keyPerms.push('BanMembers');
+                    if (r.permissions.has(PermissionFlagsBits.ModerateMembers)) keyPerms.push('ModerateMembers');
+                    if (r.permissions.has(PermissionFlagsBits.MentionEveryone)) keyPerms.push('MentionEveryone');
+                    roleData.key_permissions = keyPerms;
+                }
+
+                return roleData;
+            });
+
+        // Build summary
+        let summaryLines = [`🎭 **Server Roles** (${roles.length} total):`];
+        for (const r of roles) {
+            let line = `  • **${r.name}** ${r.color !== '#000000' ? `[${r.color}]` : ''} - ${r.members} member${r.members !== 1 ? 's' : ''}`;
+            if (r.hoist) line += ' 📌';
+            if (r.mentionable) line += ' @';
+            if (include_permissions && r.key_permissions?.length > 0) {
+                line += ` (${r.key_permissions.join(', ')})`;
+            }
+            summaryLines.push(line);
+        }
+
+        logger.info('TOOL', `Listed ${roles.length} roles in guild ${guild.name}`);
+
+        return {
+            success: true,
+            roles,
+            summary: summaryLines.join('\n')
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to list roles: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to list roles'
+        };
+    }
+}
+
+/**
+ * Handler for assigning or removing a role from a member
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { role_name, member, action? }
+ * @returns {Promise<{success: boolean, member?: Object, role?: Object, action?: string, error?: string}>}
+ */
+export async function handleAssignRole(guild, args) {
+    const { role_name, member: memberIdentifier, action = 'add' } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot assign role: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    if (!role_name || typeof role_name !== 'string') {
+        logger.error('TOOL', 'Cannot assign role: Invalid role name');
+        return { success: false, error: 'Invalid role name' };
+    }
+
+    if (!memberIdentifier || typeof memberIdentifier !== 'string') {
+        logger.error('TOOL', 'Cannot assign role: Invalid member identifier');
+        return { success: false, error: 'Invalid member identifier' };
+    }
+
+    try {
+        // Find the role
+        const role = findRole(guild, role_name);
+        if (!role) {
+            return { success: false, error: `No role found matching "${role_name}"` };
+        }
+
+        // Check if role is assignable by the bot
+        if (!role.editable) {
+            return { success: false, error: `Cannot assign role "${role.name}" - it's higher than my highest role` };
+        }
+
+        // Find the member
+        const member = await findMember(guild, memberIdentifier);
+        if (!member) {
+            return { success: false, error: `No member found matching "${memberIdentifier}"` };
+        }
+
+        const isAdd = action.toLowerCase() === 'add';
+        const hasRole = member.roles.cache.has(role.id);
+
+        // Check if change is needed
+        if (isAdd && hasRole) {
+            return {
+                success: true,
+                member: { name: member.displayName, id: member.id },
+                role: { name: role.name, id: role.id },
+                action: 'none',
+                message: `${member.displayName} already has the ${role.name} role`
+            };
+        }
+        if (!isAdd && !hasRole) {
+            return {
+                success: true,
+                member: { name: member.displayName, id: member.id },
+                role: { name: role.name, id: role.id },
+                action: 'none',
+                message: `${member.displayName} doesn't have the ${role.name} role`
+            };
+        }
+
+        // Apply the change
+        logger.info('TOOL', `${isAdd ? 'Adding' : 'Removing'} role "${role.name}" ${isAdd ? 'to' : 'from'} ${member.displayName}`);
+
+        if (isAdd) {
+            await member.roles.add(role, 'Assigned by CheapShot AI via tool call');
+        } else {
+            await member.roles.remove(role, 'Removed by CheapShot AI via tool call');
+        }
+
+        logger.info('TOOL', `Successfully ${isAdd ? 'added' : 'removed'} role "${role.name}" ${isAdd ? 'to' : 'from'} ${member.displayName}`);
+
+        return {
+            success: true,
+            member: { name: member.displayName, id: member.id },
+            role: { name: role.name, id: role.id },
+            action: isAdd ? 'added' : 'removed'
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to assign role: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to assign role'
+        };
+    }
+}
+
+/**
+ * Handler for setting up multiple roles at once in parallel
+ * Similar to handleSetupServerStructure but for roles
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { roles: Array<{name, color?, hoist?, mentionable?, permissions?}> }
+ * @returns {Promise<{success: boolean, created?: Object, failed?: Object, summary?: string, error?: string}>}
+ */
+export async function handleSetupRoles(guild, args) {
+    const { roles = [] } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot setup roles: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    if (!Array.isArray(roles) || roles.length === 0) {
+        logger.error('TOOL', 'Cannot setup roles: No roles specified');
+        return { success: false, error: 'No roles specified' };
+    }
+
+    logger.info('TOOL', `Setting up ${roles.length} roles in parallel`);
+
+    const results = {
+        success: 0,
+        failed: 0,
+        details: []
+    };
+
+    // Create all roles in parallel
+    const rolePromises = roles.map(async (roleConfig, index) => {
+        try {
+            const result = await handleCreateRole(guild, {
+                name: roleConfig.name,
+                color: roleConfig.color,
+                hoist: roleConfig.hoist,
+                mentionable: roleConfig.mentionable,
+                permissions: roleConfig.permissions
+            });
+            return {
+                ...roleConfig,
+                result,
+                success: result.success,
+                index // Track original order for positioning
+            };
+        } catch (error) {
+            return {
+                ...roleConfig,
+                result: { success: false, error: error.message },
+                success: false,
+                index
+            };
+        }
+    });
+
+    const roleResults = await Promise.all(rolePromises);
+
+    // Collect results
+    const createdRoles = [];
+    for (const res of roleResults) {
+        if (res.success) {
+            results.success++;
+            results.details.push({
+                name: res.name,
+                color: res.result.role?.color,
+                success: true
+            });
+            createdRoles.push({
+                role: res.result.role,
+                index: res.index
+            });
+        } else {
+            results.failed++;
+            results.details.push({
+                name: res.name,
+                success: false,
+                error: res.result.error
+            });
+        }
+    }
+
+    // Try to reorder roles based on original order (first = highest)
+    // Discord creates roles at position 1 by default, so we need to reposition
+    if (createdRoles.length > 1) {
+        try {
+            // Sort by original index (first in array should be highest)
+            createdRoles.sort((a, b) => a.index - b.index);
+
+            // Get the bot's highest manageable position
+            const botMember = guild.members.me;
+            const botHighestRole = botMember.roles.highest;
+            const maxPosition = botHighestRole.position - 1;
+
+            // Build position array - first role gets highest position
+            const positionUpdates = createdRoles.map((item, idx) => ({
+                role: item.role.id,
+                position: Math.max(1, maxPosition - idx)
+            }));
+
+            await guild.roles.setPositions(positionUpdates);
+            logger.debug('TOOL', `Repositioned ${createdRoles.length} roles in hierarchy`);
+        } catch (e) {
+            // Non-fatal - roles are created, just not in ideal order
+            logger.warn('TOOL', `Could not reposition roles: ${e.message}`);
+        }
+    }
+
+    logger.info('TOOL', `Role setup complete: ${results.success} created, ${results.failed} failed`);
+
+    return {
+        success: results.success > 0,
+        created: results.success,
+        failed: results.failed,
+        details: results.details,
+        summary: `Created ${results.success} role${results.success !== 1 ? 's' : ''}${results.failed > 0 ? `, ${results.failed} failed` : ''}`
+    };
+}
+
+// ============================================================
+// VOICE CHANNEL HANDLERS
+// ============================================================
+
+/**
+ * Find a voice channel by name
+ * @param {Object} guild - Discord guild object
+ * @param {string} name - Voice channel name to find
+ * @returns {Object|null} The voice channel if found, or null
+ */
+function findVoiceChannel(guild, name) {
+    const lowerName = name.toLowerCase();
+
+    // Try exact match first
+    let channel = guild.channels.cache.find(c =>
+        c.type === ChannelType.GuildVoice && c.name.toLowerCase() === lowerName
+    );
+    if (channel) return channel;
+
+    // Try partial match
+    channel = guild.channels.cache.find(c =>
+        c.type === ChannelType.GuildVoice && c.name.toLowerCase().includes(lowerName)
+    );
+    return channel;
+}
+
+/**
+ * Handler for joining a voice channel
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { channel_name?, start_listening?, conversation_mode? }
+ * @param {Object} context - Additional context { member, message }
+ * @returns {Promise<{success: boolean, channel?: Object, error?: string}>}
+ */
+export async function handleJoinVoice(guild, args, context = {}) {
+    const { channel_name, start_listening = true, conversation_mode = true } = args;
+    const { member, message } = context;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot join voice: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    try {
+        let voiceChannel = null;
+
+        // If channel name specified, find it
+        if (channel_name) {
+            voiceChannel = findVoiceChannel(guild, channel_name);
+            if (!voiceChannel) {
+                return { success: false, error: `No voice channel found matching "${channel_name}"` };
+            }
+        }
+        // Otherwise, try to join the user's current voice channel
+        else if (member?.voice?.channel) {
+            voiceChannel = member.voice.channel;
+        } else {
+            return { success: false, error: "No channel specified and user is not in a voice channel" };
+        }
+
+        // Get text channel for transcripts (use the message channel if available)
+        const textChannel = message?.channel || null;
+
+        logger.info('TOOL', `Joining voice channel "${voiceChannel.name}" in guild ${guild.name}`);
+
+        // Join the voice channel
+        const connection = await voiceClient.join(voiceChannel, textChannel);
+
+        if (!connection) {
+            return { success: false, error: 'Failed to join voice channel' };
+        }
+
+        // Start listening if requested
+        if (start_listening) {
+            await voiceClient.startListening(guild.id);
+        }
+
+        // Enable conversation mode if requested
+        if (conversation_mode) {
+            voiceClient.setConversationMode(guild.id, true);
+        }
+
+        // Import recent text channel messages for context
+        // This gives the AI knowledge of what was being discussed before joining
+        let importedContext = 0;
+        if (textChannel) {
+            // Get the bot's user ID to identify our own messages
+            const botId = message?.client?.user?.id || null;
+            importedContext = await voiceMemory.importTextChannelContext(
+                guild.id,
+                textChannel,
+                10, // Fetch last 10 messages
+                botId
+            );
+        }
+
+        logger.info('TOOL', `Successfully joined voice channel "${voiceChannel.name}"${importedContext > 0 ? ` with ${importedContext} messages of context` : ''}`);
+
+        return {
+            success: true,
+            channel: {
+                id: voiceChannel.id,
+                name: voiceChannel.name
+            },
+            listening: start_listening,
+            conversationMode: conversation_mode,
+            contextImported: importedContext,
+            message: `Joined "${voiceChannel.name}"${start_listening ? ' and started listening' : ''}${conversation_mode ? ' in conversation mode' : ''}${importedContext > 0 ? ` (loaded ${importedContext} messages of chat context)` : ''}`
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to join voice channel: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to join voice channel'
+        };
+    }
+}
+
+/**
+ * Handler for leaving a voice channel
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments (none required)
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+export async function handleLeaveVoice(guild, args) {
+    if (!guild) {
+        logger.error('TOOL', 'Cannot leave voice: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    try {
+        // Check if we're in a voice channel
+        const isConnected = voiceClient.isConnected(guild.id);
+
+        if (!isConnected) {
+            return { success: false, error: "I'm not in a voice channel" };
+        }
+
+        logger.info('TOOL', `Leaving voice channel in guild ${guild.name}`);
+
+        await voiceClient.leave(guild.id);
+
+        logger.info('TOOL', `Successfully left voice channel`);
+
+        return {
+            success: true,
+            message: 'Left the voice channel'
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to leave voice channel: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to leave voice channel'
+        };
+    }
+}
+
+/**
+ * Handler for toggling voice conversation mode
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { enabled }
+ * @returns {Promise<{success: boolean, enabled?: boolean, error?: string}>}
+ */
+export async function handleVoiceConversation(guild, args) {
+    const { enabled } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot toggle conversation mode: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    if (enabled === undefined) {
+        return { success: false, error: 'Must specify whether to enable or disable conversation mode' };
+    }
+
+    try {
+        // Check if we're in a voice channel
+        const isConnected = voiceClient.isConnected(guild.id);
+
+        if (!isConnected) {
+            return { success: false, error: "I'm not in a voice channel. Use join_voice first." };
+        }
+
+        logger.info('TOOL', `${enabled ? 'Enabling' : 'Disabling'} conversation mode in guild ${guild.name}`);
+
+        voiceClient.setConversationMode(guild.id, enabled);
+
+        // Also start/stop listening based on conversation mode
+        if (enabled) {
+            await voiceClient.startListening(guild.id);
+        }
+
+        logger.info('TOOL', `Conversation mode ${enabled ? 'enabled' : 'disabled'}`);
+
+        return {
+            success: true,
+            enabled: enabled,
+            message: `Conversation mode ${enabled ? 'enabled - I will now respond to voice' : 'disabled - I will stop responding to voice'}`
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to toggle conversation mode: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to toggle conversation mode'
+        };
+    }
+}
+
+/**
+ * Find a member by name or ID - optimized to avoid fetching all members
+ * @param {Object} guild - Discord guild object
+ * @param {string} identifier - Username, display name, ID, or mention
+ * @returns {Promise<Object|null>} The member if found, or null
+ */
+async function findMemberSmart(guild, identifier) {
+    if (!identifier) return null;
+
+    const cleanId = identifier.replace(/[<@!>]/g, '').trim();
+
+    // If it looks like an ID (all digits), try direct fetch first
+    if (/^\d{17,19}$/.test(cleanId)) {
+        try {
+            const member = await guild.members.fetch(cleanId);
+            if (member) return member;
+        } catch (e) {
+            // Member not found by ID, continue with name search
+        }
+    }
+
+    // Check cached members first (no API call)
+    const lowerName = cleanId.toLowerCase();
+
+    // Try exact match in cache
+    let member = guild.members.cache.find(m =>
+        m.displayName.toLowerCase() === lowerName ||
+        m.user.username.toLowerCase() === lowerName
+    );
+    if (member) return member;
+
+    // Try partial match in cache
+    member = guild.members.cache.find(m =>
+        m.displayName.toLowerCase().includes(lowerName) ||
+        m.user.username.toLowerCase().includes(lowerName)
+    );
+    if (member) return member;
+
+    // If not in cache, search by query (limited fetch, won't timeout)
+    try {
+        const searchResults = await guild.members.search({ query: cleanId, limit: 10 });
+        if (searchResults.size > 0) {
+            // Return best match (first result)
+            return searchResults.first();
+        }
+    } catch (e) {
+        logger.warn('TOOL', `Member search failed: ${e.message}`);
+    }
+
+    return null;
+}
+
+/**
+ * Handler for moving a member to another voice channel
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { member, target_channel }
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+export async function handleMoveMember(guild, args) {
+    const { member: memberName, target_channel: targetChannelName } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot move member: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    if (!memberName) {
+        return { success: false, error: 'Must specify which member to move' };
+    }
+
+    if (!targetChannelName) {
+        return { success: false, error: 'Must specify target voice channel' };
+    }
+
+    try {
+        // Find the member using smart lookup (avoids timeouts)
+        const targetMember = await findMemberSmart(guild, memberName);
+
+        if (!targetMember) {
+            return { success: false, error: `Could not find member "${memberName}"` };
+        }
+
+        // Check if member is in a voice channel
+        if (!targetMember.voice?.channel) {
+            return { success: false, error: `${targetMember.displayName} is not in a voice channel` };
+        }
+
+        const currentChannel = targetMember.voice.channel;
+
+        // Find the target voice channel
+        const targetChannel = findVoiceChannel(guild, targetChannelName);
+
+        if (!targetChannel) {
+            return { success: false, error: `Could not find voice channel "${targetChannelName}"` };
+        }
+
+        // Check if they're already in the target channel
+        if (currentChannel.id === targetChannel.id) {
+            return { success: true, message: `${targetMember.displayName} is already in ${targetChannel.name}` };
+        }
+
+        logger.info('TOOL', `Moving ${targetMember.displayName} from "${currentChannel.name}" to "${targetChannel.name}"`);
+
+        // Move the member
+        await targetMember.voice.setChannel(targetChannel);
+
+        logger.info('TOOL', `Successfully moved ${targetMember.displayName} to "${targetChannel.name}"`);
+
+        return {
+            success: true,
+            member: {
+                id: targetMember.id,
+                name: targetMember.displayName
+            },
+            from_channel: {
+                id: currentChannel.id,
+                name: currentChannel.name
+            },
+            to_channel: {
+                id: targetChannel.id,
+                name: targetChannel.name
+            },
+            message: `Moved ${targetMember.displayName} from "${currentChannel.name}" to "${targetChannel.name}"`
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to move member: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to move member'
+        };
+    }
+}
+
+/**
+ * Handler for listing voice channels and their members
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments (none required)
+ * @returns {Promise<{success: boolean, channels?: Array, error?: string}>}
+ */
+export async function handleListVoiceChannels(guild, args) {
+    if (!guild) {
+        logger.error('TOOL', 'Cannot list voice channels: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    try {
+        const { ChannelType } = await import('discord.js');
+
+        // Get all voice channels
+        const voiceChannels = guild.channels.cache
+            .filter(c => c.type === ChannelType.GuildVoice || c.type === ChannelType.GuildStageVoice)
+            .sort((a, b) => a.position - b.position);
+
+        if (voiceChannels.size === 0) {
+            return {
+                success: true,
+                channels: [],
+                message: 'No voice channels found in this server'
+            };
+        }
+
+        // Build list with members
+        const channelList = [];
+
+        for (const [id, channel] of voiceChannels) {
+            const members = channel.members.map(m => ({
+                id: m.id,
+                name: m.displayName,
+                username: m.user.username
+            }));
+
+            channelList.push({
+                id: channel.id,
+                name: channel.name,
+                category: channel.parent?.name || null,
+                memberCount: members.length,
+                members: members
+            });
+        }
+
+        // Create a readable summary
+        const summary = channelList.map(ch => {
+            const membersStr = ch.members.length > 0
+                ? ch.members.map(m => m.name).join(', ')
+                : '(empty)';
+            return `• ${ch.name}: ${membersStr}`;
+        }).join('\n');
+
+        logger.info('TOOL', `Listed ${channelList.length} voice channels`);
+
+        return {
+            success: true,
+            channels: channelList,
+            summary: summary,
+            message: `Found ${channelList.length} voice channels:\n${summary}`
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to list voice channels: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to list voice channels'
+        };
+    }
+}
+
+/**
+ * Handler for moving multiple members to a voice channel at once
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { members: string[], target_channel: string }
+ * @returns {Promise<{success: boolean, moved?: Array, failed?: Array, error?: string}>}
+ */
+export async function handleMoveMembersBulk(guild, args) {
+    const { members: memberNames, target_channel: targetChannelName } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot move members: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    if (!memberNames || !Array.isArray(memberNames) || memberNames.length === 0) {
+        return { success: false, error: 'Must specify which members to move (array of names)' };
+    }
+
+    if (!targetChannelName) {
+        return { success: false, error: 'Must specify target voice channel' };
+    }
+
+    // Find the target voice channel first
+    const targetChannel = findVoiceChannel(guild, targetChannelName);
+    if (!targetChannel) {
+        return { success: false, error: `Could not find voice channel "${targetChannelName}"` };
+    }
+
+    const moved = [];
+    const failed = [];
+
+    // Move each member
+    for (const memberName of memberNames) {
+        try {
+            const result = await handleMoveMember(guild, {
+                member: memberName,
+                target_channel: targetChannelName
+            });
+
+            if (result.success) {
+                moved.push({
+                    name: result.member?.name || memberName,
+                    from: result.from_channel?.name,
+                    to: result.to_channel?.name
+                });
+            } else {
+                failed.push({
+                    name: memberName,
+                    error: result.error
+                });
+            }
+        } catch (error) {
+            failed.push({
+                name: memberName,
+                error: error.message
+            });
+        }
+    }
+
+    const success = moved.length > 0;
+    let message = '';
+
+    if (moved.length > 0) {
+        message = `Moved ${moved.length} member${moved.length !== 1 ? 's' : ''} to "${targetChannel.name}"`;
+        if (failed.length > 0) {
+            message += `, ${failed.length} failed`;
+        }
+    } else {
+        message = `Failed to move any members: ${failed.map(f => f.error).join('; ')}`;
+    }
+
+    logger.info('TOOL', `Bulk move complete: ${moved.length} moved, ${failed.length} failed`);
+
+    return {
+        success,
+        moved,
+        failed,
+        target_channel: {
+            id: targetChannel.id,
+            name: targetChannel.name
+        },
+        message
     };
 }

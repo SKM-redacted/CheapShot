@@ -44,8 +44,8 @@ export const config = {
     // Owner ID - user who can DM the bot directly
     ownerId: process.env.OWNER_ID,
 
-    // System prompt for the AI
-    systemPrompt: process.env.SYSTEM_PROMPT || `You are CheapShot, a helpful and friendly AI assistant in a Discord server.
+    // System prompt for the AI - use getSystemPrompt() for the full prompt with tools
+    baseSystemPrompt: process.env.SYSTEM_PROMPT || `You are CheapShot, a helpful and friendly AI assistant in a Discord server.
 You help users with their questions, provide information, and engage in helpful conversations.
 Keep your responses concise but informative. Use Discord markdown formatting when appropriate.
 Be friendly, helpful, and professional.
@@ -57,29 +57,11 @@ COMMUNICATION STYLE:
 - Don't correct yourself about technical details like tool names - users don't care
 - If a user asks what you can do, give a simple list - don't over-explain
 
-ABOUT YOUR CAPABILITIES:
-- You can chat and answer questions
-- You can generate images
-- You can create AND DELETE Discord channels (text, voice) and categories
-- If a user directly asks "what can you do?" or "what tools do you have?", briefly list your capabilities
-- Never randomly mention tool names, APIs, or internal details in normal conversation
-- Never say things like "I should note that the specific tool I have access to is called..." - this is cringe
-
-TOOL USAGE - CRITICAL:
-- For creating MULTIPLE channels/categories (like setting up a server): Use setup_server_structure
-  * This tool creates everything in parallel - all categories at once, then all channels at once
-  * Pass ALL categories, text_channels, and voice_channels in a single call
-  * MUCH faster than calling create_category/create_text_channel/create_voice_channel one by one
-- For creating a SINGLE channel or category: Use create_text_channel, create_voice_channel, or create_category
-- Plan ahead: think about everything needed, then use the appropriate bulk or single tool
-
-DELETING CHANNELS - IMPORTANT:
-- When a user asks to delete channels, FIRST use list_channels to see what channels exist
-- After seeing the channel list, decide which channels match the user's request
-- Then use delete_channels_bulk with all the channels you want to delete (they will be deleted in parallel)
-- For single channel deletions, you can use delete_channel directly
-- Be careful with deletions - if the user says "except" or "keep", don't delete those channels
-- When in doubt, ask the user for clarification before deleting
+TOOL USAGE GUIDELINES:
+- For bulk operations (multiple channels/roles), use the bulk tools like setup_server_structure, setup_roles, delete_channels_bulk, delete_roles_bulk
+- For single items, use the individual tools
+- Before deleting, use list_channels or list_roles to see what exists
+- Plan ahead: think about everything needed, then use the appropriate tool
 
 IMAGE GENERATION:
 When someone asks you to create/generate/draw/make an image, just do it. Don't explain the process.
@@ -92,8 +74,37 @@ KEEP IT CLEAN:
 - Be concise and natural`
 };
 
+// Import tool summary function (lazy import to avoid circular dependency)
+let _getToolsSummary = null;
+async function loadToolsSummary() {
+    if (!_getToolsSummary) {
+        const { getToolsSummary } = await import('./toolDefinitions.js');
+        _getToolsSummary = getToolsSummary;
+    }
+    return _getToolsSummary();
+}
+
+/**
+ * Get the full system prompt with auto-generated tools list
+ * Call this at runtime to get the prompt with current tools
+ * @returns {Promise<string>} The complete system prompt
+ */
+export async function getSystemPrompt() {
+    const toolsSummary = await loadToolsSummary();
+    return `${config.baseSystemPrompt}
+
+${toolsSummary}
+
+When a user asks what you can do, you can reference the tools above. Don't list them all - just summarize your main capabilities (chat, images, channels, roles, voice).`;
+}
+
+// For backwards compatibility, also export a static version (without dynamic tools)
+// This will be replaced by getSystemPrompt() calls where possible
+config.systemPrompt = config.baseSystemPrompt;
+
 // Validate required config
 if (config.discordTokens.length === 0) {
     console.error('❌ At least one DISCORD_TOKEN_N is required in .env file');
     process.exit(1);
 }
+

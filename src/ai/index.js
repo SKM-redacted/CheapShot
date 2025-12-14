@@ -4,7 +4,7 @@ import { AIClient } from './aiClient.js';
 import { RequestQueue } from './queue.js';
 import { ImageQueue } from './imageQueue.js';
 import { ImageClient, TOOLS } from './imageClient.js';
-import { handleCreateVoiceChannel, handleCreateTextChannel, handleCreateCategory, handleDeleteChannel, handleDeleteChannelsBulk, handleListChannels, handleSetupServerStructure } from './discordTools.js';
+import { handleCreateVoiceChannel, handleCreateTextChannel, handleCreateCategory, handleDeleteChannel, handleDeleteChannelsBulk, handleListChannels, handleSetupServerStructure, handleCreateRole, handleDeleteRole, handleDeleteRolesBulk, handleEditRole, handleListRoles, handleAssignRole, handleSetupRoles, handleJoinVoice, handleLeaveVoice, handleVoiceConversation, handleMoveMember, handleMoveMembersBulk, handleListVoiceChannels } from './discordTools.js';
 import { checkToolPermission } from './permissionChecker.js';
 import { executeToolLoop, buildActionsContext } from './toolExecutionLoop.js';
 // Note: Server setup is now handled through AI tool calling (setup_server_structure)
@@ -76,6 +76,45 @@ async function executeSingleTool(toolCall, context) {
         case 'setup_server_structure':
             return await handleSetupServerStructure(guild, toolCall.arguments);
 
+        case 'create_role':
+            return await handleCreateRole(guild, toolCall.arguments);
+
+        case 'delete_role':
+            return await handleDeleteRole(guild, toolCall.arguments);
+
+        case 'delete_roles_bulk':
+            return await handleDeleteRolesBulk(guild, toolCall.arguments);
+
+        case 'edit_role':
+            return await handleEditRole(guild, toolCall.arguments);
+
+        case 'list_roles':
+            return await handleListRoles(guild, toolCall.arguments);
+
+        case 'assign_role':
+            return await handleAssignRole(guild, toolCall.arguments);
+
+        case 'setup_roles':
+            return await handleSetupRoles(guild, toolCall.arguments);
+
+        case 'join_voice':
+            return await handleJoinVoice(guild, toolCall.arguments, { member: context.member, message: context.message });
+
+        case 'leave_voice':
+            return await handleLeaveVoice(guild, toolCall.arguments);
+
+        case 'voice_conversation':
+            return await handleVoiceConversation(guild, toolCall.arguments);
+
+        case 'move_member':
+            return await handleMoveMember(guild, toolCall.arguments);
+
+        case 'list_voice_channels':
+            return await handleListVoiceChannels(guild, toolCall.arguments);
+
+        case 'move_members_bulk':
+            return await handleMoveMembersBulk(guild, toolCall.arguments);
+
         default:
             logger.warn('TOOL', `Unknown tool: ${toolCall.name}`);
             return { success: false, error: `Unknown tool: ${toolCall.name}` };
@@ -131,6 +170,65 @@ function formatToolResultMessage(toolName, result) {
 
         case 'setup_server_structure':
             return `✅ **${result.summary}**`;
+
+        case 'create_role':
+            const roleColor = result.role?.color !== '#000000' ? ` [${result.role?.color}]` : '';
+            return `✅ Created role **${result.role?.name}**${roleColor}`;
+
+        case 'delete_role':
+            return `🗑️ Deleted role **${result.deleted?.name}**`;
+
+        case 'delete_roles_bulk':
+            let bulkRoleMsg = `🗑️ **${result.summary}**`;
+            if (result.deleted?.length > 0) {
+                bulkRoleMsg += '\n' + result.deleted.map(r => `  \u2022 ${r.name}`).join('\n');
+            }
+            if (result.failed?.length > 0) {
+                bulkRoleMsg += `\n\u274c Failed: ${result.failed.map(f => f.name).join(', ')}`;
+            }
+            return bulkRoleMsg;
+
+        case 'edit_role':
+            const editChanges = result.changes?.join(', ') || 'updated';
+            return `✏️ Edited role **${result.role?.name}**: ${editChanges}`;
+
+        case 'list_roles':
+            return `🎭 **Server Roles:**\n${result.summary}`;
+
+        case 'assign_role':
+            if (result.action === 'none') {
+                return `ℹ️ ${result.message}`;
+            }
+            const actionEmoji = result.action === 'added' ? '➕' : '➖';
+            return `${actionEmoji} ${result.action === 'added' ? 'Added' : 'Removed'} role **${result.role?.name}** ${result.action === 'added' ? 'to' : 'from'} **${result.member?.name}**`;
+
+        case 'setup_roles':
+            let rolesMsg = `🎭 **${result.summary}**`;
+            if (result.details?.length > 0) {
+                const successRoles = result.details.filter(d => d.success);
+                if (successRoles.length > 0 && successRoles.length <= 10) {
+                    rolesMsg += '\n' + successRoles.map(r => `  • **${r.name}** ${r.color && r.color !== '#000000' ? `[${r.color}]` : ''}`).join('\n');
+                }
+            }
+            return rolesMsg;
+
+        case 'join_voice':
+            return `🎙️ ${result.message || `Joined **${result.channel?.name}**`}`;
+
+        case 'leave_voice':
+            return `👋 ${result.message || 'Left voice channel'}`;
+
+        case 'voice_conversation':
+            return `🗣️ ${result.message || `Conversation mode ${result.enabled ? 'enabled' : 'disabled'}`}`;
+
+        case 'move_member':
+            return `📍 ${result.message || `Moved **${result.member?.name}** to **${result.to_channel?.name}**`}`;
+
+        case 'list_voice_channels':
+            return `🎙️ ${result.message}`;
+
+        case 'move_members_bulk':
+            return `📍 ${result.message}`;
 
         default:
             return `✅ Completed ${toolName}`;
@@ -631,13 +729,19 @@ async function handleAIResponse(message, userMessage, bot, requestId) {
 
                         // Always include the original request so AI has full context
                         // Check if we just did a bulk delete - suggest verification
-                        const didBulkDelete = completedActions.some(a =>
+                        const didBulkDeleteChannels = completedActions.some(a =>
                             a.tool === 'delete_channels_bulk' && a.result?.success
+                        );
+                        const didBulkDeleteRoles = completedActions.some(a =>
+                            a.tool === 'delete_roles_bulk' && a.result?.success
                         );
 
                         let verificationHint = '';
-                        if (didBulkDelete) {
-                            verificationHint = `\n- IMPORTANT: You just performed bulk deletions. Call list_channels to verify the final state before responding.`;
+                        if (didBulkDeleteChannels) {
+                            verificationHint += `\n- IMPORTANT: You just performed bulk channel deletions. Call list_channels to verify the final state before responding.`;
+                        }
+                        if (didBulkDeleteRoles) {
+                            verificationHint += `\n- IMPORTANT: You just performed bulk role deletions. Call list_roles to verify the final state before responding.`;
                         }
 
                         const continuePrompt = `${actionsContext}
@@ -646,10 +750,10 @@ ORIGINAL USER REQUEST: "${message.content}"
 
 You have completed the above action(s). Based on the results and the user's original request:
 - IMPORTANT: Call ALL remaining tools at once in a SINGLE response. Don't call one tool at a time.
-- For example, if you need to create 5 more channels, call create_text_channel 5 times in ONE response.
-- If you need to do more (e.g., you listed channels and now need to delete some), call the appropriate tool(s)${verificationHint}
+- For example, if you need to delete 5 roles, call delete_roles_bulk with all 5 role names in ONE response.
+- If you listed roles/channels and now need to delete some, call delete_roles_bulk or delete_channels_bulk with all the names${verificationHint}
 - If you're completely done fulfilling the request, just respond with a brief confirmation - don't call any more tools
-- DO NOT create any channels unless the user explicitly asked you to create something`;
+- DO NOT create any channels or roles unless the user explicitly asked you to create something`;
 
                         // Re-prompt the AI to continue
                         const continueMessages = [
@@ -848,41 +952,8 @@ async function start() {
                 const primaryBot = botManager.bots[0];
                 const guild = primaryBot?.client?.guilds?.cache?.get(guildId);
 
-                // Check for server setup request via voice
-                if (isServerSetupRequest(transcript) && guild) {
-                    const member = guild.members.cache.get(userId)
-                        || await guild.members.fetch(userId).catch(() => null);
-
-                    const permCheck = checkToolPermission(member, 'create_category', guild);
-                    if (!permCheck.allowed) {
-                        await onSentence("Sorry, you don't have permission to set up server channels.");
-                        return;
-                    }
-
-                    logger.info('VOICE', `Server setup requested by ${username}`);
-                    await onSentence("Setting up your server structure. This will take a few seconds.");
-
-                    try {
-                        const plan = await getServerPlan(transcript);
-                        const handlers = {
-                            createCategory: handleCreateCategory,
-                            createTextChannel: handleCreateTextChannel,
-                            createVoiceChannel: handleCreateVoiceChannel
-                        };
-                        const results = await executePlan(plan, guild, handlers);
-
-                        await onSentence(`Done! I created ${results.success} channels and categories.`);
-                        if (results.failed > 0) {
-                            await onSentence(`${results.failed} items failed to create.`);
-                        }
-                    } catch (error) {
-                        await onSentence(`Sorry, the setup failed: ${error.message}`);
-                    }
-                    return;
-                }
-
-                // NOTE: Voice cleanup requests now go through the streaming voice chat with tools
-                // The AI will use list_channels to see what exists, then delete_channels_bulk to delete
+                // NOTE: Server setup and cleanup requests now go through the streaming voice chat with tools
+                // The AI will use setup_server_structure, list_channels, delete_channels_bulk, etc.
 
 
                 // Use streaming voice chat for faster response
@@ -934,6 +1005,50 @@ async function start() {
                             break;
                         case 'setup_server_structure':
                             toolResult = await handleSetupServerStructure(guild, toolCall.arguments);
+                            break;
+                        // Role tools
+                        case 'create_role':
+                            toolResult = await handleCreateRole(guild, toolCall.arguments);
+                            break;
+                        case 'delete_role':
+                            toolResult = await handleDeleteRole(guild, toolCall.arguments);
+                            break;
+                        case 'delete_roles_bulk':
+                            toolResult = await handleDeleteRolesBulk(guild, toolCall.arguments);
+                            break;
+                        case 'edit_role':
+                            toolResult = await handleEditRole(guild, toolCall.arguments);
+                            break;
+                        case 'list_roles':
+                            toolResult = await handleListRoles(guild, toolCall.arguments);
+                            break;
+                        case 'assign_role':
+                            toolResult = await handleAssignRole(guild, toolCall.arguments);
+                            break;
+                        case 'setup_roles':
+                            toolResult = await handleSetupRoles(guild, toolCall.arguments);
+                            break;
+                        // Voice tools - but handle gracefully when already in voice
+                        case 'join_voice':
+                            // If we're in voice, we're already there!
+                            if (voiceClient.isConnected(guildId)) {
+                                toolResult = { success: true, message: "Already in voice channel - listening and ready!" };
+                            } else {
+                                // Not in voice yet, try to join
+                                toolResult = await handleJoinVoice(guild, toolCall.arguments, { member, message: null });
+                            }
+                            break;
+                        case 'leave_voice':
+                            toolResult = await handleLeaveVoice(guild, toolCall.arguments);
+                            break;
+                        case 'voice_conversation':
+                            toolResult = await handleVoiceConversation(guild, toolCall.arguments);
+                            break;
+                        case 'move_member':
+                            toolResult = await handleMoveMember(guild, toolCall.arguments);
+                            break;
+                        case 'list_voice_channels':
+                            toolResult = await handleListVoiceChannels(guild, toolCall.arguments);
                             break;
                         default:
                             toolResult = { success: false, error: `Unknown tool: ${toolCall.name}` };

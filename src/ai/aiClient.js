@@ -1,4 +1,4 @@
-import { config } from './config.js';
+import { config, getSystemPrompt } from './config.js';
 import { TOOLS } from './imageClient.js';
 import { voiceMemory } from './voiceMemory.js';
 
@@ -10,6 +10,18 @@ export class AIClient {
     constructor() {
         this.baseUrl = config.onyxApiBase;
         this.model = config.aiModel;
+        this._systemPrompt = null; // Cache for system prompt
+    }
+
+    /**
+     * Get the system prompt (cached after first call)
+     * @returns {Promise<string>}
+     */
+    async getPrompt() {
+        if (!this._systemPrompt) {
+            this._systemPrompt = await getSystemPrompt();
+        }
+        return this._systemPrompt;
     }
 
     /**
@@ -23,13 +35,14 @@ export class AIClient {
      */
     async streamChat(userMessage, onChunk, onComplete, onError, onToolCall = null) {
         const url = `${this.baseUrl}/v1/chat/completions`;
+        const systemPrompt = await this.getPrompt();
 
         const body = {
             model: this.model,
             messages: [
                 {
                     role: 'system',
-                    content: config.systemPrompt
+                    content: systemPrompt
                 },
                 {
                     role: 'user',
@@ -383,7 +396,8 @@ export class AIClient {
 CRITICAL RULES:
 - Reply in ONE sentence only. Maximum TWO if absolutely necessary.
 - Talk like a friend, not an assistant.
-- NEVER use lists, bullets, markdown, or numbered points.
+- NEVER use lists, bullets, markdown, numbered points, or bold text.
+- NEVER use emojis - they sound weird when spoken.
 - NEVER say "as an AI" or mention being an AI.
 - Be warm but brief. Think text message, not essay.
 - If asked a complex question, give the simplest useful answer.
@@ -460,10 +474,11 @@ You're talking to ${username}. Keep it casual and SHORT.`;
         let toolContext = '';
         if (tools && tools.length > 0) {
             toolContext = `\n\nTOOLS - CRITICAL:
-- You have tools for managing Discord channels (create, delete, list).
+- You have tools for managing Discord channels (create, delete, list) and voice.
 - For setting up a server (multiple categories/channels): Use setup_server_structure with all your planned items
 - For deletions: First list_channels, then delete_channels_bulk with ALL channels to delete
 - For creating a SINGLE channel: Use create_text_channel, create_voice_channel, or create_category
+- For moving users between voice channels: Use move_member with the person's name and target channel
 - After tools execute, briefly confirm what was done.`;
         }
 
@@ -476,10 +491,13 @@ HOW THIS WORKS:
 - Your responses are SPOKEN BACK to them via text-to-speech
 - This is a real-time voice conversation, not a text chat
 
-STYLE:
+STYLE - CRITICAL:
 - Keep responses brief (1-3 sentences max) - long responses are annoying to listen to
 - Talk like a chill friend, not a formal assistant
-- No lists, bullets, markdown, or numbered points - these don't work in voice
+- NEVER use emojis - they get spoken as "emoji" by TTS and sound weird
+- NEVER use bold (**text**), italics, or any markdown - these break the natural speech flow
+- No lists, bullets, numbered points, or formatting of any kind
+- Just plain conversational text that sounds natural when spoken aloud
 - Be warm, casual, and concise
 - If asked something complex, give the simplest useful answer
 

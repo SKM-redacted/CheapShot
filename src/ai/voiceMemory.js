@@ -370,6 +370,115 @@ class VoiceMemory {
     }
 
     /**
+     * Import recent text channel messages into voice memory
+     * This gives the AI context from the text chat when joining voice
+     * @param {string} guildId - Guild ID
+     * @param {Object} textChannel - Discord text channel to fetch from
+     * @param {number} messageCount - Number of messages to fetch (default 10)
+     * @param {string} botId - Bot's user ID to identify assistant messages
+     * @returns {Promise<number>} Number of messages imported
+     */
+    async importTextChannelContext(guildId, textChannel, messageCount = 10, botId = null) {
+        if (!textChannel) {
+            logger.warn('VOICE_MEMORY', 'No text channel provided for context import');
+            return 0;
+        }
+
+        try {
+            // Fetch recent messages
+            const messages = await textChannel.messages.fetch({ limit: messageCount });
+
+            // Sort by timestamp (oldest first)
+            const sortedMessages = [...messages.values()].sort(
+                (a, b) => a.createdTimestamp - b.createdTimestamp
+            );
+
+            if (sortedMessages.length === 0) {
+                logger.debug('VOICE_MEMORY', 'No messages to import from text channel');
+                return 0;
+            }
+
+            // Initialize cache for this guild if needed
+            const now = Date.now();
+            if (!this.cache.has(guildId)) {
+                this.cache.set(guildId, { messages: [], lastUpdated: now });
+            }
+
+            const guildData = this.cache.get(guildId);
+            let importedCount = 0;
+
+            // Convert Discord messages to voice memory format
+            // Use relative timestamps from now, preserving order
+            // This makes them "fresh" so they don't expire immediately
+            const oldestMsgTime = sortedMessages[0].createdTimestamp;
+            const timeSpan = sortedMessages.length > 1
+                ? sortedMessages[sortedMessages.length - 1].createdTimestamp - oldestMsgTime
+                : 0;
+
+            // Map the time span to the last 2 minutes (so messages don't expire for a bit)
+            const targetSpanMs = 2 * 60 * 1000; // 2 minutes
+            const baseTime = now - targetSpanMs;
+
+            for (let i = 0; i < sortedMessages.length; i++) {
+                const msg = sortedMessages[i];
+
+                // Skip empty messages and bot commands
+                if (!msg.content || msg.content.trim() === '') continue;
+                if (msg.content.startsWith('/')) continue;
+
+                // Calculate proportional timestamp within our target window
+                const relativePos = timeSpan > 0
+                    ? (msg.createdTimestamp - oldestMsgTime) / timeSpan
+                    : i / Math.max(sortedMessages.length - 1, 1);
+                const timestamp = Math.floor(baseTime + (relativePos * targetSpanMs));
+
+                // Determine if this is a bot message or user message
+                const isBot = botId && msg.author.id === botId;
+
+                if (isBot) {
+                    guildData.messages.push({
+                        timestamp,
+                        role: 'assistant',
+                        content: msg.content,
+                        source: 'text_channel'
+                    });
+                } else {
+                    // Skip other bot messages
+                    if (msg.author.bot) continue;
+
+                    guildData.messages.push({
+                        timestamp,
+                        role: 'user',
+                        userId: msg.author.id,
+                        username: msg.member?.displayName || msg.author.username,
+                        content: msg.content,
+                        source: 'text_channel'
+                    });
+                }
+
+                importedCount++;
+            }
+
+            // Sort all messages by timestamp
+            guildData.messages.sort((a, b) => a.timestamp - b.timestamp);
+            guildData.lastUpdated = now;
+
+            // Enforce message limit
+            this.enforceMessageLimit(guildId);
+
+            // Save to file
+            this.saveToFile();
+
+            logger.info('VOICE_MEMORY', `[${guildId}] Imported ${importedCount} messages from text channel for context`);
+            return importedCount;
+
+        } catch (error) {
+            logger.error('VOICE_MEMORY', `Failed to import text channel context: ${error.message}`);
+            return 0;
+        }
+    }
+
+    /**
      * Clear all memory for a guild
      * @param {string} guildId - Guild ID
      */

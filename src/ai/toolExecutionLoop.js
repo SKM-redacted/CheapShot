@@ -212,6 +212,112 @@ function buildActionsContext(actions) {
             case 'setup_server_structure':
                 description = `Server structure setup: ${action.result?.summary || 'completed'}`;
                 break;
+
+            // Role management tools
+            case 'list_roles':
+                // Include the full role list so AI can decide what to do
+                description = 'Listed server roles:';
+                if (action.result?.roles?.length > 0) {
+                    description += `\n  ROLES (${action.result.roles.length} total):`;
+                    for (const role of action.result.roles) {
+                        let roleInfo = `\n    - "${role.name}"`;
+                        if (role.color && role.color !== '#000000') {
+                            roleInfo += ` [${role.color}]`;
+                        }
+                        roleInfo += ` (${role.members} members)`;
+                        if (role.hoist) roleInfo += ' [hoisted]';
+                        if (role.mentionable) roleInfo += ' [mentionable]';
+                        description += roleInfo;
+                    }
+                } else {
+                    description += '\n  No roles found (besides @everyone)';
+                }
+                break;
+            case 'create_role':
+                description = `Created role "${action.result?.role?.name || action.args.name}"`;
+                if (action.result?.role?.color && action.result.role.color !== '#000000') {
+                    description += ` [${action.result.role.color}]`;
+                }
+                break;
+            case 'delete_role':
+                description = `Deleted role "${action.result?.deleted?.name || action.args.name}"`;
+                break;
+            case 'delete_roles_bulk':
+                description = `Bulk deleted roles: ${action.result?.summary || `${action.result?.deleted?.length || 0} roles`}`;
+                if (action.result?.deleted?.length > 0) {
+                    description += ` (${action.result.deleted.map(r => r.name).join(', ')})`;
+                }
+                if (action.result?.failed?.length > 0) {
+                    description += `\n    Failed: ${action.result.failed.map(r => r.name).join(', ')}`;
+                }
+                break;
+            case 'edit_role':
+                description = `Edited role "${action.result?.role?.name || action.args.name}"`;
+                if (action.result?.changes?.length > 0) {
+                    description += `: ${action.result.changes.join(', ')}`;
+                }
+                break;
+            case 'assign_role':
+                if (action.result?.action === 'none') {
+                    description = action.result.message || `No change needed for ${action.args.member}`;
+                } else {
+                    description = `${action.result?.action === 'added' ? 'Added' : 'Removed'} role "${action.result?.role?.name}" ${action.result?.action === 'added' ? 'to' : 'from'} ${action.result?.member?.name}`;
+                }
+                break;
+            case 'setup_roles':
+                description = `Role setup: ${action.result?.summary || 'completed'}`;
+                if (action.result?.details?.length > 0) {
+                    const successful = action.result.details.filter(d => d.success);
+                    if (successful.length > 0) {
+                        description += ` (${successful.map(r => r.name).join(', ')})`;
+                    }
+                }
+                break;
+
+            // Voice channel tools
+            case 'list_voice_channels':
+                // Include the full voice channel list with members so AI knows EXACTLY what channels exist
+                description = 'Listed voice channels:';
+                if (action.result?.channels?.length > 0) {
+                    description += `\n  VOICE CHANNELS (${action.result.channels.length} total):`;
+                    for (const ch of action.result.channels) {
+                        const memberNames = ch.members?.length > 0
+                            ? ch.members.map(m => m.name || m.username).join(', ')
+                            : '(empty)';
+                        description += `\n    - "${ch.name}" [${ch.category || 'No Category'}]: ${memberNames}`;
+                    }
+                    description += `\n  IMPORTANT: Use EXACT channel names from above when moving members.`;
+                } else {
+                    description += '\n  No voice channels found';
+                }
+                break;
+            case 'move_member':
+                if (action.result?.success) {
+                    description = `Moved ${action.result?.member?.name || action.args.member} from "${action.result?.from_channel?.name}" to "${action.result?.to_channel?.name}"`;
+                } else {
+                    description = `Failed to move ${action.args.member}: ${action.result?.error || 'Unknown error'}`;
+                }
+                break;
+            case 'move_members_bulk':
+                if (action.result?.success) {
+                    description = `Bulk move: ${action.result?.message || `Moved ${action.result?.moved?.length || 0} members to "${action.result?.target_channel?.name}"`}`;
+                    if (action.result?.failed?.length > 0) {
+                        description += `\n    Failed: ${action.result.failed.map(f => f.name).join(', ')}`;
+                    }
+                } else {
+                    description = `Bulk move failed: ${action.result?.error || 'Unknown error'}`;
+                }
+                break;
+            case 'join_voice':
+                description = action.result?.message || `Joined voice channel "${action.result?.channel?.name || action.args.channel_name}"`;
+                break;
+            case 'leave_voice':
+                description = action.result?.message || 'Left voice channel';
+                break;
+            case 'voice_conversation':
+                description = action.result?.message || `Conversation mode ${action.result?.enabled ? 'enabled' : 'disabled'}`;
+                break;
+
             default:
                 description = `${action.tool}: ${JSON.stringify(action.args)}`;
         }

@@ -23,7 +23,11 @@ const TOOL_PERMISSIONS = {
     'move_channel': [PermissionFlagsBits.ManageChannels],
     'create_role': [PermissionFlagsBits.ManageRoles],
     'delete_role': [PermissionFlagsBits.ManageRoles],
+    'delete_roles_bulk': [PermissionFlagsBits.ManageRoles],
+    'edit_role': [PermissionFlagsBits.ManageRoles],
+    'list_roles': [PermissionFlagsBits.ManageRoles],
     'assign_role': [PermissionFlagsBits.ManageRoles],
+    'setup_roles': [PermissionFlagsBits.ManageRoles],
     'kick_member': [PermissionFlagsBits.KickMembers],
     'ban_member': [PermissionFlagsBits.BanMembers],
     'timeout_member': [PermissionFlagsBits.ModerateMembers],
@@ -33,6 +37,10 @@ const TOOL_PERMISSIONS = {
     // These don't need special permissions
     'generate_image': [],
     'image_generation': [],
+    'join_voice': [],
+    'leave_voice': [],
+    'voice_conversation': [],
+    'list_voice_channels': [],
 };
 
 /**
@@ -151,7 +159,11 @@ function getToolActionName(toolName) {
         'move_channel': 'move channels',
         'create_role': 'create roles',
         'delete_role': 'delete roles',
+        'delete_roles_bulk': 'delete multiple roles',
+        'edit_role': 'edit roles',
+        'list_roles': 'list roles',
         'assign_role': 'assign roles',
+        'setup_roles': 'set up roles',
         'kick_member': 'kick members',
         'ban_member': 'ban members',
         'timeout_member': 'timeout members',

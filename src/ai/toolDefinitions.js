@@ -276,6 +276,388 @@ export const SETUP_SERVER_STRUCTURE_TOOL = {
 };
 
 // ============================================================
+// DISCORD VOICE CHANNEL TOOLS
+// ============================================================
+
+/**
+ * Tool definition for joining a voice channel
+ */
+export const JOIN_VOICE_TOOL = {
+    type: "function",
+    function: {
+        name: "join_voice",
+        description: "Join a voice channel to listen and talk with users. Use this when someone asks you to join VC, hop in voice, come talk, etc. You can optionally specify a channel name, or join the channel the requesting user is in.",
+        parameters: {
+            type: "object",
+            properties: {
+                channel_name: {
+                    type: "string",
+                    description: "Optional: Name of the voice channel to join. If not specified, joins the voice channel the user is currently in."
+                },
+                start_listening: {
+                    type: "boolean",
+                    description: "Optional: Whether to immediately start listening and transcribing. Default is true."
+                },
+                conversation_mode: {
+                    type: "boolean",
+                    description: "Optional: Whether to enable conversation mode (AI responds to voice with voice). Default is true."
+                }
+            },
+            required: []
+        }
+    }
+};
+
+/**
+ * Tool definition for leaving a voice channel
+ */
+export const LEAVE_VOICE_TOOL = {
+    type: "function",
+    function: {
+        name: "leave_voice",
+        description: "Leave the current voice channel. Use this when someone asks you to leave VC, disconnect, go away, etc.",
+        parameters: {
+            type: "object",
+            properties: {},
+            required: []
+        }
+    }
+};
+
+/**
+ * Tool definition for listing voice channels and their members
+ */
+export const LIST_VOICE_CHANNELS_TOOL = {
+    type: "function",
+    function: {
+        name: "list_voice_channels",
+        description: "List all voice channels in the server and show who is currently in each one. Use this to find out which voice channels exist, who is where, and pick the right channel when moving users.",
+        parameters: {
+            type: "object",
+            properties: {},
+            required: []
+        }
+    }
+};
+
+/**
+ * Tool definition for toggling conversation mode
+ */
+export const VOICE_CONVERSATION_TOOL = {
+    type: "function",
+    function: {
+        name: "voice_conversation",
+        description: "Enable or disable voice conversation mode. When enabled, the AI will listen and respond with voice. Use this when someone asks you to start/stop talking, enable/disable conversation mode, etc.",
+        parameters: {
+            type: "object",
+            properties: {
+                enabled: {
+                    type: "boolean",
+                    description: "Whether to enable (true) or disable (false) conversation mode."
+                }
+            },
+            required: ["enabled"]
+        }
+    }
+};
+
+/**
+ * Tool definition for moving a member to another voice channel
+ */
+export const MOVE_MEMBER_TOOL = {
+    type: "function",
+    function: {
+        name: "move_member",
+        description: "Move a user from their current voice channel to a different voice channel. Use this when someone asks you to move someone to a different VC, drag them to another channel, etc.",
+        parameters: {
+            type: "object",
+            properties: {
+                member: {
+                    type: "string",
+                    description: "The username or nickname of the member to move. Can be partial match."
+                },
+                target_channel: {
+                    type: "string",
+                    description: "The name of the voice channel to move them to."
+                }
+            },
+            required: ["member", "target_channel"]
+        }
+    }
+};
+
+/**
+ * Tool definition for moving multiple members to a voice channel at once
+ */
+export const MOVE_MEMBERS_BULK_TOOL = {
+    type: "function",
+    function: {
+        name: "move_members_bulk",
+        description: "Move multiple users from their current voice channels to a different voice channel all at once. Use this when someone asks you to drag/move multiple people to another VC.",
+        parameters: {
+            type: "object",
+            properties: {
+                members: {
+                    type: "array",
+                    description: "Array of usernames or nicknames of the members to move. Can also be user IDs.",
+                    items: {
+                        type: "string"
+                    }
+                },
+                target_channel: {
+                    type: "string",
+                    description: "The name of the voice channel to move them to."
+                }
+            },
+            required: ["members", "target_channel"]
+        }
+    }
+};
+
+// ============================================================
+// DISCORD ROLE MANAGEMENT TOOLS
+// ============================================================
+
+/**
+ * Tool definition for creating a role
+ */
+export const CREATE_ROLE_TOOL = {
+    type: "function",
+    function: {
+        name: "create_role",
+        description: "Create a new role in the Discord server with optional color, permissions, and settings. Use this when the user asks you to create, make, or add a role.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: {
+                    type: "string",
+                    description: "The name for the new role."
+                },
+                color: {
+                    type: "string",
+                    description: "Optional: The color for the role. Can be a hex color code (e.g., '#FF5733' or 'FF5733'), or a color name like 'red', 'blue', 'green', 'purple', 'orange', 'yellow', 'pink', 'cyan', 'gold', 'navy', 'teal', 'lime', 'coral', 'crimson', 'indigo', 'violet', 'salmon', 'magenta', 'aqua', 'maroon'."
+                },
+                hoist: {
+                    type: "boolean",
+                    description: "Optional: Whether to display the role separately in the member list (true) or not (false). Default is false."
+                },
+                mentionable: {
+                    type: "boolean",
+                    description: "Optional: Whether the role can be mentioned by everyone (true) or not (false). Default is false."
+                },
+                permissions: {
+                    type: "array",
+                    description: "Optional: Array of permission names to grant. Examples: 'SendMessages', 'ManageChannels', 'ManageRoles', 'KickMembers', 'BanMembers', 'ManageMessages', 'EmbedLinks', 'AttachFiles', 'ReadMessageHistory', 'MentionEveryone', 'Connect', 'Speak', 'MuteMembers', 'DeafenMembers', 'MoveMembers', 'UseVAD', 'ChangeNickname', 'ManageNicknames', 'ManageWebhooks', 'ManageEmojisAndStickers', 'Administrator'.",
+                    items: {
+                        type: "string"
+                    }
+                }
+            },
+            required: ["name"]
+        }
+    }
+};
+
+/**
+ * Tool definition for deleting a role
+ */
+export const DELETE_ROLE_TOOL = {
+    type: "function",
+    function: {
+        name: "delete_role",
+        description: "Delete a role from the Discord server. Use this when the user asks you to delete, remove, or get rid of a role.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: {
+                    type: "string",
+                    description: "The name of the role to delete. Can be a partial match."
+                }
+            },
+            required: ["name"]
+        }
+    }
+};
+
+/**
+ * Tool definition for bulk deleting multiple roles at once
+ */
+export const DELETE_ROLES_BULK_TOOL = {
+    type: "function",
+    function: {
+        name: "delete_roles_bulk",
+        description: "Delete multiple roles at once, processed in parallel for speed. Use this after using list_roles to see what exists, then call this with the specific roles you want to delete.",
+        parameters: {
+            type: "object",
+            properties: {
+                roles: {
+                    type: "array",
+                    description: "Array of role names to delete.",
+                    items: {
+                        type: "string",
+                        description: "The name of the role to delete"
+                    }
+                }
+            },
+            required: ["roles"]
+        }
+    }
+};
+
+/**
+ * Tool definition for editing a role
+ */
+export const EDIT_ROLE_TOOL = {
+    type: "function",
+    function: {
+        name: "edit_role",
+        description: "Edit an existing role's name, color, permissions, or other settings. Use this when the user asks you to rename, recolor, change, or modify a role.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: {
+                    type: "string",
+                    description: "The current name of the role to edit. Can be a partial match."
+                },
+                new_name: {
+                    type: "string",
+                    description: "Optional: The new name for the role."
+                },
+                color: {
+                    type: "string",
+                    description: "Optional: The new color for the role. Can be a hex code (e.g., '#FF5733') or color name like 'red', 'blue', 'green', 'purple', 'gold', etc."
+                },
+                hoist: {
+                    type: "boolean",
+                    description: "Optional: Whether to display the role separately in the member list."
+                },
+                mentionable: {
+                    type: "boolean",
+                    description: "Optional: Whether the role can be mentioned by everyone."
+                },
+                add_permissions: {
+                    type: "array",
+                    description: "Optional: Array of permission names to ADD to the role.",
+                    items: {
+                        type: "string"
+                    }
+                },
+                remove_permissions: {
+                    type: "array",
+                    description: "Optional: Array of permission names to REMOVE from the role.",
+                    items: {
+                        type: "string"
+                    }
+                }
+            },
+            required: ["name"]
+        }
+    }
+};
+
+/**
+ * Tool definition for listing roles
+ */
+export const LIST_ROLES_TOOL = {
+    type: "function",
+    function: {
+        name: "list_roles",
+        description: "List all roles in the Discord server with their colors, member counts, and key permissions. Use this to see what roles exist before creating, editing, or deleting roles.",
+        parameters: {
+            type: "object",
+            properties: {
+                include_permissions: {
+                    type: "boolean",
+                    description: "Optional: Whether to include permission details for each role. Default is false for cleaner output."
+                }
+            },
+            required: []
+        }
+    }
+};
+
+/**
+ * Tool definition for assigning a role to a member
+ */
+export const ASSIGN_ROLE_TOOL = {
+    type: "function",
+    function: {
+        name: "assign_role",
+        description: "Assign or remove a role from a server member. Use this when the user asks to give someone a role or take a role away.",
+        parameters: {
+            type: "object",
+            properties: {
+                role_name: {
+                    type: "string",
+                    description: "The name of the role to assign or remove. Can be a partial match."
+                },
+                member: {
+                    type: "string",
+                    description: "The username, display name, or mention of the member. Can be a partial match."
+                },
+                action: {
+                    type: "string",
+                    enum: ["add", "remove"],
+                    description: "Whether to add the role to the member or remove it. Default is 'add'."
+                }
+            },
+            required: ["role_name", "member"]
+        }
+    }
+};
+
+/**
+ * Tool definition for setting up multiple roles at once
+ * This is the PREFERRED tool when creating multiple roles at once
+ */
+export const SETUP_ROLES_TOOL = {
+    type: "function",
+    function: {
+        name: "setup_roles",
+        description: "Create multiple roles at once, all processed in parallel for maximum speed. USE THIS instead of calling create_role multiple times. Perfect for setting up a role hierarchy, creating a role template, or adding multiple roles at once. Roles are created in the order specified (first = highest position).",
+        parameters: {
+            type: "object",
+            properties: {
+                roles: {
+                    type: "array",
+                    description: "Array of roles to create. Order matters - first role will be highest in hierarchy.",
+                    items: {
+                        type: "object",
+                        properties: {
+                            name: {
+                                type: "string",
+                                description: "The name for the role"
+                            },
+                            color: {
+                                type: "string",
+                                description: "Color as hex code (e.g., '#FF5733') or name ('red', 'blue', 'gold', etc.)"
+                            },
+                            hoist: {
+                                type: "boolean",
+                                description: "Display separately in member list"
+                            },
+                            mentionable: {
+                                type: "boolean",
+                                description: "Allow anyone to mention this role"
+                            },
+                            permissions: {
+                                type: "array",
+                                description: "Permission names to grant (e.g., 'SendMessages', 'ManageChannels', 'Administrator')",
+                                items: {
+                                    type: "string"
+                                }
+                            }
+                        },
+                        required: ["name"]
+                    }
+                }
+            },
+            required: ["roles"]
+        }
+    }
+};
+
+// ============================================================
 // TOOL COLLECTIONS
 // ============================================================
 
@@ -289,7 +671,20 @@ export const DISCORD_TOOLS = [
     DELETE_CHANNEL_TOOL,
     DELETE_CHANNELS_BULK_TOOL,
     LIST_CHANNELS_TOOL,
-    SETUP_SERVER_STRUCTURE_TOOL
+    SETUP_SERVER_STRUCTURE_TOOL,
+    JOIN_VOICE_TOOL,
+    LEAVE_VOICE_TOOL,
+    VOICE_CONVERSATION_TOOL,
+    MOVE_MEMBER_TOOL,
+    MOVE_MEMBERS_BULK_TOOL,
+    LIST_VOICE_CHANNELS_TOOL,
+    CREATE_ROLE_TOOL,
+    DELETE_ROLE_TOOL,
+    DELETE_ROLES_BULK_TOOL,
+    EDIT_ROLE_TOOL,
+    LIST_ROLES_TOOL,
+    ASSIGN_ROLE_TOOL,
+    SETUP_ROLES_TOOL
 ];
 
 /**
@@ -299,3 +694,40 @@ export const ALL_TOOLS = [
     IMAGE_TOOL,
     ...DISCORD_TOOLS
 ];
+
+/**
+ * Generate a summary of all available tools for the AI system prompt
+ * This auto-updates when new tools are added, so the AI always knows what it can do
+ * @param {Array} tools - Array of tool definitions (defaults to ALL_TOOLS)
+ * @returns {string} Formatted summary of tools
+ */
+export function getToolsSummary(tools = ALL_TOOLS) {
+    const lines = ['AVAILABLE TOOLS:'];
+
+    for (const tool of tools) {
+        const func = tool.function;
+        if (!func) continue;
+
+        // Get the tool name in a readable format
+        const name = func.name;
+
+        // Get a short description (first sentence only)
+        const desc = func.description?.split('.')[0] || 'No description';
+
+        lines.push(`- ${name}: ${desc}`);
+    }
+
+    return lines.join('\n');
+}
+
+/**
+ * Get a concise tools list for voice prompts (shorter format)
+ * @param {Array} tools - Array of tool definitions
+ * @returns {string} Comma-separated list of tool names
+ */
+export function getToolNames(tools = ALL_TOOLS) {
+    return tools
+        .map(t => t.function?.name)
+        .filter(Boolean)
+        .join(', ');
+}
