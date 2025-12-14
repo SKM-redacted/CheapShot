@@ -1,5 +1,6 @@
 import { config } from './config.js';
 import { logger } from './logger.js';
+import { ALL_TOOLS } from './toolDefinitions.js';
 
 /**
  * Image Generation Client
@@ -69,33 +70,7 @@ export class ImageClient {
 }
 
 /**
- * Tool definitions for the AI model
- * These tell the AI what tools it can use
+ * All available tools - imported from toolDefinitions.js
  */
-export const IMAGE_TOOL = {
-    type: "function",
-    function: {
-        name: "generate_image",
-        description: "Generate an image based on a text description. Use this when the user asks you to create, draw, generate, or make an image or picture of something.",
-        parameters: {
-            type: "object",
-            properties: {
-                prompt: {
-                    type: "string",
-                    description: "A detailed description of the image to generate. Be descriptive and specific about what should be in the image, the style, colors, composition, etc."
-                },
-                size: {
-                    type: "string",
-                    enum: ["1024x1024", "1792x1024", "1024x1792"],
-                    description: "The size of the image. Use 1024x1024 for square, 1792x1024 for landscape, 1024x1792 for portrait."
-                }
-            },
-            required: ["prompt"]
-        }
-    }
-};
+export const TOOLS = ALL_TOOLS;
 
-/**
- * All available tools
- */
-export const TOOLS = [IMAGE_TOOL];

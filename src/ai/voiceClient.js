@@ -618,11 +618,25 @@ class VoiceClient {
                     sentenceCount++;
                     fullResponse += sentence + ' ';
 
-                    logger.info('VOICE', `Speaking sentence ${sentenceCount}: "${sentence.substring(0, 50)}..."`);
+                    // Strip code blocks and markdown for TTS - we don't want to speak "```json"
+                    let speakableSentence = sentence
+                        .replace(/```[\s\S]*?```/g, '') // Remove code blocks
+                        .replace(/`[^`]+`/g, '')        // Remove inline code
+                        .replace(/```\w*/g, '')         // Remove orphaned code block markers
+                        .replace(/```/g, '')            // Remove any remaining backticks
+                        .trim();
+
+                    // Skip if nothing left to speak
+                    if (!speakableSentence) {
+                        logger.debug('VOICE', `Skipping empty/code-only sentence`);
+                        return;
+                    }
+
+                    logger.info('VOICE', `Speaking sentence ${sentenceCount}: "${speakableSentence.substring(0, 50)}..."`);
 
                     // Speak immediately - don't wait for full response!
                     // Pass messageId so TTS can track which audio belongs to which message
-                    await ttsClient.speak(guildId, connectionInfo.connection, sentence, { messageId });
+                    await ttsClient.speak(guildId, connectionInfo.connection, speakableSentence, { messageId });
                 },
                 // isCancelled callback - AI client checks this before saving to memory
                 () => tracking.cancelled && tracking.cancelledMessageId === messageId,

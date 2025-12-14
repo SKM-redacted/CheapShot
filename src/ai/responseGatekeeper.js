@@ -139,6 +139,42 @@ Only respond with exactly "YES" or "NO".`;
             }
         }
 
+        // QUICK-PASS: Tool-related commands - these are ALWAYS directed at the bot
+        // because humans can't create channels or perform Discord actions by talking
+        // Includes STT-friendly variations (created/creates/creating, missing spaces, etc)
+        const toolCommandPatterns = [
+            // Channel/category creation
+            /\b(create|make|add|set\s*up|setup|creat\w*)\b.*(voice|text|channel|category|section)/i,
+            /\b(voice|text)\b.*(channel).*(create|make|named?|called)/i,
+            /\bchannel\b.*(named?|called)\b/i,
+            /\b(create|make|add|creat\w*)\b.*(category|section|group)/i,
+            /\bcategory\b.*(named?|called)\b/i,
+
+            // Channel/category deletion
+            /\b(delete|remove|clear|clean\s*up|cleanup|get rid)\b.*(voice|text|channel|category|all|every)/i,
+            /\b(delete|remove)\b.*(all|every|everything)/i,
+
+            // Channel modification
+            /\b(rename|move)\b.*(channel|category)/i,
+
+            // Server setup patterns (STT often mishears these)
+            /\b(set\s*up|setup|creat\w*)\b.*(server|discord)/i,
+            /\b(discord|server)\b.*(set\s*up|setup|creat\w*)/i,
+            /\bserver\b.*(software|company|team|gaming|community)/i,
+            /\b(software|company|team|gaming|community)\b.*server/i,
+            /\b(basic|simple|new)\b.*(discord|server)/i,
+
+            // Cleanup patterns
+            /\b(clean|clear|wipe)\b.*(server|channels?)/i,
+            /\b(delete|remove)\b.*(except|keep|but)/i,
+        ];
+        for (const pattern of toolCommandPatterns) {
+            if (pattern.test(lowerTranscript)) {
+                logger.info('GATEKEEPER', `Quick-pass: Tool command detected - responding`);
+                return true;
+            }
+        }
+
         // CONVERSATIONAL CONTEXT: If the bot just spoke, the next message is probably a response to us
         // This makes conversations flow naturally without requiring the bot's name every time
         if (context && memberCount > 1) {

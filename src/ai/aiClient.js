@@ -441,9 +441,11 @@ You're talking to ${username}. Keep it casual and SHORT.`;
      * @param {string} systemPromptOverride - Optional system prompt override
      * @param {Function} isCancelled - Optional callback to check if response was cancelled
      * @param {Object} sentimentData - Optional sentiment data { sentiment, score, intensity, description }
-     * @returns {Promise<string>} Full AI response text
+     * @param {Array} tools - Optional array of tool definitions
+     * @param {Function} onToolCall - Optional callback when AI wants to use a tool
+     * @returns {Promise<{text: string, toolCalls: Array}>} Full AI response text and any tool calls
      */
-    async streamVoiceChat(guildId, userMessage, username = 'User', onSentence, onComplete, systemPromptOverride = null, isCancelled = null, sentimentData = null) {
+    async streamVoiceChat(guildId, userMessage, username = 'User', onSentence, onComplete, systemPromptOverride = null, isCancelled = null, sentimentData = null, tools = null, onToolCall = null) {
         const url = `${this.baseUrl}/v1/chat/completions`;
 
         // Build sentiment-aware tone guide if sentiment data is available
@@ -452,6 +454,17 @@ You're talking to ${username}. Keep it casual and SHORT.`;
             sentimentContext = `\n\nTONE AWARENESS:
 - The user's voice sounds: ${sentimentData.description} (score: ${sentimentData.score})
 - Match their energy appropriately - if they sound excited, be more upbeat; if frustrated, be understanding; if neutral, be chill`;
+        }
+
+        // Add tool instructions if tools are provided
+        let toolContext = '';
+        if (tools && tools.length > 0) {
+            toolContext = `\n\nTOOLS - CRITICAL:
+- You have tools for managing Discord channels (create, delete, list).
+- For setting up a server (multiple categories/channels): Use setup_server_structure with all your planned items
+- For deletions: First list_channels, then delete_channels_bulk with ALL channels to delete
+- For creating a SINGLE channel: Use create_text_channel, create_voice_channel, or create_category
+- After tools execute, briefly confirm what was done.`;
         }
 
         // Voice-optimized system prompt - conversational and concise
@@ -479,7 +492,7 @@ IMPORTANT:
 FRAGMENTED SPEECH:
 - Messages come from speech-to-text and may be fragmented or slightly garbled
 - Infer meaning from context rather than asking "what do you mean?"
-- Flow naturally with the conversation${sentimentContext}
+- Flow naturally with the conversation${sentimentContext}${toolContext}
 
 You're chatting with ${username}. Keep it casual!`;
 
@@ -494,8 +507,15 @@ You're chatting with ${username}. Keep it casual!`;
             model: config.voiceModel || this.model,
             messages: messages,
             stream: true,
-            max_tokens: 200
+            // More tokens when tools are involved (tool calls need space)
+            max_tokens: (tools && tools.length > 0) ? 500 : 200
         };
+
+        // Add tools if provided
+        if (tools && tools.length > 0) {
+            body.tools = tools;
+            body.tool_choice = "auto";
+        }
 
         try {
             const response = await fetch(url, {
@@ -516,6 +536,8 @@ You're chatting with ${username}. Keep it casual!`;
             let fullText = '';
             let buffer = '';
             let chunkBuffer = '';
+            let toolCalls = [];
+            let currentToolCall = null;
 
             // Smarter chunking settings - only split on punctuation
             const MIN_WORDS_CLAUSE = 6;     // Min words to send on comma/colon
@@ -551,6 +573,21 @@ You're chatting with ${username}. Keep it casual!`;
                     if (chunkBuffer.trim()) {
                         await onSentence(chunkBuffer.trim());
                     }
+                    // Handle any final tool call
+                    if (currentToolCall && currentToolCall.name) {
+                        const argString = (currentToolCall.arguments || '').trim();
+                        if (argString && argString.startsWith('{') && argString.endsWith('}')) {
+                            try {
+                                const args = JSON.parse(argString);
+                                toolCalls.push({
+                                    name: currentToolCall.name,
+                                    arguments: args
+                                });
+                            } catch (e) {
+                                console.warn('Failed to parse final tool call arguments:', e.message);
+                            }
+                        }
+                    }
                     break;
                 }
 
@@ -566,7 +603,47 @@ You're chatting with ${username}. Keep it casual!`;
 
                     try {
                         const parsed = JSON.parse(data);
-                        const content = parsed.choices?.[0]?.delta?.content;
+                        const choice = parsed.choices?.[0];
+                        if (!choice) continue;
+
+                        const content = choice.delta?.content;
+
+                        // Handle tool call deltas
+                        if (choice.delta?.tool_calls) {
+                            for (const tc of choice.delta.tool_calls) {
+                                if (tc.function) {
+                                    if (!currentToolCall) {
+                                        currentToolCall = { name: '', arguments: '' };
+                                    }
+                                    if (tc.function.name) {
+                                        currentToolCall.name = tc.function.name;
+                                    }
+                                    if (tc.function.arguments) {
+                                        currentToolCall.arguments += tc.function.arguments;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Check for finish reason
+                        if (choice.finish_reason === 'tool_calls' && currentToolCall) {
+                            const argString = (currentToolCall.arguments || '').trim();
+                            // Only parse if we have a valid JSON-looking string
+                            if (argString && argString.startsWith('{') && argString.endsWith('}')) {
+                                try {
+                                    const args = JSON.parse(argString);
+                                    toolCalls.push({
+                                        name: currentToolCall.name,
+                                        arguments: args
+                                    });
+                                } catch (e) {
+                                    console.warn('Failed to parse tool call arguments:', e.message, 'Raw:', argString.substring(0, 100));
+                                }
+                            } else if (argString) {
+                                console.warn('Tool call arguments not valid JSON:', argString.substring(0, 100));
+                            }
+                            currentToolCall = null;
+                        }
 
                         if (content) {
                             fullText += content;
@@ -606,6 +683,13 @@ You're chatting with ${username}. Keep it casual!`;
                 }
             }
 
+            // Execute tool calls if we have any
+            if (toolCalls.length > 0 && onToolCall) {
+                for (const toolCall of toolCalls) {
+                    await onToolCall(toolCall);
+                }
+            }
+
             // Handle memory based on whether response was cancelled
             const wasCancelled = isCancelled ? isCancelled() : false;
             if (wasCancelled) {
@@ -616,7 +700,7 @@ You're chatting with ${username}. Keep it casual!`;
             }
 
             await onComplete(fullText);
-            return fullText;
+            return { text: fullText, toolCalls };
 
         } catch (error) {
             console.error('[AI] Voice streaming error:', error);
@@ -624,3 +708,4 @@ You're chatting with ${username}. Keep it casual!`;
         }
     }
 }
+

@@ -3,7 +3,12 @@ import { config } from './config.js';
 import { AIClient } from './aiClient.js';
 import { RequestQueue } from './queue.js';
 import { ImageQueue } from './imageQueue.js';
-import { ImageClient } from './imageClient.js';
+import { ImageClient, TOOLS } from './imageClient.js';
+import { handleCreateVoiceChannel, handleCreateTextChannel, handleCreateCategory, handleDeleteChannel, handleDeleteChannelsBulk, handleListChannels, handleSetupServerStructure } from './discordTools.js';
+import { checkToolPermission } from './permissionChecker.js';
+import { executeToolLoop, buildActionsContext } from './toolExecutionLoop.js';
+// Note: Server setup is now handled through AI tool calling (setup_server_structure)
+// Note: Cleanup is now handled through AI tool calling (list_channels -> delete_channels_bulk)
 import { logger } from './logger.js';
 import { botManager } from './botManager.js';
 import { loadBalancer } from './loadBalancer.js';
@@ -18,6 +23,119 @@ const aiClient = new AIClient();
 const imageClient = new ImageClient();
 const requestQueue = new RequestQueue(config.maxConcurrentRequests);
 const imageQueue = new ImageQueue(100);
+
+/**
+ * Execute a single tool call and return the result
+ * This is used by both single and multi-step tool execution
+ * 
+ * @param {Object} toolCall - The tool call {name, arguments}
+ * @param {Object} context - Context {guild, member, message (optional)}
+ * @returns {Promise<{success: boolean, ...}>}
+ */
+async function executeSingleTool(toolCall, context) {
+    const { guild, member, message } = context;
+
+    // Check permissions first
+    const permCheck = checkToolPermission(member, toolCall.name, guild);
+    if (!permCheck.allowed) {
+        return {
+            success: false,
+            error: permCheck.error,
+            permissionDenied: true
+        };
+    }
+
+    // Execute based on tool type
+    switch (toolCall.name) {
+        case 'generate_image':
+        case 'image_generation':
+            // Image generation is handled separately (has its own queue)
+            if (message) {
+                await handleImageGeneration(message, toolCall.arguments);
+            }
+            return { success: true, type: 'image' };
+
+        case 'create_voice_channel':
+            return await handleCreateVoiceChannel(guild, toolCall.arguments);
+
+        case 'create_text_channel':
+            return await handleCreateTextChannel(guild, toolCall.arguments);
+
+        case 'create_category':
+            return await handleCreateCategory(guild, toolCall.arguments);
+
+        case 'delete_channel':
+            return await handleDeleteChannel(guild, toolCall.arguments);
+
+        case 'list_channels':
+            return await handleListChannels(guild, toolCall.arguments);
+
+        case 'delete_channels_bulk':
+            return await handleDeleteChannelsBulk(guild, toolCall.arguments);
+
+        case 'setup_server_structure':
+            return await handleSetupServerStructure(guild, toolCall.arguments);
+
+        default:
+            logger.warn('TOOL', `Unknown tool: ${toolCall.name}`);
+            return { success: false, error: `Unknown tool: ${toolCall.name}` };
+    }
+}
+
+/**
+ * Format a tool result for Discord message
+ * @param {string} toolName - Name of the tool
+ * @param {Object} result - Tool result
+ * @returns {string} Formatted message
+ */
+function formatToolResultMessage(toolName, result) {
+    if (!result.success) {
+        if (result.permissionDenied) {
+            return `❌ ${result.error}`;
+        }
+        return `❌ Failed: ${result.error}`;
+    }
+
+    switch (toolName) {
+        case 'create_voice_channel':
+            const vcCat = result.channel?.category ? ` in **${result.channel.category}**` : '';
+            return `✅ Created voice channel **${result.channel?.name}**${vcCat}`;
+
+        case 'create_text_channel':
+            const tcCat = result.channel?.category ? ` in **${result.channel.category}**` : '';
+            return `✅ Created text channel **#${result.channel?.name}**${tcCat}`;
+
+        case 'create_category':
+            return `✅ Created category **${result.category?.name}**`;
+
+        case 'delete_channel':
+            const delType = result.deleted?.type || 'channel';
+            return `🗑️ Deleted ${delType} **${result.deleted?.name}**`;
+
+        case 'list_channels':
+            return `📋 **Server Channels:**\n${result.summary}`;
+
+        case 'delete_channels_bulk':
+            let bulkMsg = `🗑️ **${result.summary}**`;
+            if (result.deleted?.length > 0) {
+                bulkMsg += `\n${result.deleted.map(d => `  - ${d.type === 'voice' ? '🔊' : d.type === 'category' ? '📁' : '#'}${d.name}`).join('\n')}`;
+            }
+            if (result.failed?.length > 0) {
+                bulkMsg += `\n❌ Failed: ${result.failed.map(f => f.name).join(', ')}`;
+            }
+            return bulkMsg;
+
+        case 'generate_image':
+        case 'image_generation':
+            return null; // Image gen has its own output
+
+        case 'setup_server_structure':
+            return `✅ **${result.summary}**`;
+
+        default:
+            return `✅ Completed ${toolName}`;
+    }
+}
 
 /**
  * Split a long message into multiple chunks at natural breakpoints
@@ -234,6 +352,14 @@ async function handleMessage(message, bot) {
  * @param {string} requestId - Pending request ID
  */
 async function handleAIResponse(message, userMessage, bot, requestId) {
+    // NOTE: Server setup is now handled naturally through AI tool calling
+    // The AI will use setup_server_structure for bulk creation, which executes in parallel
+    // This allows the AI to reason about what structure to create rather than forcing keyword-based actions
+
+    // NOTE: Cleanup/deletion requests are also handled naturally through AI tool calling
+    // The AI will use list_channels to see what exists, then delete_channels_bulk to delete
+
+
     let replyMessage = null;
     let lastUpdateLength = 0;
     let pendingContent = '';
@@ -432,10 +558,157 @@ async function handleAIResponse(message, userMessage, bot, requestId) {
                 const botTag = bot?.client?.user?.tag || `Bot ${bot?.id || 'Unknown'}`;
                 logger.info('RESPONSE', `Bot "${botTag}" responded to ${message.author.tag}`);
 
-                // Execute pending tool calls
-                for (const toolCall of pendingToolCalls) {
-                    if (toolCall.name === 'generate_image' || toolCall.name === 'image_generation') {
-                        await handleImageGeneration(message, toolCall.arguments);
+                // Execute pending tool calls with multi-step loop
+                if (pendingToolCalls.length > 0) {
+                    // Get member for permission checks
+                    const member = message.guild?.members?.cache?.get(message.author.id)
+                        || await message.guild?.members?.fetch(message.author.id).catch(() => null);
+
+                    const toolContext = {
+                        guild: message.guild,
+                        member,
+                        message
+                    };
+
+                    // Track all actions for context
+                    const completedActions = [];
+                    let currentToolCalls = [...pendingToolCalls];
+                    let loopIteration = 0;
+                    const MAX_LOOP_ITERATIONS = 15;
+
+                    // Execute tool loop
+                    while (currentToolCalls.length > 0 && loopIteration < MAX_LOOP_ITERATIONS) {
+                        loopIteration++;
+                        logger.debug('TOOL_LOOP', `Iteration ${loopIteration}, executing ${currentToolCalls.length} tool(s) in parallel`);
+
+                        // Log all tool calls first
+                        for (const toolCall of currentToolCalls) {
+                            logger.toolCall(toolCall.name, toolCall.arguments);
+                        }
+
+                        // Execute all current tool calls IN PARALLEL for speed
+                        const toolPromises = currentToolCalls.map(async (toolCall) => {
+                            const result = await executeSingleTool(toolCall, toolContext);
+                            return { toolCall, result };
+                        });
+
+                        const results = await Promise.all(toolPromises);
+
+                        // Process results and send messages
+                        const resultMessages = [];
+                        for (const { toolCall, result } of results) {
+                            // Record action
+                            completedActions.push({
+                                tool: toolCall.name,
+                                args: toolCall.arguments,
+                                result,
+                                timestamp: Date.now()
+                            });
+
+                            // Collect result message
+                            const resultMsg = formatToolResultMessage(toolCall.name, result);
+                            if (resultMsg) {
+                                resultMessages.push(resultMsg);
+                            }
+                        }
+
+                        // Send all results in a single message for cleaner output
+                        if (resultMessages.length > 0) {
+                            // If many results, batch them
+                            if (resultMessages.length > 5) {
+                                await message.channel.send(resultMessages.slice(0, 5).join('\n'));
+                                await message.channel.send(resultMessages.slice(5).join('\n'));
+                            } else {
+                                await message.channel.send(resultMessages.join('\n'));
+                            }
+                        }
+
+                        // ALWAYS re-prompt the AI with what happened and let IT decide whether to continue
+                        // No keyword matching - the AI is smart enough to know if it needs to do more
+
+                        // Build context of what's been done (includes channel lists, etc.)
+                        const actionsContext = buildActionsContext(completedActions);
+
+                        // Always include the original request so AI has full context
+                        // Check if we just did a bulk delete - suggest verification
+                        const didBulkDelete = completedActions.some(a =>
+                            a.tool === 'delete_channels_bulk' && a.result?.success
+                        );
+
+                        let verificationHint = '';
+                        if (didBulkDelete) {
+                            verificationHint = `\n- IMPORTANT: You just performed bulk deletions. Call list_channels to verify the final state before responding.`;
+                        }
+
+                        const continuePrompt = `${actionsContext}
+
+ORIGINAL USER REQUEST: "${message.content}"
+
+You have completed the above action(s). Based on the results and the user's original request:
+- IMPORTANT: Call ALL remaining tools at once in a SINGLE response. Don't call one tool at a time.
+- For example, if you need to create 5 more channels, call create_text_channel 5 times in ONE response.
+- If you need to do more (e.g., you listed channels and now need to delete some), call the appropriate tool(s)${verificationHint}
+- If you're completely done fulfilling the request, just respond with a brief confirmation - don't call any more tools
+- DO NOT create any channels unless the user explicitly asked you to create something`;
+
+                        // Re-prompt the AI to continue
+                        const continueMessages = [
+                            ...contextMessages,
+                            { role: 'assistant', content: finalText },
+                            { role: 'user', content: continuePrompt }
+                        ];
+
+                        // Call AI again for continuation
+                        let newToolCalls = [];
+                        let continueText = '';
+
+                        await aiClient.streamChatWithContext(
+                            continueMessages,
+                            async (chunk) => { continueText += chunk; },
+                            async (complete) => { continueText = complete; },
+                            async (error) => { logger.error('TOOL_LOOP', `Continuation error: ${error.message}`); },
+                            async (toolCall) => { newToolCalls.push(toolCall); }
+                        );
+
+                        // Check if AI is done
+                        if (newToolCalls.length === 0) {
+                            // AI didn't call any more tools, we're done
+                            if (continueText && !continueText.toLowerCase().includes('all done')) {
+                                await message.channel.send(continueText);
+                            }
+                            break;
+                        }
+
+                        // Continue with new tools
+                        currentToolCalls = newToolCalls;
+                        finalText = continueText;
+                    }
+
+                    // Send summary if multiple actions were taken (exclude list_channels from count)
+                    const actionableActions = completedActions.filter(a =>
+                        a.tool !== 'list_channels' && a.result?.success
+                    );
+
+                    if (actionableActions.length > 1) {
+                        const created = actionableActions.filter(a =>
+                            a.tool.startsWith('create_')
+                        ).length;
+                        const deleted = actionableActions.filter(a =>
+                            a.tool === 'delete_channel' || a.tool === 'delete_channels_bulk'
+                        ).length;
+                        const failed = completedActions.filter(a => !a.result?.success).length;
+
+                        let summaryParts = [];
+                        if (created > 0) summaryParts.push(`created ${created}`);
+                        if (deleted > 0) summaryParts.push(`deleted ${deleted}`);
+
+                        if (summaryParts.length > 0) {
+                            let summary = `\n📋 **Summary:** ${summaryParts.join(', ')} item${actionableActions.length !== 1 ? 's' : ''}`;
+                            if (failed > 0) {
+                                summary += `, ${failed} failed`;
+                            }
+                            await message.channel.send(summary);
+                        }
                     }
                 }
             },
@@ -563,6 +836,7 @@ async function start() {
 
         // Setup AI response callback for voice conversations - now with streaming and memory!
         // Also includes sentiment analysis for tone-aware responses!
+        // Now supports tool calling (e.g., creating voice channels)!
         voiceClient.setAIResponseCallback(async (guildId, userId, username, transcript, onSentence, isCancelled, sentimentData) => {
             try {
                 // Log sentiment if available
@@ -570,17 +844,118 @@ async function start() {
                     logger.debug('VOICE', `[SENTIMENT] ${username}'s tone: ${sentimentData.description}`);
                 }
 
+                // Get guild for tool execution
+                const primaryBot = botManager.bots[0];
+                const guild = primaryBot?.client?.guilds?.cache?.get(guildId);
+
+                // Check for server setup request via voice
+                if (isServerSetupRequest(transcript) && guild) {
+                    const member = guild.members.cache.get(userId)
+                        || await guild.members.fetch(userId).catch(() => null);
+
+                    const permCheck = checkToolPermission(member, 'create_category', guild);
+                    if (!permCheck.allowed) {
+                        await onSentence("Sorry, you don't have permission to set up server channels.");
+                        return;
+                    }
+
+                    logger.info('VOICE', `Server setup requested by ${username}`);
+                    await onSentence("Setting up your server structure. This will take a few seconds.");
+
+                    try {
+                        const plan = await getServerPlan(transcript);
+                        const handlers = {
+                            createCategory: handleCreateCategory,
+                            createTextChannel: handleCreateTextChannel,
+                            createVoiceChannel: handleCreateVoiceChannel
+                        };
+                        const results = await executePlan(plan, guild, handlers);
+
+                        await onSentence(`Done! I created ${results.success} channels and categories.`);
+                        if (results.failed > 0) {
+                            await onSentence(`${results.failed} items failed to create.`);
+                        }
+                    } catch (error) {
+                        await onSentence(`Sorry, the setup failed: ${error.message}`);
+                    }
+                    return;
+                }
+
+                // NOTE: Voice cleanup requests now go through the streaming voice chat with tools
+                // The AI will use list_channels to see what exists, then delete_channels_bulk to delete
+
+
                 // Use streaming voice chat for faster response
                 // Now includes 5-minute short-term memory!
                 // Also passes isCancelled so cancelled responses don't pollute memory
                 // sentimentData provides emotional context for smarter AI responses
+                // Tools allow voice commands to trigger Discord actions!
+                // Multi-step loop allows complex actions like setting up a full server
+
                 let fullResponse = '';
-                await aiClient.streamVoiceChat(
-                    guildId,        // Pass guildId for memory context
+                let voiceToolActions = []; // Track what tools we've called
+                const MAX_VOICE_ITERATIONS = 10;
+
+                // Helper to execute a voice tool and return the result
+                const executeVoiceTool = async (toolCall) => {
+                    logger.toolCall(toolCall.name, toolCall.arguments);
+
+                    // Check permissions before executing any tool
+                    const member = guild?.members?.cache?.get(userId)
+                        || await guild?.members?.fetch(userId).catch(() => null);
+
+                    const permCheck = checkToolPermission(member, toolCall.name, guild);
+                    if (!permCheck.allowed) {
+                        if (onSentence) {
+                            await onSentence(permCheck.error);
+                        }
+                        return { success: false, error: permCheck.error };
+                    }
+
+                    let toolResult;
+                    switch (toolCall.name) {
+                        case 'create_voice_channel':
+                            toolResult = await handleCreateVoiceChannel(guild, toolCall.arguments);
+                            break;
+                        case 'create_text_channel':
+                            toolResult = await handleCreateTextChannel(guild, toolCall.arguments);
+                            break;
+                        case 'create_category':
+                            toolResult = await handleCreateCategory(guild, toolCall.arguments);
+                            break;
+                        case 'list_channels':
+                            toolResult = await handleListChannels(guild, toolCall.arguments);
+                            break;
+                        case 'delete_channel':
+                            toolResult = await handleDeleteChannel(guild, toolCall.arguments);
+                            break;
+                        case 'delete_channels_bulk':
+                            toolResult = await handleDeleteChannelsBulk(guild, toolCall.arguments);
+                            break;
+                        case 'setup_server_structure':
+                            toolResult = await handleSetupServerStructure(guild, toolCall.arguments);
+                            break;
+                        default:
+                            toolResult = { success: false, error: `Unknown tool: ${toolCall.name}` };
+                    }
+
+                    // Record action
+                    voiceToolActions.push({
+                        tool: toolCall.name,
+                        args: toolCall.arguments,
+                        result: toolResult
+                    });
+
+                    return toolResult;
+                };
+
+                // First call - initial AI response with potential tools
+                let currentToolCalls = [];
+                const result = await aiClient.streamVoiceChat(
+                    guildId,
                     transcript,
                     username,
                     async (sentence) => {
-                        // Called for each complete sentence - TTS can start immediately!
                         if (onSentence && sentence.trim()) {
                             await onSentence(sentence);
                         }
@@ -588,11 +963,82 @@ async function start() {
                     async (complete) => {
                         fullResponse = complete;
                     },
-                    null,  // systemPromptOverride
-                    isCancelled,  // Pass cancellation check to avoid saving cancelled responses
-                    sentimentData  // Pass sentiment for tone-aware responses
+                    null,
+                    isCancelled,
+                    sentimentData,
+                    TOOLS,
+                    async (toolCall) => {
+                        currentToolCalls.push(toolCall);
+                    }
                 );
-                return fullResponse;
+
+                // Multi-step tool execution loop
+                for (let iteration = 0; iteration < MAX_VOICE_ITERATIONS && currentToolCalls.length > 0; iteration++) {
+                    logger.info('VOICE', `Tool iteration ${iteration + 1}: ${currentToolCalls.length} tool(s) to execute`);
+
+                    // Execute all pending tool calls
+                    for (const toolCall of currentToolCalls) {
+                        const toolResult = await executeVoiceTool(toolCall);
+
+                        // Speak confirmation for important actions (but not list_channels)
+                        if (onSentence && toolResult.success && toolCall.name !== 'list_channels') {
+                            if (toolCall.name === 'create_category') {
+                                await onSentence(`Created ${toolResult.category?.name || 'category'}.`);
+                            } else if (toolCall.name === 'create_text_channel') {
+                                await onSentence(`Created text channel ${toolResult.channel?.name}.`);
+                            } else if (toolCall.name === 'create_voice_channel') {
+                                await onSentence(`Created voice channel ${toolResult.channel?.name}.`);
+                            } else if (toolCall.name === 'delete_channels_bulk') {
+                                await onSentence(toolResult.summary);
+                            } else if (toolCall.name === 'setup_server_structure') {
+                                await onSentence(toolResult.summary);
+                            }
+                        }
+                    }
+
+                    // Build context of what we've done
+                    const actionsContext = buildActionsContext(voiceToolActions);
+
+                    // Re-prompt AI to continue
+                    currentToolCalls = [];
+                    let continueResponse = '';
+
+                    await aiClient.streamVoiceChat(
+                        guildId,
+                        `${actionsContext}\n\nORIGINAL REQUEST: "${transcript}"\n\nContinue if there's more to do, or confirm you're done.`,
+                        username,
+                        async (sentence) => {
+                            if (onSentence && sentence.trim()) {
+                                await onSentence(sentence);
+                            }
+                        },
+                        async (complete) => {
+                            continueResponse = complete;
+                            fullResponse = complete;
+                        },
+                        null,
+                        isCancelled,
+                        null, // No sentiment for continuation
+                        TOOLS,
+                        async (toolCall) => {
+                            currentToolCalls.push(toolCall);
+                        }
+                    );
+
+                    // If no more tool calls, we're done
+                    if (currentToolCalls.length === 0) {
+                        break;
+                    }
+                }
+
+                // Log summary if multiple tools were used
+                if (voiceToolActions.length > 0) {
+                    const created = voiceToolActions.filter(a => a.tool.startsWith('create_') && a.result?.success).length;
+                    const deleted = voiceToolActions.filter(a => (a.tool === 'delete_channel' || a.tool === 'delete_channels_bulk') && a.result?.success).length;
+                    logger.info('VOICE', `Voice tools complete: ${created} created, ${deleted} deleted`);
+                }
+
+                return result.text || fullResponse;
             } catch (error) {
                 logger.error('VOICE', `Failed to generate AI response: ${error.message}`);
                 if (onSentence) {
