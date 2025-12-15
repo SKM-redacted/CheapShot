@@ -195,7 +195,6 @@ export class AIClient {
 
                 // Retry on 5xx server errors
                 if (response.status >= 500 && attempt < MAX_RETRIES) {
-                    console.warn(`[AI] Server error ${response.status}, retrying (${attempt + 1}/${MAX_RETRIES})...`);
                     await new Promise(r => setTimeout(r, 1000 * (attempt + 1))); // Exponential backoff
                     continue;
                 }
@@ -284,7 +283,6 @@ export class AIClient {
             } catch (error) {
                 lastError = error;
                 if (attempt < MAX_RETRIES) {
-                    console.warn(`[AI] Request failed, retrying (${attempt + 1}/${MAX_RETRIES})...`);
                     await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
                     continue;
                 }
