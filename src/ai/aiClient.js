@@ -170,8 +170,6 @@ export class AIClient {
      */
     async streamChatWithContext(messages, onChunk, onComplete, onError, onToolCall = null) {
         const url = `${this.baseUrl}/v1/chat/completions`;
-        console.log('[AI] Debug - baseUrl:', JSON.stringify(this.baseUrl));
-        console.log('[AI] Debug - full URL:', JSON.stringify(url));
 
         const body = {
             model: this.model,
@@ -233,11 +231,6 @@ export class AIClient {
                     }
 
                     buffer += decoder.decode(value, { stream: true });
-
-                    // Debug: log chunk sizes to verify streaming
-                    if (buffer.length > 0) {
-                        console.log(`[AI] Received chunk: ${value.length} bytes, buffer: ${buffer.length} chars`);
-                    }
 
                     const lines = buffer.split('\n');
                     buffer = lines.pop() || '';
