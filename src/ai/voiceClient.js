@@ -8,8 +8,8 @@ import {
 import { ChannelType } from 'discord.js';
 import { sttClient } from './sttClient.js';
 import { ttsClient } from './ttsClient.js';
-import { perceptionFilter } from './perceptionFilter.js';
-import { inputFilter } from './inputFilter.js';
+
+
 import { responseGatekeeper } from './responseGatekeeper.js';
 import { voiceMemory } from './voiceMemory.js';
 import { logger } from './logger.js';
@@ -22,9 +22,7 @@ import { logger } from './logger.js';
 class VoiceClient {
     constructor() {
         this.activeConnections = new Map(); // guildId -> { connection, textChannel, userStreams, members }
-        this.userTranscriptBuffers = new Map(); // guildId -> Map(userId -> { text, timer, memberInfo })
         this.aiResponseCallback = null; // Callback for generating AI responses
-        this.TRANSCRIPT_DEBOUNCE_MS = 800; // Wait 0.8s after last transcript before triggering AI (faster response)
 
         // Response tracking - uses delay instead of queueing for natural pacing
         this.responseTracking = new Map(); // guildId -> { inProgress: boolean, lastResponseTime: number }
@@ -91,8 +89,7 @@ class VoiceClient {
                 showTranscripts: false       // When true, sends transcripts to text channel
             });
 
-            // Initialize user transcript buffers for this guild
-            this.userTranscriptBuffers.set(guildId, new Map());
+
 
             // Cache current voice channel members
             await this.cacheVoiceMembers(guildId, voiceChannel);
@@ -318,119 +315,52 @@ class VoiceClient {
         // Only process final transcripts
         if (isFinal && transcript.trim()) {
             try {
-                // Get or create transcript buffer for this user
-                const bufferKey = `${guildId}-${userId}`;
-                let buffer = this.userTranscriptBuffers.get(bufferKey);
+                const fullTranscript = transcript.trim();
 
-                if (!buffer) {
-                    buffer = { text: '', timer: null, memberInfo, sentimentScores: [], sentimentLabels: [] };
-                    this.userTranscriptBuffers.set(bufferKey, buffer);
+                // Only send to text channel if showTranscripts is enabled
+                if (connectionInfo.showTranscripts) {
+                    const output = `🗣️ **${memberInfo.displayName}:** ${fullTranscript}`;
+                    await connectionInfo.textChannel.send(output);
                 }
 
-                // Clear any existing timer
-                if (buffer.timer) {
-                    clearTimeout(buffer.timer);
-                }
+                // If conversation mode is enabled and we have an AI callback, generate a response
+                if (connectionInfo.conversationMode && this.aiResponseCallback) {
+                    // Generate a unique message ID for this specific transcript
+                    const messageId = `${guildId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-                // Append transcript to buffer
-                if (buffer.text) {
-                    buffer.text += ' ' + transcript.trim();
-                } else {
-                    buffer.text = transcript.trim();
-                }
+                    // Get recent conversation context so gatekeeper knows if bot just asked a question
+                    const recentContext = voiceMemory.getFormattedContext(guildId);
 
-                // Collect sentiment data for averaging later
-                if (sentimentData && sentimentData.score !== undefined) {
-                    buffer.sentimentScores.push(sentimentData.score);
-                    buffer.sentimentLabels.push(sentimentData.sentiment);
-                }
+                    // Get VC member info for smarter gatekeeper decisions
+                    const vcMembers = connectionInfo.voiceChannel.members.filter(m => !m.user.bot);
+                    const memberCount = vcMembers.size;
+                    const memberNames = vcMembers.map(m => m.displayName);
+                    const vcInfo = { memberCount, memberNames, sentiment: sentimentData };
 
+                    // SPECULATIVE EXECUTION: Run gatekeeper and AI response generation in parallel
+                    const gatekeeperPromise = responseGatekeeper.shouldRespond(
+                        fullTranscript,
+                        memberInfo.displayName,
+                        recentContext,
+                        vcInfo
+                    );
 
-                // Set debounce timer - wait for user to finish speaking
-                buffer.timer = setTimeout(async () => {
-                    const fullTranscript = buffer.text.trim();
-                    const sentimentScores = [...buffer.sentimentScores];
-                    const sentimentLabels = [...buffer.sentimentLabels];
-                    buffer.text = '';
-                    buffer.timer = null;
-                    buffer.sentimentScores = [];
-                    buffer.sentimentLabels = [];
+                    // Start generating response speculatively
+                    const responsePromise = this.queueOrRespond(guildId, userId, memberInfo.displayName, fullTranscript, true, messageId, sentimentData);
 
-                    if (!fullTranscript) return;
+                    // Wait for gatekeeper decision
+                    const shouldRespond = await gatekeeperPromise;
 
-                    // Calculate aggregated sentiment for the full utterance
-                    let aggregatedSentiment = null;
-                    if (sentimentScores.length > 0) {
-                        const avgScore = sentimentScores.reduce((a, b) => a + b, 0) / sentimentScores.length;
-                        // Determine overall sentiment from average score
-                        let overallSentiment = 'neutral';
-                        if (avgScore > 0.25) overallSentiment = 'positive';
-                        else if (avgScore < -0.25) overallSentiment = 'negative';
-
-                        aggregatedSentiment = {
-                            sentiment: overallSentiment,
-                            score: Math.round(avgScore * 100) / 100, // Round to 2 decimal places
-                            intensity: Math.round(Math.abs(avgScore) * 100) / 100,
-                            // Provide human-readable description for AI
-                            description: this.getSentimentDescription(avgScore)
-                        };
-
-                        logger.debug('VOICE', `[SENTIMENT] ${memberInfo.displayName}: ${aggregatedSentiment.description} (score: ${aggregatedSentiment.score})`);
+                    if (!shouldRespond) {
+                        logger.info('VOICE', `[GATEKEEPER] Not responding to: "${fullTranscript}"`);
+                        this.cancelPendingResponse(guildId, messageId);
+                        return;
                     }
 
-                    // Only send to text channel if showTranscripts is enabled
-                    if (connectionInfo.showTranscripts) {
-                        const output = `🗣️ **${memberInfo.displayName}:** ${fullTranscript}`;
-                        await connectionInfo.textChannel.send(output);
-                    }
-
-                    // If conversation mode is enabled and we have an AI callback, generate a response
-                    // But first, pass through input filter to catch incomplete sentences
-                    if (connectionInfo.conversationMode && this.aiResponseCallback) {
-                        // Input filter will buffer incomplete transcripts and merge continuations
-                        inputFilter.process(guildId, userId, fullTranscript, async (completeTranscript) => {
-                            // Generate a unique message ID for this specific transcript
-                            // This ensures each message response is independently trackable
-                            const messageId = `${guildId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-                            // Get recent conversation context so gatekeeper knows if bot just asked a question
-                            const recentContext = voiceMemory.getFormattedContext(guildId);
-
-                            // Get VC member info for smarter gatekeeper decisions
-                            // Count humans only (exclude bots)
-                            const vcMembers = connectionInfo.voiceChannel.members.filter(m => !m.user.bot);
-                            const memberCount = vcMembers.size;
-                            const memberNames = vcMembers.map(m => m.displayName);
-                            const vcInfo = { memberCount, memberNames, sentiment: aggregatedSentiment };
-
-                            // SPECULATIVE EXECUTION: Run gatekeeper and AI response generation in parallel
-                            // This eliminates the 3-second gatekeeper delay!
-                            const gatekeeperPromise = responseGatekeeper.shouldRespond(
-                                completeTranscript,
-                                memberInfo.displayName,
-                                recentContext,
-                                vcInfo
-                            );
-
-                            // Start generating response speculatively (pass messageId for cancellation tracking)
-                            const responsePromise = this.queueOrRespond(guildId, userId, memberInfo.displayName, completeTranscript, true, messageId, aggregatedSentiment);
-
-                            // Wait for gatekeeper decision
-                            const shouldRespond = await gatekeeperPromise;
-
-                            if (!shouldRespond) {
-                                logger.info('VOICE', `[GATEKEEPER] Not responding to: "${completeTranscript}"`);
-                                // Cancel THIS SPECIFIC message's response
-                                this.cancelPendingResponse(guildId, messageId);
-                                return;
-                            }
-
-                            // Gatekeeper approved - let the response complete
-                            logger.info('VOICE', `[GATEKEEPER] Approved: "${completeTranscript}"`);
-                            await responsePromise;
-                        });
-                    }
-                }, this.TRANSCRIPT_DEBOUNCE_MS);
+                    // Gatekeeper approved - let the response complete
+                    logger.info('VOICE', `[GATEKEEPER] Approved: "${fullTranscript}"`);
+                    await responsePromise;
+                }
 
             } catch (error) {
                 logger.error('VOICE', `Failed to process transcript: ${error.message}`);
@@ -585,9 +515,6 @@ class VoiceClient {
         try {
             logger.info('VOICE', `Generating streaming AI response to: "${transcript}"`);
 
-            // Start a new filter session for this response
-            perceptionFilter.startSession(guildId);
-
             let sentenceCount = 0;
             let fullResponse = '';
 
@@ -607,13 +534,7 @@ class VoiceClient {
                         return;
                     }
 
-                    // Run through perception filter first
-                    const filterResult = perceptionFilter.filter(guildId, sentence, { userId, username });
 
-                    if (!filterResult.allowed) {
-                        logger.debug('VOICE', `Filtered out sentence: ${filterResult.reason}`);
-                        return; // Skip this sentence
-                    }
 
                     sentenceCount++;
                     fullResponse += sentence + ' ';
@@ -644,8 +565,7 @@ class VoiceClient {
                 sentimentData
             );
 
-            // End the filter session
-            perceptionFilter.endSession(guildId);
+
 
             // Mark response as complete
             tracking.inProgress = false;
@@ -662,7 +582,7 @@ class VoiceClient {
             // Make sure to end session and mark complete even on error
             tracking.inProgress = false;
             tracking.lastResponseTime = Date.now();
-            perceptionFilter.endSession(guildId);
+
             logger.error('VOICE', `Failed to generate/speak AI response: ${error.message}`);
         }
     }
@@ -803,11 +723,9 @@ class VoiceClient {
         // Clean up TTS
         ttsClient.cleanup(guildId);
 
-        // Clean up perception filter history
-        perceptionFilter.clearHistory(guildId);
 
-        // Clean up input filter buffers
-        inputFilter.clearGuild(guildId);
+
+
 
         // Clean up response tracking
         const tracking = this.responseTracking.get(guildId);
@@ -817,7 +735,7 @@ class VoiceClient {
         this.responseTracking.delete(guildId);
 
         this.activeConnections.delete(guildId);
-        this.userTranscriptBuffers.delete(guildId);
+
     }
 
     /**

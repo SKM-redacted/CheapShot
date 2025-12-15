@@ -204,6 +204,28 @@ export const DELETE_CHANNELS_BULK_TOOL = {
 };
 
 /**
+ * Tool definition for getting complete server info (channels + roles) in one call
+ * This is the PREFERRED reconnaissance tool before setup_server_structure
+ */
+export const GET_SERVER_INFO_TOOL = {
+    type: "function",
+    function: {
+        name: "get_server_info",
+        description: "Get a complete overview of the server's current structure including all channels, categories, and roles in one call. USE THIS FIRST before setup_server_structure or setup_roles to see what already exists. This helps you understand what to add vs what already exists.",
+        parameters: {
+            type: "object",
+            properties: {
+                include_permissions: {
+                    type: "boolean",
+                    description: "Optional: Whether to include permission details for roles. Default is false for cleaner output."
+                }
+            },
+            required: []
+        }
+    }
+};
+
+/**
  * Tool definition for setting up a complete server structure in parallel
  * This is the PREFERRED tool when creating multiple channels/categories at once
  */
@@ -211,7 +233,7 @@ export const SETUP_SERVER_STRUCTURE_TOOL = {
     type: "function",
     function: {
         name: "setup_server_structure",
-        description: "Create multiple categories and channels at once, all processed in parallel for maximum speed. USE THIS instead of calling create_category/create_text_channel/create_voice_channel multiple times. Perfect for setting up a server structure, creating a template, or adding multiple channels at once.",
+        description: "Create multiple categories, channels, and roles at once in parallel. IMPORTANT: Before using this tool, you MUST first call list_channels and list_roles to see what already exists in the server. Only include items that don't already exist - do NOT recreate existing channels/categories/roles. This ensures you ADD to the server structure instead of duplicating it.",
         parameters: {
             type: "object",
             properties: {
@@ -224,6 +246,15 @@ export const SETUP_SERVER_STRUCTURE_TOOL = {
                             name: {
                                 type: "string",
                                 description: "Category name. Can include emoji prefix (e.g., '📢 Announcements')"
+                            },
+                            private: {
+                                type: "boolean",
+                                description: "If true, this category is hidden from @everyone by default. Roles in role_access can still see it."
+                            },
+                            role_access: {
+                                type: "array",
+                                description: "Array of role names that should have access to this category (can view and interact).",
+                                items: { type: "string" }
                             }
                         },
                         required: ["name"]
@@ -246,6 +277,24 @@ export const SETUP_SERVER_STRUCTURE_TOOL = {
                             topic: {
                                 type: "string",
                                 description: "Optional channel topic/description"
+                            },
+                            private: {
+                                type: "boolean",
+                                description: "If true, this channel is hidden from @everyone. Only roles in role_access can see it."
+                            },
+                            role_access: {
+                                type: "array",
+                                description: "Array of role names that should have access to this channel (can view and send messages).",
+                                items: { type: "string" }
+                            },
+                            read_only: {
+                                type: "boolean",
+                                description: "If true, @everyone can view but NOT send messages (announcement-style channel)."
+                            },
+                            read_only_except: {
+                                type: "array",
+                                description: "Array of role names that CAN send messages even if read_only is true.",
+                                items: { type: "string" }
                             }
                         },
                         required: ["name"]
@@ -264,6 +313,46 @@ export const SETUP_SERVER_STRUCTURE_TOOL = {
                             category: {
                                 type: "string",
                                 description: "Name of category to place this channel in"
+                            },
+                            private: {
+                                type: "boolean",
+                                description: "If true, this voice channel is hidden from @everyone. Only roles in role_access can see it."
+                            },
+                            role_access: {
+                                type: "array",
+                                description: "Array of role names that should have access to this voice channel (can view and connect).",
+                                items: { type: "string" }
+                            }
+                        },
+                        required: ["name"]
+                    }
+                },
+                roles: {
+                    type: "array",
+                    description: "Array of roles to create BEFORE creating channels. Create roles first if you need to reference them in channel permissions.",
+                    items: {
+                        type: "object",
+                        properties: {
+                            name: {
+                                type: "string",
+                                description: "The name for the role"
+                            },
+                            color: {
+                                type: "string",
+                                description: "Color as hex code (e.g., '#FF5733') or name ('red', 'blue', 'gold', etc.)"
+                            },
+                            hoist: {
+                                type: "boolean",
+                                description: "Display separately in member list"
+                            },
+                            mentionable: {
+                                type: "boolean",
+                                description: "Allow anyone to mention this role"
+                            },
+                            permissions: {
+                                type: "array",
+                                description: "Permission names to grant (e.g., 'SendMessages', 'ManageChannels', 'Administrator')",
+                                items: { type: "string" }
                             }
                         },
                         required: ["name"]
@@ -271,6 +360,223 @@ export const SETUP_SERVER_STRUCTURE_TOOL = {
                 }
             },
             required: []
+        }
+    }
+};
+
+/**
+ * Tool definition for configuring permissions on an existing channel
+ * Use this to make channels private, add role access, make read-only, etc.
+ */
+export const CONFIGURE_CHANNEL_PERMISSIONS_TOOL = {
+    type: "function",
+    function: {
+        name: "configure_channel_permissions",
+        description: "Configure permissions for an existing channel or category. Use this to make channels private/public, restrict access to certain roles, or make channels read-only. Perfect for fixing permission issues or updating channel access.",
+        parameters: {
+            type: "object",
+            properties: {
+                channel_name: {
+                    type: "string",
+                    description: "The name of the channel or category to configure permissions for."
+                },
+                channel_type: {
+                    type: "string",
+                    enum: ["text", "voice", "category", "any"],
+                    description: "The type of channel. Use 'any' if unsure."
+                },
+                private: {
+                    type: "boolean",
+                    description: "If true, hide this channel from @everyone. If false, make it visible to everyone."
+                },
+                role_access: {
+                    type: "array",
+                    description: "Array of role names that should have access to this channel EVEN IF it's private. These roles will be able to view and interact.",
+                    items: { type: "string" }
+                },
+                role_deny: {
+                    type: "array",
+                    description: "Array of role names that should be DENIED access to this channel. These roles won't be able to see it.",
+                    items: { type: "string" }
+                },
+                read_only: {
+                    type: "boolean",
+                    description: "For text channels: if true, prevent @everyone from sending messages. Channel becomes announcement-style."
+                },
+                read_only_except: {
+                    type: "array",
+                    description: "For text channels: Array of role names that CAN send messages even if read_only is true.",
+                    items: { type: "string" }
+                },
+                sync_with_category: {
+                    type: "boolean",
+                    description: "If true, sync this channel's permissions with its parent category. Overrides other permission settings."
+                }
+            },
+            required: ["channel_name"]
+        }
+    }
+};
+
+/**
+ * Tool definition for editing a text channel
+ */
+export const EDIT_TEXT_CHANNEL_TOOL = {
+    type: "function",
+    function: {
+        name: "edit_text_channel",
+        description: "Edit an existing text channel's name, topic, category, slowmode, or NSFW setting. Use this when the user asks to rename, modify, or update a text channel.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: {
+                    type: "string",
+                    description: "The current name of the text channel to edit. Can be a partial match."
+                },
+                new_name: {
+                    type: "string",
+                    description: "Optional: The new name for the channel."
+                },
+                topic: {
+                    type: "string",
+                    description: "Optional: The new topic/description for the channel. Set to empty string to clear."
+                },
+                category: {
+                    type: "string",
+                    description: "Optional: The name of the category to move the channel to. Set to empty string to remove from category."
+                },
+                slowmode: {
+                    type: "integer",
+                    description: "Optional: Slowmode delay in seconds (0-21600). 0 disables slowmode."
+                },
+                nsfw: {
+                    type: "boolean",
+                    description: "Optional: Whether the channel should be marked as NSFW."
+                }
+            },
+            required: ["name"]
+        }
+    }
+};
+
+/**
+ * Tool definition for editing a voice channel
+ */
+export const EDIT_VOICE_CHANNEL_TOOL = {
+    type: "function",
+    function: {
+        name: "edit_voice_channel",
+        description: "Edit an existing voice channel's name, category, user limit, or bitrate. Use this when the user asks to rename, modify, or update a voice channel.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: {
+                    type: "string",
+                    description: "The current name of the voice channel to edit. Can be a partial match."
+                },
+                new_name: {
+                    type: "string",
+                    description: "Optional: The new name for the channel."
+                },
+                category: {
+                    type: "string",
+                    description: "Optional: The name of the category to move the channel to. Set to empty string to remove from category."
+                },
+                user_limit: {
+                    type: "integer",
+                    description: "Optional: Maximum number of users allowed (0-99). 0 means unlimited."
+                },
+                bitrate: {
+                    type: "integer",
+                    description: "Optional: Audio bitrate in bits per second (8000-384000). Higher is better quality but uses more bandwidth."
+                }
+            },
+            required: ["name"]
+        }
+    }
+};
+
+/**
+ * Tool definition for editing a category
+ */
+export const EDIT_CATEGORY_TOOL = {
+    type: "function",
+    function: {
+        name: "edit_category",
+        description: "Edit an existing category's name. Use this when the user asks to rename a category.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: {
+                    type: "string",
+                    description: "The current name of the category to edit. Can be a partial match."
+                },
+                new_name: {
+                    type: "string",
+                    description: "The new name for the category."
+                }
+            },
+            required: ["name"]
+        }
+    }
+};
+
+/**
+ * Tool definition for bulk editing multiple channels at once
+ */
+export const EDIT_CHANNELS_BULK_TOOL = {
+    type: "function",
+    function: {
+        name: "edit_channels_bulk",
+        description: "Edit multiple channels at once, processed in parallel for speed. Use this when you need to rename or modify multiple channels simultaneously.",
+        parameters: {
+            type: "object",
+            properties: {
+                channels: {
+                    type: "array",
+                    description: "Array of channels to edit. Each item should have a name and the properties to change.",
+                    items: {
+                        type: "object",
+                        properties: {
+                            name: {
+                                type: "string",
+                                description: "The current name of the channel to edit"
+                            },
+                            type: {
+                                type: "string",
+                                enum: ["text", "voice", "category", "any"],
+                                description: "The type of channel. Use 'any' to auto-detect."
+                            },
+                            new_name: {
+                                type: "string",
+                                description: "The new name for the channel"
+                            },
+                            topic: {
+                                type: "string",
+                                description: "For text channels: the new topic"
+                            },
+                            category: {
+                                type: "string",
+                                description: "The category to move the channel to"
+                            },
+                            slowmode: {
+                                type: "integer",
+                                description: "For text channels: slowmode in seconds"
+                            },
+                            user_limit: {
+                                type: "integer",
+                                description: "For voice channels: max users (0 = unlimited)"
+                            },
+                            bitrate: {
+                                type: "integer",
+                                description: "For voice channels: audio bitrate"
+                            }
+                        },
+                        required: ["name"]
+                    }
+                }
+            },
+            required: ["channels"]
         }
     }
 };
@@ -614,7 +920,7 @@ export const SETUP_ROLES_TOOL = {
     type: "function",
     function: {
         name: "setup_roles",
-        description: "Create multiple roles at once, all processed in parallel for maximum speed. USE THIS instead of calling create_role multiple times. Perfect for setting up a role hierarchy, creating a role template, or adding multiple roles at once. Roles are created in the order specified (first = highest position).",
+        description: "Create multiple roles at once in parallel. IMPORTANT: Before using this tool, you MUST first call list_roles to see what roles already exist. Only include roles that don't already exist - do NOT recreate existing roles. Roles are created in the order specified (first = highest position).",
         parameters: {
             type: "object",
             properties: {
@@ -658,6 +964,59 @@ export const SETUP_ROLES_TOOL = {
 };
 
 // ============================================================
+// UTILITY / INFO TOOLS
+// ============================================================
+
+/**
+ * Tool definition for checking a user's permissions
+ * This is an OPTIONAL tool - the AI can use it if it wants to check permissions
+ * before attempting an action, but it's not required (the permission checker handles denials)
+ */
+export const CHECK_PERMS_TOOL = {
+    type: "function",
+    function: {
+        name: "check_perms",
+        description: "Check what permissions a user has in this server. Use this to see someone's roles and permissions. If no user is specified, checks the permissions of the user who made the request.",
+        parameters: {
+            type: "object",
+            properties: {
+                member: {
+                    type: "string",
+                    description: "Optional: The username, display name, or mention of the member to check. If not provided, checks the requesting user."
+                }
+            },
+            required: []
+        }
+    }
+};
+
+/**
+ * Tool definition for analyzing server mood and activity
+ * This gives the AI context about what's happening in the server
+ */
+export const VIBE_CHECK_TOOL = {
+    type: "function",
+    function: {
+        name: "vibe_check",
+        description: "Analyze the current server mood and activity. Scans recent messages across accessible channels to generate a vibe report including overall mood, activity level, trending topics, popular emojis, and most active members. Perfect for understanding 'what's the energy rn' without scrolling through messages.",
+        parameters: {
+            type: "object",
+            properties: {
+                channel_count: {
+                    type: "integer",
+                    description: "Optional: Number of text channels to scan (default 5, max 10). More channels = more comprehensive but slower."
+                },
+                message_count: {
+                    type: "integer",
+                    description: "Optional: Number of recent messages to analyze per channel (default 50, max 100)."
+                }
+            },
+            required: []
+        }
+    }
+};
+
+// ============================================================
 // TOOL COLLECTIONS
 // ============================================================
 
@@ -671,7 +1030,13 @@ export const DISCORD_TOOLS = [
     DELETE_CHANNEL_TOOL,
     DELETE_CHANNELS_BULK_TOOL,
     LIST_CHANNELS_TOOL,
+    GET_SERVER_INFO_TOOL,
     SETUP_SERVER_STRUCTURE_TOOL,
+    CONFIGURE_CHANNEL_PERMISSIONS_TOOL,
+    EDIT_TEXT_CHANNEL_TOOL,
+    EDIT_VOICE_CHANNEL_TOOL,
+    EDIT_CATEGORY_TOOL,
+    EDIT_CHANNELS_BULK_TOOL,
     JOIN_VOICE_TOOL,
     LEAVE_VOICE_TOOL,
     VOICE_CONVERSATION_TOOL,
@@ -684,7 +1049,9 @@ export const DISCORD_TOOLS = [
     EDIT_ROLE_TOOL,
     LIST_ROLES_TOOL,
     ASSIGN_ROLE_TOOL,
-    SETUP_ROLES_TOOL
+    SETUP_ROLES_TOOL,
+    CHECK_PERMS_TOOL,
+    VIBE_CHECK_TOOL
 ];
 
 /**

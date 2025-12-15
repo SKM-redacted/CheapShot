@@ -56,7 +56,7 @@ export class STTClient {
                 language: 'en-US',
                 smart_format: false,        // OFF - gives verbatim transcription, no AI rephrasing
                 interim_results: true,      // Get partial results for real-time feel
-                utterance_end_ms: 1000,     // Detect end of utterance (faster response)
+                utterance_end_ms: 1000,     // Detect end of utterance
                 vad_events: true,           // Voice Activity Detection
                 punctuate: true,            // Add punctuation
                 encoding: 'opus',           // Discord uses Opus

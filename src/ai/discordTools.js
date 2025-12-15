@@ -488,10 +488,17 @@ export async function handleListChannels(guild, args) {
 
         // Build summary with category grouping
         let summaryLines = [];
+        const MAX_CHANNELS_PER_CATEGORY = 20; // Limit to prevent huge messages
+        let truncatedCount = 0;
 
         // Categories
         if (result.categories.length > 0) {
-            summaryLines.push(`📁 Categories: ${result.categories.map(c => c.name).join(', ')}`);
+            const catNames = result.categories.map(c => c.name);
+            if (catNames.length > 15) {
+                summaryLines.push(`📁 Categories (${catNames.length}): ${catNames.slice(0, 15).join(', ')}... and ${catNames.length - 15} more`);
+            } else {
+                summaryLines.push(`📁 Categories: ${catNames.join(', ')}`);
+            }
         }
 
         // Text channels grouped by category
@@ -502,9 +509,16 @@ export async function handleListChannels(guild, args) {
                 if (!byCategory[cat]) byCategory[cat] = [];
                 byCategory[cat].push(`#${ch.name}`);
             }
-            summaryLines.push(`💬 Text Channels:`);
+            summaryLines.push(`💬 Text Channels (${result.text_channels.length} total):`);
             for (const [cat, channels] of Object.entries(byCategory)) {
-                summaryLines.push(`  [${cat}]: ${channels.join(', ')}`);
+                if (channels.length > MAX_CHANNELS_PER_CATEGORY) {
+                    const shown = channels.slice(0, MAX_CHANNELS_PER_CATEGORY);
+                    const remaining = channels.length - MAX_CHANNELS_PER_CATEGORY;
+                    truncatedCount += remaining;
+                    summaryLines.push(`  [${cat}]: ${shown.join(', ')}... +${remaining} more`);
+                } else {
+                    summaryLines.push(`  [${cat}]: ${channels.join(', ')}`);
+                }
             }
         }
 
@@ -516,10 +530,21 @@ export async function handleListChannels(guild, args) {
                 if (!byCategory[cat]) byCategory[cat] = [];
                 byCategory[cat].push(ch.name);
             }
-            summaryLines.push(`🔊 Voice Channels:`);
+            summaryLines.push(`🔊 Voice Channels (${result.voice_channels.length} total):`);
             for (const [cat, channels] of Object.entries(byCategory)) {
-                summaryLines.push(`  [${cat}]: ${channels.join(', ')}`);
+                if (channels.length > MAX_CHANNELS_PER_CATEGORY) {
+                    const shown = channels.slice(0, MAX_CHANNELS_PER_CATEGORY);
+                    const remaining = channels.length - MAX_CHANNELS_PER_CATEGORY;
+                    truncatedCount += remaining;
+                    summaryLines.push(`  [${cat}]: ${shown.join(', ')}... +${remaining} more`);
+                } else {
+                    summaryLines.push(`  [${cat}]: ${channels.join(', ')}`);
+                }
             }
+        }
+
+        if (truncatedCount > 0) {
+            summaryLines.push(`\n⚠️ *Output truncated - ${truncatedCount} channels not shown in summary (full data available in result object)*`);
         }
 
         result.summary = summaryLines.join('\n') || 'No channels found';
@@ -533,6 +558,99 @@ export async function handleListChannels(guild, args) {
         return {
             success: false,
             error: error.message || 'Failed to list channels'
+        };
+    }
+}
+
+/**
+ * Handler for getting complete server info (channels + roles) in one call
+ * This is the preferred reconnaissance tool before setup_server_structure
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { include_permissions?: boolean }
+ * @returns {Promise<{success: boolean, channels?: Object, roles?: Array, summary?: string, error?: string}>}
+ */
+export async function handleGetServerInfo(guild, args) {
+    const { include_permissions = false } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot get server info: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    try {
+        // Get channels info
+        const channelResult = await handleListChannels(guild, { type: 'all' });
+
+        // Get roles info (using internal logic to avoid circular dependency issues)
+        const roles = guild.roles.cache
+            .filter(r => r.name !== '@everyone')
+            .sort((a, b) => b.position - a.position)
+            .map(r => {
+                const roleData = {
+                    name: r.name,
+                    id: r.id,
+                    color: r.hexColor,
+                    members: r.members.size,
+                    hoist: r.hoist,
+                    mentionable: r.mentionable,
+                    position: r.position
+                };
+
+                if (include_permissions) {
+                    const keyPerms = [];
+                    if (r.permissions.has(PermissionFlagsBits.Administrator)) keyPerms.push('Administrator');
+                    if (r.permissions.has(PermissionFlagsBits.ManageChannels)) keyPerms.push('ManageChannels');
+                    if (r.permissions.has(PermissionFlagsBits.ManageRoles)) keyPerms.push('ManageRoles');
+                    if (r.permissions.has(PermissionFlagsBits.ManageMessages)) keyPerms.push('ManageMessages');
+                    if (r.permissions.has(PermissionFlagsBits.KickMembers)) keyPerms.push('KickMembers');
+                    if (r.permissions.has(PermissionFlagsBits.BanMembers)) keyPerms.push('BanMembers');
+                    roleData.key_permissions = keyPerms;
+                }
+
+                return roleData;
+            });
+
+        // Build a comprehensive summary
+        let summaryLines = [`📊 **Server Structure Overview for "${guild.name}"**\n`];
+
+        // Add channel summary
+        if (channelResult.success) {
+            summaryLines.push(channelResult.summary);
+        }
+
+        // Add roles summary (capped to prevent huge messages)
+        const MAX_ROLES_SHOWN = 25;
+        summaryLines.push(`\n🎭 **Roles** (${roles.length} total):`);
+        const rolesToShow = roles.slice(0, MAX_ROLES_SHOWN);
+        for (const r of rolesToShow) {
+            let line = `  • **${r.name}** ${r.color !== '#000000' ? `[${r.color}]` : ''} - ${r.members} member${r.members !== 1 ? 's' : ''}`;
+            if (r.hoist) line += ' 📌';
+            if (r.mentionable) line += ' @';
+            if (include_permissions && r.key_permissions?.length > 0) {
+                line += ` (${r.key_permissions.join(', ')})`;
+            }
+            summaryLines.push(line);
+        }
+        if (roles.length > MAX_ROLES_SHOWN) {
+            summaryLines.push(`  ... and ${roles.length - MAX_ROLES_SHOWN} more roles`);
+        }
+
+        logger.info('TOOL', `Got server info: ${channelResult.categories?.length || 0} categories, ${channelResult.text_channels?.length || 0} text, ${channelResult.voice_channels?.length || 0} voice, ${roles.length} roles`);
+
+        return {
+            success: true,
+            categories: channelResult.categories || [],
+            text_channels: channelResult.text_channels || [],
+            voice_channels: channelResult.voice_channels || [],
+            roles: roles,
+            summary: summaryLines.join('\n')
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to get server info: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to get server info'
         };
     }
 }
@@ -595,44 +713,572 @@ export async function handleDeleteChannelsBulk(guild, args) {
     };
 }
 
+// ============================================================
+// CHANNEL EDITING HANDLERS
+// ============================================================
+
+/**
+ * Find a channel by name and type
+ * @param {Object} guild - Discord guild object
+ * @param {string} name - Channel name to find
+ * @param {string} type - Channel type filter ('text', 'voice', 'category', 'any')
+ * @returns {Object|null} The channel if found, or null
+ */
+function findChannel(guild, name, type = 'any') {
+    const lowerName = name.toLowerCase();
+
+    return guild.channels.cache.find(ch => {
+        const nameMatch = ch.name.toLowerCase() === lowerName ||
+            ch.name.toLowerCase().includes(lowerName);
+
+        if (!nameMatch) return false;
+
+        switch (type) {
+            case 'text':
+                return ch.type === ChannelType.GuildText;
+            case 'voice':
+                return ch.type === ChannelType.GuildVoice;
+            case 'category':
+                return ch.type === ChannelType.GuildCategory;
+            case 'any':
+            default:
+                return ch.type === ChannelType.GuildText ||
+                    ch.type === ChannelType.GuildVoice ||
+                    ch.type === ChannelType.GuildCategory;
+        }
+    });
+}
+
+/**
+ * Handler for editing a text channel
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { name, new_name?, topic?, category?, slowmode?, nsfw? }
+ * @returns {Promise<{success: boolean, channel?: Object, changes?: Array, error?: string}>}
+ */
+export async function handleEditTextChannel(guild, args) {
+    const { name, new_name, topic, category, slowmode, nsfw } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot edit text channel: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    if (!name || typeof name !== 'string') {
+        logger.error('TOOL', 'Cannot edit text channel: Invalid name');
+        return { success: false, error: 'Invalid channel name' };
+    }
+
+    try {
+        const channel = findChannel(guild, name, 'text');
+
+        if (!channel) {
+            logger.warn('TOOL', `No text channel found matching "${name}"`);
+            return { success: false, error: `No text channel found matching "${name}"` };
+        }
+
+        const changes = [];
+        const editOptions = {
+            reason: 'Edited by CheapShot AI via tool call'
+        };
+
+        // Apply new name
+        if (new_name && new_name !== channel.name) {
+            editOptions.name = new_name;
+            changes.push(`renamed from "${channel.name}" to "${new_name}"`);
+        }
+
+        // Apply new topic
+        if (topic !== undefined && topic !== channel.topic) {
+            editOptions.topic = topic;
+            changes.push(`topic ${topic ? `set to "${topic}"` : 'cleared'}`);
+        }
+
+        // Move to different category
+        if (category !== undefined) {
+            if (category === null || category === '') {
+                // Remove from category
+                editOptions.parent = null;
+                changes.push('removed from category');
+            } else {
+                const targetCategory = findChannel(guild, category, 'category');
+                if (targetCategory) {
+                    editOptions.parent = targetCategory.id;
+                    changes.push(`moved to category "${targetCategory.name}"`);
+                }
+            }
+        }
+
+        // Apply slowmode (rate limit per user in seconds)
+        if (slowmode !== undefined && slowmode !== channel.rateLimitPerUser) {
+            editOptions.rateLimitPerUser = Math.max(0, Math.min(21600, slowmode));
+            changes.push(`slowmode set to ${slowmode} seconds`);
+        }
+
+        // Apply NSFW setting
+        if (nsfw !== undefined && nsfw !== channel.nsfw) {
+            editOptions.nsfw = Boolean(nsfw);
+            changes.push(`NSFW ${nsfw ? 'enabled' : 'disabled'}`);
+        }
+
+        if (changes.length === 0) {
+            return { success: false, error: 'No changes specified' };
+        }
+
+        logger.info('TOOL', `Editing text channel "${channel.name}": ${changes.join(', ')}`);
+
+        const updatedChannel = await channel.edit(editOptions);
+
+        logger.info('TOOL', `Text channel "${updatedChannel.name}" edited successfully`);
+
+        return {
+            success: true,
+            channel: {
+                id: updatedChannel.id,
+                name: updatedChannel.name,
+                type: 'text',
+                topic: updatedChannel.topic,
+                category: updatedChannel.parent?.name || null,
+                slowmode: updatedChannel.rateLimitPerUser,
+                nsfw: updatedChannel.nsfw
+            },
+            changes
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to edit text channel: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to edit text channel'
+        };
+    }
+}
+
+/**
+ * Handler for editing a voice channel
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { name, new_name?, category?, user_limit?, bitrate? }
+ * @returns {Promise<{success: boolean, channel?: Object, changes?: Array, error?: string}>}
+ */
+export async function handleEditVoiceChannel(guild, args) {
+    const { name, new_name, category, user_limit, bitrate } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot edit voice channel: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    if (!name || typeof name !== 'string') {
+        logger.error('TOOL', 'Cannot edit voice channel: Invalid name');
+        return { success: false, error: 'Invalid channel name' };
+    }
+
+    try {
+        const channel = findChannel(guild, name, 'voice');
+
+        if (!channel) {
+            logger.warn('TOOL', `No voice channel found matching "${name}"`);
+            return { success: false, error: `No voice channel found matching "${name}"` };
+        }
+
+        const changes = [];
+        const editOptions = {
+            reason: 'Edited by CheapShot AI via tool call'
+        };
+
+        // Apply new name
+        if (new_name && new_name !== channel.name) {
+            editOptions.name = new_name;
+            changes.push(`renamed from "${channel.name}" to "${new_name}"`);
+        }
+
+        // Move to different category
+        if (category !== undefined) {
+            if (category === null || category === '') {
+                editOptions.parent = null;
+                changes.push('removed from category');
+            } else {
+                const targetCategory = findChannel(guild, category, 'category');
+                if (targetCategory) {
+                    editOptions.parent = targetCategory.id;
+                    changes.push(`moved to category "${targetCategory.name}"`);
+                }
+            }
+        }
+
+        // Apply user limit (0 = unlimited)
+        if (user_limit !== undefined && user_limit !== channel.userLimit) {
+            editOptions.userLimit = Math.max(0, Math.min(99, user_limit));
+            changes.push(`user limit set to ${user_limit === 0 ? 'unlimited' : user_limit}`);
+        }
+
+        // Apply bitrate (in bps, 8000-96000 for normal servers, up to 384000 for boosted)
+        if (bitrate !== undefined && bitrate !== channel.bitrate) {
+            editOptions.bitrate = Math.max(8000, Math.min(384000, bitrate));
+            changes.push(`bitrate set to ${bitrate}bps`);
+        }
+
+        if (changes.length === 0) {
+            return { success: false, error: 'No changes specified' };
+        }
+
+        logger.info('TOOL', `Editing voice channel "${channel.name}": ${changes.join(', ')}`);
+
+        const updatedChannel = await channel.edit(editOptions);
+
+        logger.info('TOOL', `Voice channel "${updatedChannel.name}" edited successfully`);
+
+        return {
+            success: true,
+            channel: {
+                id: updatedChannel.id,
+                name: updatedChannel.name,
+                type: 'voice',
+                category: updatedChannel.parent?.name || null,
+                user_limit: updatedChannel.userLimit,
+                bitrate: updatedChannel.bitrate
+            },
+            changes
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to edit voice channel: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to edit voice channel'
+        };
+    }
+}
+
+/**
+ * Handler for editing a category
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { name, new_name? }
+ * @returns {Promise<{success: boolean, category?: Object, changes?: Array, error?: string}>}
+ */
+export async function handleEditCategory(guild, args) {
+    const { name, new_name } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot edit category: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    if (!name || typeof name !== 'string') {
+        logger.error('TOOL', 'Cannot edit category: Invalid name');
+        return { success: false, error: 'Invalid category name' };
+    }
+
+    try {
+        const category = findChannel(guild, name, 'category');
+
+        if (!category) {
+            logger.warn('TOOL', `No category found matching "${name}"`);
+            return { success: false, error: `No category found matching "${name}"` };
+        }
+
+        const changes = [];
+        const editOptions = {
+            reason: 'Edited by CheapShot AI via tool call'
+        };
+
+        // Apply new name
+        if (new_name && new_name !== category.name) {
+            editOptions.name = new_name;
+            changes.push(`renamed from "${category.name}" to "${new_name}"`);
+        }
+
+        if (changes.length === 0) {
+            return { success: false, error: 'No changes specified' };
+        }
+
+        logger.info('TOOL', `Editing category "${category.name}": ${changes.join(', ')}`);
+
+        const updatedCategory = await category.edit(editOptions);
+
+        logger.info('TOOL', `Category "${updatedCategory.name}" edited successfully`);
+
+        return {
+            success: true,
+            category: {
+                id: updatedCategory.id,
+                name: updatedCategory.name,
+                type: 'category'
+            },
+            changes
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to edit category: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to edit category'
+        };
+    }
+}
+
+/**
+ * Handler for bulk editing multiple channels at once
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { channels: Array<{name, type?, new_name?, ...}> }
+ * @returns {Promise<{success: boolean, edited?: Array, failed?: Array, summary?: string, error?: string}>}
+ */
+export async function handleEditChannelsBulk(guild, args) {
+    const { channels = [] } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot bulk edit channels: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    if (!Array.isArray(channels) || channels.length === 0) {
+        logger.error('TOOL', 'Cannot bulk edit channels: No channels specified');
+        return { success: false, error: 'No channels specified for editing' };
+    }
+
+    logger.info('TOOL', `Bulk editing ${channels.length} channels in parallel`);
+
+    // Execute all edits in parallel
+    const editPromises = channels.map(async (ch) => {
+        try {
+            const type = ch.type || 'any';
+            let result;
+
+            if (type === 'text') {
+                result = await handleEditTextChannel(guild, ch);
+            } else if (type === 'voice') {
+                result = await handleEditVoiceChannel(guild, ch);
+            } else if (type === 'category') {
+                result = await handleEditCategory(guild, ch);
+            } else {
+                // Auto-detect type
+                const foundChannel = findChannel(guild, ch.name, 'any');
+                if (!foundChannel) {
+                    return { name: ch.name, success: false, error: `Channel "${ch.name}" not found` };
+                }
+
+                if (foundChannel.type === ChannelType.GuildText) {
+                    result = await handleEditTextChannel(guild, ch);
+                } else if (foundChannel.type === ChannelType.GuildVoice) {
+                    result = await handleEditVoiceChannel(guild, ch);
+                } else if (foundChannel.type === ChannelType.GuildCategory) {
+                    result = await handleEditCategory(guild, ch);
+                } else {
+                    return { name: ch.name, success: false, error: 'Unsupported channel type' };
+                }
+            }
+
+            return {
+                name: ch.name,
+                ...result
+            };
+        } catch (error) {
+            return {
+                name: ch.name,
+                success: false,
+                error: error.message
+            };
+        }
+    });
+
+    const results = await Promise.all(editPromises);
+
+    const edited = results.filter(r => r.success);
+    const failed = results.filter(r => !r.success);
+
+    logger.info('TOOL', `Bulk edit complete: ${edited.length} edited, ${failed.length} failed`);
+
+    return {
+        success: edited.length > 0,
+        edited: edited.map(r => ({
+            name: r.channel?.name || r.category?.name || r.name,
+            type: r.channel?.type || r.category?.type || 'unknown',
+            changes: r.changes || []
+        })),
+        failed: failed.map(r => ({ name: r.name, error: r.error })),
+        summary: `Edited ${edited.length} channel(s)${failed.length > 0 ? `, ${failed.length} failed` : ''}`
+    };
+}
+
+/**
+ * Build permission overwrites array for a channel based on configuration
+ * @param {Object} guild - Discord guild object
+ * @param {Object} config - Channel config { private, role_access, read_only, read_only_except }
+ * @param {string} channelType - 'text', 'voice', or 'category'
+ * @returns {Array} Array of permission overwrites for Discord API
+ */
+function buildPermissionOverwrites(guild, config, channelType = 'text') {
+    const overwrites = [];
+    const { private: isPrivate, role_access = [], read_only, read_only_except = [] } = config;
+
+    // If channel is private, deny @everyone view access
+    if (isPrivate) {
+        overwrites.push({
+            id: guild.roles.everyone.id,
+            deny: [PermissionFlagsBits.ViewChannel]
+        });
+
+        // Grant access to specified roles
+        for (const roleName of role_access) {
+            const role = guild.roles.cache.find(r =>
+                r.name.toLowerCase() === roleName.toLowerCase() ||
+                r.name.toLowerCase().includes(roleName.toLowerCase())
+            );
+            if (role) {
+                const allow = [PermissionFlagsBits.ViewChannel];
+                if (channelType === 'voice') {
+                    allow.push(PermissionFlagsBits.Connect, PermissionFlagsBits.Speak);
+                } else if (channelType === 'text') {
+                    allow.push(PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory);
+                }
+                overwrites.push({
+                    id: role.id,
+                    allow: allow
+                });
+            }
+        }
+    }
+
+    // If read_only, deny SendMessages for @everyone
+    if (read_only && channelType === 'text') {
+        // Find if we already have an @everyone overwrite
+        const everyoneOverwrite = overwrites.find(o => o.id === guild.roles.everyone.id);
+        if (everyoneOverwrite) {
+            // Add SendMessages denial to existing overwrite
+            if (!everyoneOverwrite.deny) everyoneOverwrite.deny = [];
+            everyoneOverwrite.deny.push(PermissionFlagsBits.SendMessages);
+        } else {
+            // Create new overwrite for @everyone
+            overwrites.push({
+                id: guild.roles.everyone.id,
+                deny: [PermissionFlagsBits.SendMessages]
+            });
+        }
+
+        // Allow specified roles to send messages
+        for (const roleName of read_only_except) {
+            const role = guild.roles.cache.find(r =>
+                r.name.toLowerCase() === roleName.toLowerCase() ||
+                r.name.toLowerCase().includes(roleName.toLowerCase())
+            );
+            if (role) {
+                // Check if we already have an overwrite for this role
+                const existingOverwrite = overwrites.find(o => o.id === role.id);
+                if (existingOverwrite) {
+                    if (!existingOverwrite.allow) existingOverwrite.allow = [];
+                    existingOverwrite.allow.push(PermissionFlagsBits.SendMessages);
+                } else {
+                    overwrites.push({
+                        id: role.id,
+                        allow: [PermissionFlagsBits.SendMessages]
+                    });
+                }
+            }
+        }
+    }
+
+    return overwrites;
+}
+
 /**
  * Handler for setting up a complete server structure in parallel
- * Creates categories first, then all channels at once
+ * Creates roles first, then categories, then all channels - all with proper permissions
  * @param {Object} guild - Discord guild object
- * @param {Object} args - Tool arguments { categories: Array, text_channels: Array, voice_channels: Array }
+ * @param {Object} args - Tool arguments { roles: Array, categories: Array, text_channels: Array, voice_channels: Array }
  * @returns {Promise<{success: boolean, created?: Object, failed?: Object, summary?: string, error?: string}>}
  */
 export async function handleSetupServerStructure(guild, args) {
-    const { categories = [], text_channels = [], voice_channels = [] } = args;
+    const { roles = [], categories = [], text_channels = [], voice_channels = [] } = args;
 
     if (!guild) {
         logger.error('TOOL', 'Cannot setup server structure: No guild context');
         return { success: false, error: 'No server context available' };
     }
 
-    const totalItems = categories.length + text_channels.length + voice_channels.length;
+    const totalItems = roles.length + categories.length + text_channels.length + voice_channels.length;
     if (totalItems === 0) {
         logger.error('TOOL', 'Cannot setup server structure: No items specified');
-        return { success: false, error: 'No categories or channels specified' };
+        return { success: false, error: 'No items specified' };
     }
 
-    logger.info('TOOL', `Setting up server structure: ${categories.length} categories, ${text_channels.length} text, ${voice_channels.length} voice`);
+    logger.info('TOOL', `Setting up server structure: ${roles.length} roles, ${categories.length} categories, ${text_channels.length} text, ${voice_channels.length} voice`);
 
     const results = {
+        roles: { success: 0, failed: 0, details: [] },
         categories: { success: 0, failed: 0, details: [] },
         text_channels: { success: 0, failed: 0, details: [] },
         voice_channels: { success: 0, failed: 0, details: [] }
     };
 
-    // Phase 1: Create all categories in parallel
+    // Phase 0: Create all roles FIRST (so we can reference them in channel permissions)
+    if (roles.length > 0) {
+        logger.info('TOOL', `Phase 0: Creating ${roles.length} roles in parallel`);
+
+        const roleResults = await Promise.all(
+            roles.map(async (roleConfig) => {
+                try {
+                    const result = await handleCreateRole(guild, {
+                        name: roleConfig.name,
+                        color: roleConfig.color,
+                        hoist: roleConfig.hoist,
+                        mentionable: roleConfig.mentionable,
+                        permissions: roleConfig.permissions
+                    });
+                    return { ...roleConfig, result, success: result.success };
+                } catch (error) {
+                    return { ...roleConfig, result: { success: false, error: error.message }, success: false };
+                }
+            })
+        );
+
+        for (const res of roleResults) {
+            if (res.success) {
+                results.roles.success++;
+                results.roles.details.push({ name: res.name, success: true });
+            } else {
+                results.roles.failed++;
+                results.roles.details.push({ name: res.name, success: false, error: res.result.error });
+            }
+        }
+
+        // Small delay to let Discord API settle after role creation
+        await new Promise(r => setTimeout(r, 500));
+
+        // Refresh the guild roles cache to pick up the new roles
+        await guild.roles.fetch();
+    }
+
+    // Phase 1: Create all categories in parallel WITH PERMISSIONS
     if (categories.length > 0) {
         logger.info('TOOL', `Phase 1: Creating ${categories.length} categories in parallel`);
 
         const categoryResults = await Promise.all(
             categories.map(async (cat) => {
                 try {
-                    const result = await handleCreateCategory(guild, { name: cat.name });
-                    return { ...cat, result, success: result.success };
+                    // Build permission overwrites
+                    const permissionOverwrites = buildPermissionOverwrites(guild, cat, 'category');
+
+                    const channelOptions = {
+                        name: cat.name,
+                        type: ChannelType.GuildCategory,
+                        reason: 'Created by CheapShot AI via setup_server_structure'
+                    };
+
+                    if (permissionOverwrites.length > 0) {
+                        channelOptions.permissionOverwrites = permissionOverwrites;
+                    }
+
+                    const category = await guild.channels.create(channelOptions);
+
+                    logger.info('TOOL', `Category "${cat.name}" created successfully (ID: ${category.id})${cat.private ? ' [PRIVATE]' : ''}`);
+
+                    return {
+                        ...cat,
+                        result: {
+                            success: true,
+                            category: { id: category.id, name: category.name, private: cat.private || false }
+                        },
+                        success: true
+                    };
                 } catch (error) {
                     return { ...cat, result: { success: false, error: error.message }, success: false };
                 }
@@ -642,7 +1288,7 @@ export async function handleSetupServerStructure(guild, args) {
         for (const res of categoryResults) {
             if (res.success) {
                 results.categories.success++;
-                results.categories.details.push({ name: res.name, success: true });
+                results.categories.details.push({ name: res.name, success: true, private: res.private });
             } else {
                 results.categories.failed++;
                 results.categories.details.push({ name: res.name, success: false, error: res.result.error });
@@ -655,32 +1301,72 @@ export async function handleSetupServerStructure(guild, args) {
         await new Promise(r => setTimeout(r, 500));
     }
 
-    // Phase 2: Create all channels (text + voice) in parallel
+    // Phase 2: Create all channels (text + voice) in parallel WITH PERMISSIONS
     const allChannels = [
-        ...text_channels.map(ch => ({ ...ch, type: 'text' })),
-        ...voice_channels.map(ch => ({ ...ch, type: 'voice' }))
+        ...text_channels.map(ch => ({ ...ch, channelType: 'text' })),
+        ...voice_channels.map(ch => ({ ...ch, channelType: 'voice' }))
     ];
 
     if (allChannels.length > 0) {
-        logger.info('TOOL', `Phase 2: Creating ${allChannels.length} channels in parallel`);
+        logger.info('TOOL', `Phase 2: Creating ${allChannels.length} channels in parallel with permissions`);
 
         const channelResults = await Promise.all(
             allChannels.map(async (ch) => {
                 try {
-                    let result;
-                    if (ch.type === 'text') {
-                        result = await handleCreateTextChannel(guild, {
-                            name: ch.name,
-                            category: ch.category,
-                            topic: ch.topic
-                        });
-                    } else {
-                        result = await handleCreateVoiceChannel(guild, {
-                            name: ch.name,
-                            category: ch.category
-                        });
+                    // Find category if specified
+                    let parentCategory = null;
+                    if (ch.category) {
+                        parentCategory = guild.channels.cache.find(c =>
+                            c.type === ChannelType.GuildCategory &&
+                            (c.name.toLowerCase() === ch.category.toLowerCase() ||
+                                c.name.toLowerCase().includes(ch.category.toLowerCase()))
+                        );
                     }
-                    return { ...ch, result, success: result.success };
+
+                    // Build permission overwrites
+                    const permissionOverwrites = buildPermissionOverwrites(guild, ch, ch.channelType);
+
+                    const channelOptions = {
+                        name: ch.name,
+                        type: ch.channelType === 'voice' ? ChannelType.GuildVoice : ChannelType.GuildText,
+                        reason: 'Created by CheapShot AI via setup_server_structure'
+                    };
+
+                    if (parentCategory) {
+                        channelOptions.parent = parentCategory.id;
+                    }
+
+                    if (ch.channelType === 'text' && ch.topic) {
+                        channelOptions.topic = ch.topic;
+                    }
+
+                    if (permissionOverwrites.length > 0) {
+                        channelOptions.permissionOverwrites = permissionOverwrites;
+                    }
+
+                    const channel = await guild.channels.create(channelOptions);
+
+                    const permInfo = [];
+                    if (ch.private) permInfo.push('PRIVATE');
+                    if (ch.read_only) permInfo.push('READ-ONLY');
+                    const permStr = permInfo.length > 0 ? ` [${permInfo.join(', ')}]` : '';
+
+                    logger.info('TOOL', `${ch.channelType} channel "${ch.name}" created successfully (ID: ${channel.id})${permStr}`);
+
+                    return {
+                        ...ch,
+                        result: {
+                            success: true,
+                            channel: {
+                                id: channel.id,
+                                name: channel.name,
+                                type: ch.channelType,
+                                private: ch.private || false,
+                                read_only: ch.read_only || false
+                            }
+                        },
+                        success: true
+                    };
                 } catch (error) {
                     return { ...ch, result: { success: false, error: error.message }, success: false };
                 }
@@ -688,10 +1374,10 @@ export async function handleSetupServerStructure(guild, args) {
         );
 
         for (const res of channelResults) {
-            const targetResults = res.type === 'text' ? results.text_channels : results.voice_channels;
+            const targetResults = res.channelType === 'text' ? results.text_channels : results.voice_channels;
             if (res.success) {
                 targetResults.success++;
-                targetResults.details.push({ name: res.name, success: true });
+                targetResults.details.push({ name: res.name, success: true, private: res.private, read_only: res.read_only });
             } else {
                 targetResults.failed++;
                 targetResults.details.push({ name: res.name, success: false, error: res.result.error });
@@ -700,26 +1386,271 @@ export async function handleSetupServerStructure(guild, args) {
     }
 
     // Build summary
-    const totalSuccess = results.categories.success + results.text_channels.success + results.voice_channels.success;
-    const totalFailed = results.categories.failed + results.text_channels.failed + results.voice_channels.failed;
+    const totalSuccess = results.roles.success + results.categories.success + results.text_channels.success + results.voice_channels.success;
+    const totalFailed = results.roles.failed + results.categories.failed + results.text_channels.failed + results.voice_channels.failed;
 
     logger.info('TOOL', `Server structure setup complete: ${totalSuccess} success, ${totalFailed} failed`);
+
+    // Build a more detailed summary
+    const summaryParts = [];
+    if (results.roles.success > 0) summaryParts.push(`${results.roles.success} roles`);
+    if (results.categories.success > 0) summaryParts.push(`${results.categories.success} categories`);
+    if (results.text_channels.success > 0) summaryParts.push(`${results.text_channels.success} text channels`);
+    if (results.voice_channels.success > 0) summaryParts.push(`${results.voice_channels.success} voice channels`);
 
     return {
         success: totalSuccess > 0,
         created: {
+            roles: results.roles.success,
             categories: results.categories.success,
             text_channels: results.text_channels.success,
             voice_channels: results.voice_channels.success
         },
         failed: {
+            roles: results.roles.failed,
             categories: results.categories.failed,
             text_channels: results.text_channels.failed,
             voice_channels: results.voice_channels.failed
         },
         details: results,
-        summary: `Created ${results.categories.success} categories, ${results.text_channels.success} text channels, ${results.voice_channels.success} voice channels${totalFailed > 0 ? ` (${totalFailed} failed)` : ''}`
+        summary: `Created ${summaryParts.join(', ')}${totalFailed > 0 ? ` (${totalFailed} failed)` : ''}`
     };
+}
+
+/**
+ * Handler for configuring permissions on an existing channel
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { channel_name, channel_type, private, role_access, role_deny, read_only, read_only_except, sync_with_category }
+ * @returns {Promise<{success: boolean, channel?: Object, changes?: Array, error?: string}>}
+ */
+export async function handleConfigureChannelPermissions(guild, args) {
+    const {
+        channel_name,
+        channel_type = 'any',
+        private: isPrivate,
+        role_access = [],
+        role_deny = [],
+        read_only,
+        read_only_except = [],
+        sync_with_category
+    } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot configure channel permissions: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    if (!channel_name || typeof channel_name !== 'string') {
+        logger.error('TOOL', 'Cannot configure channel permissions: Invalid channel name');
+        return { success: false, error: 'Invalid channel name' };
+    }
+
+    try {
+        const lowerName = channel_name.toLowerCase();
+
+        // Find matching channel based on type filter
+        let channels = guild.channels.cache.filter(ch => {
+            const nameMatch = ch.name.toLowerCase() === lowerName ||
+                ch.name.toLowerCase().includes(lowerName);
+
+            if (!nameMatch) return false;
+
+            switch (channel_type) {
+                case 'text':
+                    return ch.type === ChannelType.GuildText;
+                case 'voice':
+                    return ch.type === ChannelType.GuildVoice;
+                case 'category':
+                    return ch.type === ChannelType.GuildCategory;
+                case 'any':
+                default:
+                    return ch.type === ChannelType.GuildText ||
+                        ch.type === ChannelType.GuildVoice ||
+                        ch.type === ChannelType.GuildCategory;
+            }
+        });
+
+        if (channels.size === 0) {
+            logger.warn('TOOL', `No channel found matching "${channel_name}"`);
+            return { success: false, error: `No channel found matching "${channel_name}"` };
+        }
+
+        // Prefer exact match
+        let channel = channels.find(ch => ch.name.toLowerCase() === lowerName);
+        if (!channel) {
+            channel = channels.first();
+        }
+
+        const channelTypeStr = channel.type === ChannelType.GuildCategory ? 'category' :
+            channel.type === ChannelType.GuildVoice ? 'voice' : 'text';
+
+        logger.info('TOOL', `Configuring permissions for ${channelTypeStr} "${channel.name}" (ID: ${channel.id})`);
+
+        const changes = [];
+
+        // If sync_with_category is requested, just do that and return
+        if (sync_with_category && channel.parent) {
+            await channel.lockPermissions();
+            changes.push('Synced permissions with parent category');
+            logger.info('TOOL', `Synced "${channel.name}" permissions with category "${channel.parent.name}"`);
+
+            return {
+                success: true,
+                channel: { id: channel.id, name: channel.name, type: channelTypeStr },
+                changes,
+                summary: `Synced permissions with parent category "${channel.parent.name}"`
+            };
+        }
+
+        // Build permission overwrites
+        const overwrites = [];
+
+        // Handle private setting
+        if (isPrivate === true) {
+            overwrites.push({
+                id: guild.roles.everyone.id,
+                deny: [PermissionFlagsBits.ViewChannel]
+            });
+            changes.push('Made channel private (hidden from @everyone)');
+        } else if (isPrivate === false) {
+            overwrites.push({
+                id: guild.roles.everyone.id,
+                allow: [PermissionFlagsBits.ViewChannel]
+            });
+            changes.push('Made channel public (visible to @everyone)');
+        }
+
+        // Handle role_access - grant ViewChannel + appropriate perms
+        for (const roleName of role_access) {
+            const role = guild.roles.cache.find(r =>
+                r.name.toLowerCase() === roleName.toLowerCase() ||
+                r.name.toLowerCase().includes(roleName.toLowerCase())
+            );
+            if (role) {
+                const allow = [PermissionFlagsBits.ViewChannel];
+                if (channelTypeStr === 'voice') {
+                    allow.push(PermissionFlagsBits.Connect, PermissionFlagsBits.Speak);
+                } else if (channelTypeStr === 'text') {
+                    allow.push(PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory);
+                }
+                overwrites.push({ id: role.id, allow });
+                changes.push(`Granted access to role "${role.name}"`);
+            } else {
+                logger.warn('TOOL', `Role "${roleName}" not found, skipping`);
+            }
+        }
+
+        // Handle role_deny - deny ViewChannel
+        for (const roleName of role_deny) {
+            const role = guild.roles.cache.find(r =>
+                r.name.toLowerCase() === roleName.toLowerCase() ||
+                r.name.toLowerCase().includes(roleName.toLowerCase())
+            );
+            if (role) {
+                overwrites.push({
+                    id: role.id,
+                    deny: [PermissionFlagsBits.ViewChannel]
+                });
+                changes.push(`Denied access to role "${role.name}"`);
+            } else {
+                logger.warn('TOOL', `Role "${roleName}" not found, skipping`);
+            }
+        }
+
+        // Handle read_only for text channels
+        if (read_only === true && channelTypeStr === 'text') {
+            // Find or update @everyone overwrite
+            const everyoneOverwrite = overwrites.find(o => o.id === guild.roles.everyone.id);
+            if (everyoneOverwrite) {
+                if (!everyoneOverwrite.deny) everyoneOverwrite.deny = [];
+                everyoneOverwrite.deny.push(PermissionFlagsBits.SendMessages);
+            } else {
+                overwrites.push({
+                    id: guild.roles.everyone.id,
+                    deny: [PermissionFlagsBits.SendMessages]
+                });
+            }
+            changes.push('Made channel read-only (SendMessages denied)');
+
+            // Allow specified roles to send messages
+            for (const roleName of read_only_except) {
+                const role = guild.roles.cache.find(r =>
+                    r.name.toLowerCase() === roleName.toLowerCase() ||
+                    r.name.toLowerCase().includes(roleName.toLowerCase())
+                );
+                if (role) {
+                    const existingOverwrite = overwrites.find(o => o.id === role.id);
+                    if (existingOverwrite) {
+                        if (!existingOverwrite.allow) existingOverwrite.allow = [];
+                        existingOverwrite.allow.push(PermissionFlagsBits.SendMessages);
+                    } else {
+                        overwrites.push({
+                            id: role.id,
+                            allow: [PermissionFlagsBits.SendMessages]
+                        });
+                    }
+                    changes.push(`"${role.name}" can still send messages`);
+                }
+            }
+        } else if (read_only === false && channelTypeStr === 'text') {
+            // Find or update @everyone overwrite to allow sending
+            const everyoneOverwrite = overwrites.find(o => o.id === guild.roles.everyone.id);
+            if (everyoneOverwrite) {
+                if (!everyoneOverwrite.allow) everyoneOverwrite.allow = [];
+                everyoneOverwrite.allow.push(PermissionFlagsBits.SendMessages);
+            } else {
+                overwrites.push({
+                    id: guild.roles.everyone.id,
+                    allow: [PermissionFlagsBits.SendMessages]
+                });
+            }
+            changes.push('Enabled sending messages for @everyone');
+        }
+
+        // Apply all permission overwrites IN PARALLEL for speed
+        if (overwrites.length > 0) {
+            await Promise.all(
+                overwrites.map(overwrite =>
+                    channel.permissionOverwrites.edit(overwrite.id, {
+                        ...(overwrite.allow ? Object.fromEntries(overwrite.allow.map(p => [getPermissionName(p), true])) : {}),
+                        ...(overwrite.deny ? Object.fromEntries(overwrite.deny.map(p => [getPermissionName(p), false])) : {})
+                    })
+                )
+            );
+        }
+
+        logger.info('TOOL', `Configured permissions for "${channel.name}": ${changes.join(', ')}`);
+
+        return {
+            success: true,
+            channel: {
+                id: channel.id,
+                name: channel.name,
+                type: channelTypeStr
+            },
+            changes,
+            summary: changes.length > 0 ? changes.join('; ') : 'No changes made'
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to configure channel permissions: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to configure channel permissions'
+        };
+    }
+}
+
+/**
+ * Helper function to get permission name from PermissionFlagsBits value
+ * @param {bigint} permissionBit - The permission flag bit
+ * @returns {string} The permission name
+ */
+function getPermissionName(permissionBit) {
+    for (const [name, value] of Object.entries(PermissionFlagsBits)) {
+        if (value === permissionBit) return name;
+    }
+    return 'Unknown';
 }
 
 // ============================================================
@@ -1974,4 +2905,415 @@ export async function handleMoveMembersBulk(guild, args) {
         },
         message
     };
+}
+
+// ============================================================
+// UTILITY / INFO HANDLERS
+// ============================================================
+
+/**
+ * Handler for checking a user's permissions
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { member?: string }
+ * @param {Object} context - Additional context { member }
+ * @returns {Promise<{success: boolean, permissions?: Object, error?: string}>}
+ */
+export async function handleCheckPerms(guild, args, context = {}) {
+    const { member: memberIdentifier } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot check perms: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    try {
+        let targetMember;
+
+        // If no member specified, check the requesting user's permissions
+        if (!memberIdentifier) {
+            targetMember = context.member;
+            if (!targetMember) {
+                return { success: false, error: 'Could not determine which user to check. Please specify a user.' };
+            }
+        } else {
+            // Try to find the member
+            targetMember = await findMemberSmart(guild, memberIdentifier);
+            if (!targetMember) {
+                return { success: false, error: `Could not find user "${memberIdentifier}"` };
+            }
+        }
+
+        // Get permissions
+        const permissions = targetMember.permissions;
+
+        // Build a comprehensive permissions object
+        const permCategories = {
+            general: {
+                Administrator: permissions.has(PermissionFlagsBits.Administrator),
+                ViewChannel: permissions.has(PermissionFlagsBits.ViewChannel),
+                ManageChannels: permissions.has(PermissionFlagsBits.ManageChannels),
+                ManageRoles: permissions.has(PermissionFlagsBits.ManageRoles),
+                ManageGuild: permissions.has(PermissionFlagsBits.ManageGuild),
+                ManageWebhooks: permissions.has(PermissionFlagsBits.ManageWebhooks),
+                ManageEmojisAndStickers: permissions.has(PermissionFlagsBits.ManageEmojisAndStickers),
+            },
+            membership: {
+                CreateInstantInvite: permissions.has(PermissionFlagsBits.CreateInstantInvite),
+                ChangeNickname: permissions.has(PermissionFlagsBits.ChangeNickname),
+                ManageNicknames: permissions.has(PermissionFlagsBits.ManageNicknames),
+                KickMembers: permissions.has(PermissionFlagsBits.KickMembers),
+                BanMembers: permissions.has(PermissionFlagsBits.BanMembers),
+                ModerateMembers: permissions.has(PermissionFlagsBits.ModerateMembers),
+            },
+            text: {
+                SendMessages: permissions.has(PermissionFlagsBits.SendMessages),
+                SendMessagesInThreads: permissions.has(PermissionFlagsBits.SendMessagesInThreads),
+                CreatePublicThreads: permissions.has(PermissionFlagsBits.CreatePublicThreads),
+                CreatePrivateThreads: permissions.has(PermissionFlagsBits.CreatePrivateThreads),
+                EmbedLinks: permissions.has(PermissionFlagsBits.EmbedLinks),
+                AttachFiles: permissions.has(PermissionFlagsBits.AttachFiles),
+                AddReactions: permissions.has(PermissionFlagsBits.AddReactions),
+                UseExternalEmojis: permissions.has(PermissionFlagsBits.UseExternalEmojis),
+                UseExternalStickers: permissions.has(PermissionFlagsBits.UseExternalStickers),
+                MentionEveryone: permissions.has(PermissionFlagsBits.MentionEveryone),
+                ManageMessages: permissions.has(PermissionFlagsBits.ManageMessages),
+                ManageThreads: permissions.has(PermissionFlagsBits.ManageThreads),
+                ReadMessageHistory: permissions.has(PermissionFlagsBits.ReadMessageHistory),
+                SendTTSMessages: permissions.has(PermissionFlagsBits.SendTTSMessages),
+                UseApplicationCommands: permissions.has(PermissionFlagsBits.UseApplicationCommands),
+            },
+            voice: {
+                Connect: permissions.has(PermissionFlagsBits.Connect),
+                Speak: permissions.has(PermissionFlagsBits.Speak),
+                Stream: permissions.has(PermissionFlagsBits.Stream),
+                UseVAD: permissions.has(PermissionFlagsBits.UseVAD),
+                PrioritySpeaker: permissions.has(PermissionFlagsBits.PrioritySpeaker),
+                MuteMembers: permissions.has(PermissionFlagsBits.MuteMembers),
+                DeafenMembers: permissions.has(PermissionFlagsBits.DeafenMembers),
+                MoveMembers: permissions.has(PermissionFlagsBits.MoveMembers),
+            }
+        };
+
+        // Build a quick summary of key permissions
+        const keyPerms = [];
+        if (permCategories.general.Administrator) keyPerms.push('👑 Administrator');
+        if (permCategories.general.ManageGuild) keyPerms.push('⚙️ Manage Server');
+        if (permCategories.general.ManageChannels) keyPerms.push('📁 Manage Channels');
+        if (permCategories.general.ManageRoles) keyPerms.push('🎭 Manage Roles');
+        if (permCategories.membership.KickMembers) keyPerms.push('👢 Kick Members');
+        if (permCategories.membership.BanMembers) keyPerms.push('🔨 Ban Members');
+        if (permCategories.membership.ModerateMembers) keyPerms.push('⏰ Timeout Members');
+        if (permCategories.voice.MoveMembers) keyPerms.push('📍 Move Members');
+        if (permCategories.text.ManageMessages) keyPerms.push('🗑️ Manage Messages');
+
+        // Get roles
+        const roles = targetMember.roles.cache
+            .filter(r => r.name !== '@everyone')
+            .sort((a, b) => b.position - a.position)
+            .map(r => r.name);
+
+        const summary = `**${targetMember.displayName}** (@${targetMember.user.tag})\n` +
+            `🎭 Roles: ${roles.length > 0 ? roles.join(', ') : 'None'}\n` +
+            `🔑 Key Permissions: ${keyPerms.length > 0 ? keyPerms.join(', ') : 'Basic member permissions'}`;
+
+        logger.info('TOOL', `Checked permissions for ${targetMember.displayName}`);
+
+        return {
+            success: true,
+            member: {
+                id: targetMember.id,
+                username: targetMember.user.tag,
+                displayName: targetMember.displayName,
+                roles: roles,
+                isAdmin: permCategories.general.Administrator,
+                isOwner: guild.ownerId === targetMember.id
+            },
+            permissions: permCategories,
+            key_permissions: keyPerms,
+            summary
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to check permissions: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to check permissions'
+        };
+    }
+}
+
+// ============================================================
+// VIBE CHECK / SERVER MOOD ANALYSIS
+// ============================================================
+
+/**
+ * Handler for analyzing server mood and activity
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { channel_count?: number, message_count?: number }
+ * @returns {Promise<{success: boolean, vibe?: Object, summary?: string, error?: string}>}
+ */
+export async function handleVibeCheck(guild, args) {
+    const { channel_count = 5, message_count = 50 } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot vibe check: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    try {
+        logger.info('TOOL', `Running vibe check on ${guild.name} (${channel_count} channels, ${message_count} messages each)`);
+
+        // Clamp values to reasonable limits
+        const maxChannels = Math.min(Math.max(channel_count, 1), 10);
+        const maxMessages = Math.min(Math.max(message_count, 10), 100);
+
+        // Get text channels sorted by activity (most recent message)
+        const textChannels = guild.channels.cache
+            .filter(ch => ch.type === 0 && ch.viewable) // GuildText = 0
+            .sort((a, b) => {
+                const aTime = a.lastMessage?.createdTimestamp || 0;
+                const bTime = b.lastMessage?.createdTimestamp || 0;
+                return bTime - aTime;
+            })
+            .first(maxChannels);
+
+        if (!textChannels || textChannels.length === 0) {
+            return { success: false, error: 'No accessible text channels found' };
+        }
+
+        // Collect messages from all channels in parallel
+        const messagePromises = Array.from(textChannels).map(async (channel) => {
+            try {
+                const messages = await channel.messages.fetch({ limit: maxMessages });
+                return { channel: channel.name, messages: Array.from(messages.values()) };
+            } catch (e) {
+                return { channel: channel.name, messages: [] };
+            }
+        });
+
+        const channelData = await Promise.all(messagePromises);
+
+        // Flatten all messages
+        const allMessages = channelData.flatMap(cd => cd.messages);
+
+        if (allMessages.length === 0) {
+            return {
+                success: true,
+                vibe: { mood: 'dead', activity: 'none' },
+                summary: "🏜️ **Server Vibe: Dead**\n\nNo recent messages found. It's quiet... too quiet."
+            };
+        }
+
+        // Analyze the messages
+        const now = Date.now();
+        const oneHour = 60 * 60 * 1000;
+        const oneDay = 24 * oneHour;
+
+        // Time-based activity analysis
+        const messagesLastHour = allMessages.filter(m => (now - m.createdTimestamp) < oneHour).length;
+        const messagesLastDay = allMessages.filter(m => (now - m.createdTimestamp) < oneDay).length;
+
+        // Emoji analysis
+        const emojiRegex = /(\p{Emoji_Presentation}|\p{Extended_Pictographic}|<a?:\w+:\d+>)/gu;
+        const emojiCounts = new Map();
+        const reactionCounts = new Map();
+
+        for (const msg of allMessages) {
+            // Count emojis in message content
+            const emojis = msg.content.match(emojiRegex) || [];
+            for (const emoji of emojis) {
+                emojiCounts.set(emoji, (emojiCounts.get(emoji) || 0) + 1);
+            }
+            // Count reactions
+            for (const [, reaction] of msg.reactions.cache) {
+                const key = reaction.emoji.toString();
+                reactionCounts.set(key, (reactionCounts.get(key) || 0) + reaction.count);
+            }
+        }
+
+        // Top emojis (combine message emojis and reactions)
+        const combinedEmojis = new Map();
+        for (const [emoji, count] of emojiCounts) {
+            combinedEmojis.set(emoji, (combinedEmojis.get(emoji) || 0) + count);
+        }
+        for (const [emoji, count] of reactionCounts) {
+            combinedEmojis.set(emoji, (combinedEmojis.get(emoji) || 0) + count);
+        }
+        const topEmojis = [...combinedEmojis.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .map(([emoji, count]) => ({ emoji, count }));
+
+        // Author analysis (most active users)
+        const authorCounts = new Map();
+        for (const msg of allMessages) {
+            if (!msg.author.bot) {
+                const key = msg.author.displayName || msg.author.username;
+                authorCounts.set(key, (authorCounts.get(key) || 0) + 1);
+            }
+        }
+        const topAuthors = [...authorCounts.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .map(([name, count]) => ({ name, messages: count }));
+
+        // Word frequency for trending topics (filter out common words)
+        const stopWords = new Set(['the', 'a', 'an', 'is', 'it', 'to', 'and', 'or', 'of', 'for', 'in', 'on', 'at', 'by', 'with', 'this', 'that', 'you', 'i', 'we', 'they', 'he', 'she', 'be', 'are', 'was', 'were', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'not', 'but', 'if', 'so', 'my', 'your', 'our', 'their', 'its', 'just', 'like', 'get', 'got', 'what', 'when', 'where', 'how', 'why', 'who', 'im', 'dont', 'cant', 'thats', 'its', 'ive', 'youre']);
+        const wordCounts = new Map();
+
+        for (const msg of allMessages) {
+            const words = msg.content.toLowerCase()
+                .replace(/[^\w\s]/g, '')
+                .split(/\s+/)
+                .filter(w => w.length > 3 && !stopWords.has(w) && !/^\d+$/.test(w));
+
+            for (const word of words) {
+                wordCounts.set(word, (wordCounts.get(word) || 0) + 1);
+            }
+        }
+        const trendingWords = [...wordCounts.entries()]
+            .filter(([, count]) => count >= 2)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 8)
+            .map(([word, count]) => ({ word, count }));
+
+        // Sentiment analysis (very basic - count positive/negative indicators)
+        const positiveIndicators = ['lol', 'lmao', 'haha', 'nice', 'good', 'great', 'awesome', 'love', 'thanks', 'cool', 'amazing', 'pog', 'poggers', 'lets go', 'w', 'dub', 'fire', 'based', 'goat', 'goated', 'peak'];
+        const negativeIndicators = ['wtf', 'bruh', 'ugh', 'bad', 'hate', 'sucks', 'terrible', 'awful', 'trash', 'cringe', 'l', 'rip', 'dead', 'cope', 'mid', 'ratio'];
+        const chaosIndicators = ['lmao', 'bruh', 'wtf', 'omg', 'bro', 'no way', 'what', '??', '!!!', 'CAPS LOCK'];
+
+        let positiveScore = 0;
+        let negativeScore = 0;
+        let chaosScore = 0;
+
+        for (const msg of allMessages) {
+            const content = msg.content.toLowerCase();
+            for (const word of positiveIndicators) {
+                if (content.includes(word)) positiveScore++;
+            }
+            for (const word of negativeIndicators) {
+                if (content.includes(word)) negativeScore++;
+            }
+            for (const word of chaosIndicators) {
+                if (content.includes(word)) chaosScore++;
+            }
+            // ALL CAPS = chaos
+            if (msg.content.length > 10 && msg.content === msg.content.toUpperCase()) {
+                chaosScore += 2;
+            }
+        }
+
+        // Determine overall mood
+        let mood = 'chill';
+        let moodEmoji = '😎';
+        const totalMessages = allMessages.length;
+        const sentimentRatio = positiveScore / Math.max(negativeScore, 1);
+        const chaosRatio = chaosScore / totalMessages;
+
+        if (messagesLastHour < 3 && messagesLastDay < 20) {
+            mood = 'dead';
+            moodEmoji = '💀';
+        } else if (chaosRatio > 0.3) {
+            mood = 'chaotic';
+            moodEmoji = '🤪';
+        } else if (sentimentRatio > 2 && positiveScore > 5) {
+            mood = 'hype';
+            moodEmoji = '🔥';
+        } else if (sentimentRatio < 0.5 && negativeScore > 5) {
+            mood = 'negative';
+            moodEmoji = '😠';
+        } else if (messagesLastHour > 20) {
+            mood = 'active';
+            moodEmoji = '⚡';
+        } else {
+            mood = 'chill';
+            moodEmoji = '😎';
+        }
+
+        // Determine activity level
+        let activityLevel = 'low';
+        if (messagesLastHour > 30) activityLevel = 'very high';
+        else if (messagesLastHour > 15) activityLevel = 'high';
+        else if (messagesLastHour > 5) activityLevel = 'moderate';
+        else if (messagesLastHour > 0) activityLevel = 'low';
+        else activityLevel = 'inactive';
+
+        // Build the vibe report
+        const vibeData = {
+            mood,
+            moodEmoji,
+            activityLevel,
+            messagesAnalyzed: totalMessages,
+            messagesLastHour,
+            messagesLastDay,
+            topEmojis,
+            topAuthors,
+            trendingWords,
+            channelsScanned: channelData.map(cd => cd.channel),
+            sentimentScore: Math.round(sentimentRatio * 10) / 10,
+            chaosLevel: Math.round(chaosRatio * 100)
+        };
+
+        // Build summary
+        let summaryLines = [];
+        summaryLines.push(`${moodEmoji} **Server Vibe: ${mood.charAt(0).toUpperCase() + mood.slice(1)}**\n`);
+
+        summaryLines.push(`📊 **Activity Level:** ${activityLevel}`);
+        summaryLines.push(`  • ${messagesLastHour} messages in the last hour`);
+        summaryLines.push(`  • ${messagesLastDay} messages in the last 24 hours\n`);
+
+        if (topAuthors.length > 0) {
+            summaryLines.push(`👥 **Most Active:**`);
+            for (const author of topAuthors.slice(0, 3)) {
+                summaryLines.push(`  • ${author.name} (${author.messages} msgs)`);
+            }
+            summaryLines.push('');
+        }
+
+        if (topEmojis.length > 0) {
+            const emojiStr = topEmojis.map(e => `${e.emoji} (${e.count})`).join('  ');
+            summaryLines.push(`😂 **Trending Emojis:** ${emojiStr}\n`);
+        }
+
+        if (trendingWords.length > 0) {
+            const wordStr = trendingWords.slice(0, 5).map(w => `"${w.word}"`).join(', ');
+            summaryLines.push(`💬 **Hot Topics:** ${wordStr}\n`);
+        }
+
+        // Add mood-specific commentary
+        switch (mood) {
+            case 'dead':
+                summaryLines.push(`_It's pretty quiet around here. Good time to start a conversation!_`);
+                break;
+            case 'chaotic':
+                summaryLines.push(`_Things are getting wild! Lots of energy and caps lock happening._`);
+                break;
+            case 'hype':
+                summaryLines.push(`_The vibes are immaculate. People are having a good time!_`);
+                break;
+            case 'negative':
+                summaryLines.push(`_Mood seems a bit tense. Maybe drama brewing? 👀_`);
+                break;
+            case 'active':
+                summaryLines.push(`_Server is pretty active right now. Good time to jump in!_`);
+                break;
+            default:
+                summaryLines.push(`_Chill vibes. Nothing crazy happening._`);
+        }
+
+        logger.info('TOOL', `Vibe check complete: ${mood} mood, ${activityLevel} activity, ${totalMessages} messages analyzed`);
+
+        return {
+            success: true,
+            vibe: vibeData,
+            summary: summaryLines.join('\n')
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to vibe check: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to analyze server vibe'
+        };
+    }
 }

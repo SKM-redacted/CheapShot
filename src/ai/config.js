@@ -38,8 +38,9 @@ export const config = {
     // Queue settings (less relevant with multi-bot, but kept for compatibility)
     maxConcurrentRequests: parseInt(process.env.MAX_CONCURRENT_REQUESTS) || 3,
 
-    // Channel restriction (only respond in this channel, empty = all channels)
-    allowedChannelId: process.env.ALLOWED_CHANNEL_ID,
+    // Channel restriction (only respond in these channels, empty = all channels)
+    // Supports comma-separated list: "123,456,789"
+    allowedChannelIds: (process.env.ALLOWED_CHANNEL_ID || '').split(',').map(id => id.trim()).filter(id => id),
 
     // Owner ID - user who can DM the bot directly
     ownerId: process.env.OWNER_ID,
@@ -62,6 +63,13 @@ TOOL USAGE GUIDELINES:
 - For single items, use the individual tools
 - Before deleting, use list_channels or list_roles to see what exists
 - Plan ahead: think about everything needed, then use the appropriate tool
+
+SERVER SETUP (IMPORTANT):
+- When asked to set up or create server structure, ALWAYS call get_server_info FIRST to see what exists
+- get_server_info shows you ALL categories, channels, and roles in one call
+- Only create items that don't already exist - never duplicate existing channels/categories/roles
+- This ensures you're ADDING to the server, not recreating it from scratch
+- If user asks for a "gaming" category and one already exists, skip creating it
 
 IMAGE GENERATION:
 When someone asks you to create/generate/draw/make an image, just do it. Don't explain the process.

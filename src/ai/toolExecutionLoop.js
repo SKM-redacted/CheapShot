@@ -203,6 +203,60 @@ function buildActionsContext(actions) {
                     }
                 }
                 break;
+            case 'get_server_info':
+                // Combined channel + role info for reconnaissance
+                description = 'Got complete server structure:';
+
+                // Show categories
+                if (action.result?.categories?.length > 0) {
+                    description += `\n  CATEGORIES: ${action.result.categories.map(c => c.name).join(', ')}`;
+                }
+
+                // Show text channels
+                if (action.result?.text_channels?.length > 0) {
+                    description += `\n  TEXT CHANNELS:`;
+                    const byCategory = {};
+                    for (const ch of action.result.text_channels) {
+                        const cat = ch.category || 'No Category';
+                        if (!byCategory[cat]) byCategory[cat] = [];
+                        byCategory[cat].push(`#${ch.name}`);
+                    }
+                    for (const [cat, channels] of Object.entries(byCategory)) {
+                        description += `\n    [${cat}]: ${channels.join(', ')}`;
+                    }
+                }
+
+                // Show voice channels
+                if (action.result?.voice_channels?.length > 0) {
+                    description += `\n  VOICE CHANNELS:`;
+                    const byCategory = {};
+                    for (const ch of action.result.voice_channels) {
+                        const cat = ch.category || 'No Category';
+                        if (!byCategory[cat]) byCategory[cat] = [];
+                        byCategory[cat].push(ch.name);
+                    }
+                    for (const [cat, channels] of Object.entries(byCategory)) {
+                        description += `\n    [${cat}]: ${channels.join(', ')}`;
+                    }
+                }
+
+                // Show roles
+                if (action.result?.roles?.length > 0) {
+                    description += `\n  ROLES (${action.result.roles.length} total):`;
+                    for (const role of action.result.roles) {
+                        let roleInfo = `\n    - "${role.name}"`;
+                        if (role.color && role.color !== '#000000') {
+                            roleInfo += ` [${role.color}]`;
+                        }
+                        roleInfo += ` (${role.members} members)`;
+                        description += roleInfo;
+                    }
+                } else {
+                    description += '\n  ROLES: None (besides @everyone)';
+                }
+
+                description += "\n  IMPORTANT: Only create items that don't already exist above!";
+                break;
             case 'delete_channel':
                 description = `Deleted ${action.result?.deleted?.type || 'channel'} "${action.result?.deleted?.name || action.args.name}"`;
                 break;

@@ -4,7 +4,7 @@ import { AIClient } from './aiClient.js';
 import { RequestQueue } from './queue.js';
 import { ImageQueue } from './imageQueue.js';
 import { ImageClient, TOOLS } from './imageClient.js';
-import { handleCreateVoiceChannel, handleCreateTextChannel, handleCreateCategory, handleDeleteChannel, handleDeleteChannelsBulk, handleListChannels, handleSetupServerStructure, handleCreateRole, handleDeleteRole, handleDeleteRolesBulk, handleEditRole, handleListRoles, handleAssignRole, handleSetupRoles, handleJoinVoice, handleLeaveVoice, handleVoiceConversation, handleMoveMember, handleMoveMembersBulk, handleListVoiceChannels } from './discordTools.js';
+import { handleCreateVoiceChannel, handleCreateTextChannel, handleCreateCategory, handleDeleteChannel, handleDeleteChannelsBulk, handleListChannels, handleGetServerInfo, handleSetupServerStructure, handleConfigureChannelPermissions, handleEditTextChannel, handleEditVoiceChannel, handleEditCategory, handleEditChannelsBulk, handleCreateRole, handleDeleteRole, handleDeleteRolesBulk, handleEditRole, handleListRoles, handleAssignRole, handleSetupRoles, handleJoinVoice, handleLeaveVoice, handleVoiceConversation, handleMoveMember, handleMoveMembersBulk, handleListVoiceChannels, handleCheckPerms, handleVibeCheck } from './discordTools.js';
 import { checkToolPermission } from './permissionChecker.js';
 import { executeToolLoop, buildActionsContext } from './toolExecutionLoop.js';
 // Note: Server setup is now handled through AI tool calling (setup_server_structure)
@@ -70,11 +70,29 @@ async function executeSingleTool(toolCall, context) {
         case 'list_channels':
             return await handleListChannels(guild, toolCall.arguments);
 
+        case 'get_server_info':
+            return await handleGetServerInfo(guild, toolCall.arguments);
+
         case 'delete_channels_bulk':
             return await handleDeleteChannelsBulk(guild, toolCall.arguments);
 
         case 'setup_server_structure':
             return await handleSetupServerStructure(guild, toolCall.arguments);
+
+        case 'configure_channel_permissions':
+            return await handleConfigureChannelPermissions(guild, toolCall.arguments);
+
+        case 'edit_text_channel':
+            return await handleEditTextChannel(guild, toolCall.arguments);
+
+        case 'edit_voice_channel':
+            return await handleEditVoiceChannel(guild, toolCall.arguments);
+
+        case 'edit_category':
+            return await handleEditCategory(guild, toolCall.arguments);
+
+        case 'edit_channels_bulk':
+            return await handleEditChannelsBulk(guild, toolCall.arguments);
 
         case 'create_role':
             return await handleCreateRole(guild, toolCall.arguments);
@@ -115,6 +133,12 @@ async function executeSingleTool(toolCall, context) {
         case 'move_members_bulk':
             return await handleMoveMembersBulk(guild, toolCall.arguments);
 
+        case 'check_perms':
+            return await handleCheckPerms(guild, toolCall.arguments, { member: context.member });
+
+        case 'vibe_check':
+            return await handleVibeCheck(guild, toolCall.arguments);
+
         default:
             logger.warn('TOOL', `Unknown tool: ${toolCall.name}`);
             return { success: false, error: `Unknown tool: ${toolCall.name}` };
@@ -154,6 +178,9 @@ function formatToolResultMessage(toolName, result) {
         case 'list_channels':
             return `📋 **Server Channels:**\n${result.summary}`;
 
+        case 'get_server_info':
+            return result.summary;
+
         case 'delete_channels_bulk':
             let bulkMsg = `🗑️ **${result.summary}**`;
             if (result.deleted?.length > 0) {
@@ -170,6 +197,28 @@ function formatToolResultMessage(toolName, result) {
 
         case 'setup_server_structure':
             return `✅ **${result.summary}**`;
+
+        case 'configure_channel_permissions':
+            return `🔒 **${result.channel?.name}**: ${result.summary || result.changes?.join(', ') || 'Permissions updated'}`;
+
+        case 'edit_text_channel':
+            return `✏️ Edited text channel **#${result.channel?.name}**: ${result.changes?.join(', ') || 'updated'}`;
+
+        case 'edit_voice_channel':
+            return `✏️ Edited voice channel **${result.channel?.name}**: ${result.changes?.join(', ') || 'updated'}`;
+
+        case 'edit_category':
+            return `✏️ Edited category **${result.category?.name}**: ${result.changes?.join(', ') || 'updated'}`;
+
+        case 'edit_channels_bulk':
+            let editBulkMsg = `✏️ **${result.summary}**`;
+            if (result.edited?.length > 0 && result.edited.length <= 10) {
+                editBulkMsg += '\n' + result.edited.map(e => `  • ${e.type === 'voice' ? '🔊' : e.type === 'category' ? '📁' : '#'}${e.name}: ${e.changes?.join(', ') || 'updated'}`).join('\n');
+            }
+            if (result.failed?.length > 0) {
+                editBulkMsg += `\n❌ Failed: ${result.failed.map(f => f.name).join(', ')}`;
+            }
+            return editBulkMsg;
 
         case 'create_role':
             const roleColor = result.role?.color !== '#000000' ? ` [${result.role?.color}]` : '';
@@ -229,6 +278,12 @@ function formatToolResultMessage(toolName, result) {
 
         case 'move_members_bulk':
             return `📍 ${result.message}`;
+
+        case 'check_perms':
+            return result.summary;
+
+        case 'vibe_check':
+            return result.summary;
 
         default:
             return `✅ Completed ${toolName}`;
@@ -383,7 +438,7 @@ async function handleMessage(message, bot) {
         }
         // Owner DM - proceed with response
         logger.info('DM', `Received DM from owner: ${message.author.tag}`);
-    } else if (config.allowedChannelId && message.channel.id !== config.allowedChannelId) {
+    } else if (config.allowedChannelIds.length > 0 && !config.allowedChannelIds.includes(message.channel.id)) {
         return;
     }
 
@@ -712,12 +767,22 @@ async function handleAIResponse(message, userMessage, bot, requestId) {
 
                         // Send all results in a single message for cleaner output
                         if (resultMessages.length > 0) {
-                            // If many results, batch them
-                            if (resultMessages.length > 5) {
-                                await message.channel.send(resultMessages.slice(0, 5).join('\n'));
-                                await message.channel.send(resultMessages.slice(5).join('\n'));
+                            const combinedMessage = resultMessages.join('\n');
+
+                            // Use splitMessage if the combined result is too long
+                            if (combinedMessage.length > 1900) {
+                                const chunks = splitMessage(combinedMessage, 1900);
+                                for (const chunk of chunks) {
+                                    try {
+                                        await message.channel.send(chunk);
+                                        // Small delay between chunks to ensure order
+                                        await new Promise(resolve => setTimeout(resolve, 200));
+                                    } catch (sendError) {
+                                        logger.error('TOOL', `Failed to send result chunk: ${sendError.message}`);
+                                    }
+                                }
                             } else {
-                                await message.channel.send(resultMessages.join('\n'));
+                                await message.channel.send(combinedMessage);
                             }
                         }
 
@@ -997,6 +1062,9 @@ async function start() {
                         case 'list_channels':
                             toolResult = await handleListChannels(guild, toolCall.arguments);
                             break;
+                        case 'get_server_info':
+                            toolResult = await handleGetServerInfo(guild, toolCall.arguments);
+                            break;
                         case 'delete_channel':
                             toolResult = await handleDeleteChannel(guild, toolCall.arguments);
                             break;
@@ -1005,6 +1073,9 @@ async function start() {
                             break;
                         case 'setup_server_structure':
                             toolResult = await handleSetupServerStructure(guild, toolCall.arguments);
+                            break;
+                        case 'configure_channel_permissions':
+                            toolResult = await handleConfigureChannelPermissions(guild, toolCall.arguments);
                             break;
                         // Role tools
                         case 'create_role':
@@ -1173,8 +1244,8 @@ async function start() {
         logger.info('STARTUP', `API Base: ${config.onyxApiBase}`);
         logger.info('STARTUP', `Voice transcription: ${config.deepgramApiKey ? 'Enabled' : 'Disabled (no API key)'}`);
 
-        if (config.allowedChannelId) {
-            logger.info('STARTUP', `Restricted to channel: ${config.allowedChannelId}`);
+        if (config.allowedChannelIds.length > 0) {
+            logger.info('STARTUP', `Restricted to channels: ${config.allowedChannelIds.join(', ')}`);
         }
     } catch (error) {
         logger.error('STARTUP', 'Failed to start bot system', error);

@@ -8,13 +8,16 @@ class ContextStore {
     constructor() {
         // Channel contexts: channelId -> { messages, tokenCount, pendingRequests }
         this.channelContexts = new Map();
-        
+
         // Mutex locks per channel
         this.locks = new Map();
-        
+
         // Max tokens before trimming (150k)
         this.maxTokens = 150000;
-        
+
+        // Max messages before trimming (keep last 25 messages)
+        this.maxMessages = 25;
+
         // Lock timeout (5 seconds)
         this.lockTimeout = 5000;
     }
@@ -27,7 +30,7 @@ class ContextStore {
     async acquireLock(channelId) {
         while (this.locks.get(channelId)) {
             await new Promise(resolve => setTimeout(resolve, 10));
-            
+
             // Timeout check
             const lockInfo = this.locks.get(channelId);
             if (lockInfo && Date.now() - lockInfo.timestamp > this.lockTimeout) {
@@ -35,9 +38,9 @@ class ContextStore {
                 this.locks.delete(channelId);
             }
         }
-        
+
         this.locks.set(channelId, { timestamp: Date.now() });
-        
+
         return () => {
             this.locks.delete(channelId);
         };
@@ -78,10 +81,10 @@ class ContextStore {
      */
     async addUserMessage(channelId, userId, username, content) {
         const release = await this.acquireLock(channelId);
-        
+
         try {
             const context = this.getContext(channelId);
-            
+
             const message = {
                 timestamp: Date.now(),
                 userId,
@@ -89,13 +92,13 @@ class ContextStore {
                 role: 'user',
                 content
             };
-            
+
             context.messages.push(message);
             context.tokenCount += this.estimateTokens(content);
-            
+
             // Trim if over limit
             this.trimContextIfNeeded(context);
-            
+
             return message;
         } finally {
             release();
@@ -110,22 +113,22 @@ class ContextStore {
      */
     async addAssistantMessage(channelId, content) {
         const release = await this.acquireLock(channelId);
-        
+
         try {
             const context = this.getContext(channelId);
-            
+
             const message = {
                 timestamp: Date.now(),
                 role: 'assistant',
                 content
             };
-            
+
             context.messages.push(message);
             context.tokenCount += this.estimateTokens(content);
-            
+
             // Trim if over limit
             this.trimContextIfNeeded(context);
-            
+
             return message;
         } finally {
             release();
@@ -142,11 +145,11 @@ class ContextStore {
      */
     async addPendingRequest(channelId, userId, username, content) {
         const release = await this.acquireLock(channelId);
-        
+
         try {
             const context = this.getContext(channelId);
             const requestId = `${userId}-${Date.now()}`;
-            
+
             context.pendingRequests.push({
                 requestId,
                 userId,
@@ -154,7 +157,7 @@ class ContextStore {
                 content: content.substring(0, 100), // Short preview
                 timestamp: Date.now()
             });
-            
+
             return requestId;
         } finally {
             release();
@@ -168,7 +171,7 @@ class ContextStore {
      */
     async removePendingRequest(channelId, requestId) {
         const release = await this.acquireLock(channelId);
-        
+
         try {
             const context = this.getContext(channelId);
             context.pendingRequests = context.pendingRequests.filter(
@@ -189,13 +192,13 @@ class ContextStore {
     async getContextSnapshot(channelId, systemPrompt, currentRequest) {
         const context = this.getContext(channelId);
         const messages = [];
-        
+
         // System prompt
         messages.push({
             role: 'system',
             content: systemPrompt
         });
-        
+
         // Historical messages with timestamps and usernames
         for (const msg of context.messages) {
             const timestamp = new Date(msg.timestamp).toLocaleTimeString('en-US', {
@@ -204,7 +207,7 @@ class ContextStore {
                 second: '2-digit',
                 hour12: true
             });
-            
+
             if (msg.role === 'user') {
                 messages.push({
                     role: 'user',
@@ -217,23 +220,23 @@ class ContextStore {
                 });
             }
         }
-        
+
         // Add pending requests note if any (excluding current)
         const otherPending = context.pendingRequests.filter(
             req => req.userId !== currentRequest.userId || req.content !== currentRequest.content.substring(0, 100)
         );
-        
+
         if (otherPending.length > 0) {
             const pendingList = otherPending.map(
                 req => `${req.username} (asking: "${req.content}...")`
             ).join(', ');
-            
+
             messages.push({
                 role: 'system',
                 content: `Currently processing requests from: ${pendingList}`
             });
         }
-        
+
         // Current request (highlighted)
         const currentTimestamp = new Date().toLocaleTimeString('en-US', {
             hour: 'numeric',
@@ -241,24 +244,33 @@ class ContextStore {
             second: '2-digit',
             hour12: true
         });
-        
+
         messages.push({
             role: 'user',
             content: `[${currentTimestamp}] [${currentRequest.username}]: ${currentRequest.content}\n\n[You are responding to this message]`
         });
-        
+
         return messages;
     }
 
     /**
-     * Trim oldest messages when approaching token limit
+     * Trim oldest messages when exceeding limits
+     * Enforces both token limit AND message count limit
      * @param {Object} context 
      */
     trimContextIfNeeded(context) {
+        // First, enforce message count limit (keep last 25 messages)
+        while (context.messages.length > this.maxMessages) {
+            const removed = context.messages.shift();
+            context.tokenCount -= this.estimateTokens(removed.content);
+            logger.debug('CONTEXT', `Trimmed old message (count limit), ${context.messages.length} messages remaining`);
+        }
+
+        // Then, enforce token limit
         while (context.tokenCount > this.maxTokens && context.messages.length > 1) {
             const removed = context.messages.shift();
             context.tokenCount -= this.estimateTokens(removed.content);
-            logger.debug('CONTEXT', `Trimmed message, new token count: ${context.tokenCount}`);
+            logger.debug('CONTEXT', `Trimmed message (token limit), new token count: ${context.tokenCount}`);
         }
     }
 
@@ -282,7 +294,7 @@ class ContextStore {
      */
     async clearContext(channelId) {
         const release = await this.acquireLock(channelId);
-        
+
         try {
             this.channelContexts.delete(channelId);
             logger.info('CONTEXT', `Cleared context for channel ${channelId}`);

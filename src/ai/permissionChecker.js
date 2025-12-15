@@ -34,6 +34,12 @@ const TOOL_PERMISSIONS = {
     'move_member': [PermissionFlagsBits.MoveMembers],
     'manage_messages': [PermissionFlagsBits.ManageMessages],
     'list_channels': [PermissionFlagsBits.ManageChannels], // Requires manage channels due to private channels
+    'get_server_info': [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageRoles], // Combined channels + roles info
+    'configure_channel_permissions': [PermissionFlagsBits.ManageChannels],
+    'edit_text_channel': [PermissionFlagsBits.ManageChannels],
+    'edit_voice_channel': [PermissionFlagsBits.ManageChannels],
+    'edit_category': [PermissionFlagsBits.ManageChannels],
+    'edit_channels_bulk': [PermissionFlagsBits.ManageChannels],
     // These don't need special permissions
     'generate_image': [],
     'image_generation': [],
@@ -41,6 +47,7 @@ const TOOL_PERMISSIONS = {
     'leave_voice': [],
     'voice_conversation': [],
     'list_voice_channels': [],
+    'check_perms': [], // Anyone can check permissions
 };
 
 /**
@@ -71,7 +78,7 @@ export function checkToolPermission(member, toolName, guild = null) {
         logger.warn('PERMISSION', `No member context for tool "${toolName}" - denying`);
         return {
             allowed: false,
-            error: 'Error 502: Unable to verify your permissions. Please try again.',
+            error: 'Error 493: Unable to verify your permissions. Please try again.',
             code: 502
         };
     }
@@ -85,7 +92,7 @@ export function checkToolPermission(member, toolName, guild = null) {
         logger.warn('PERMISSION', `Tool "${toolName}" not in permission map - DENYING for security`);
         return {
             allowed: false,
-            error: `Error 502: This action is not configured. Please contact an administrator.`,
+            error: `Error 493: This action is not configured. Please contact an administrator.`,
             code: 502
         };
     }
@@ -116,7 +123,7 @@ export function checkToolPermission(member, toolName, guild = null) {
         logger.info('PERMISSION', `${member.displayName} denied "${toolName}" - missing: ${missingPermissions.join(', ')}`);
         return {
             allowed: false,
-            error: `Error 502: You don't have permission to do that. You need: ${missingPermissions.join(', ')}`,
+            error: `Error 493: You don't have permission to do that. You need: ${missingPermissions.join(', ')}`,
             missingPermissions,
             code: 502
         };
@@ -137,10 +144,10 @@ export function getPermissionDeniedMessage(toolName, missingPermissions = []) {
     const actionName = getToolActionName(toolName);
 
     if (missingPermissions.length > 0) {
-        return `Error 502: You don't have permission to ${actionName}. Required: ${missingPermissions.join(', ')}.`;
+        return `Error 493: You don't have permission to ${actionName}. Required: ${missingPermissions.join(', ')}.`;
     }
 
-    return `Error 502: You don't have permission to ${actionName}.`;
+    return `Error 493: You don't have permission to ${actionName}.`;
 }
 
 /**
@@ -169,6 +176,13 @@ function getToolActionName(toolName) {
         'timeout_member': 'timeout members',
         'move_member': 'move members in voice',
         'manage_messages': 'manage messages',
+        'get_server_info': 'view server information',
+        'configure_channel_permissions': 'configure channel permissions',
+        'edit_text_channel': 'edit text channels',
+        'edit_voice_channel': 'edit voice channels',
+        'edit_category': 'edit categories',
+        'edit_channels_bulk': 'edit multiple channels',
+        'check_perms': 'check user permissions',
     };
 
     return actionNames[toolName] || toolName.replace(/_/g, ' ');
