@@ -170,6 +170,8 @@ export class AIClient {
      */
     async streamChatWithContext(messages, onChunk, onComplete, onError, onToolCall = null) {
         const url = `${this.baseUrl}/v1/chat/completions`;
+        console.log('[AI] Debug - baseUrl:', JSON.stringify(this.baseUrl));
+        console.log('[AI] Debug - full URL:', JSON.stringify(url));
 
         const body = {
             model: this.model,
