@@ -40,14 +40,14 @@ const TOOL_PERMISSIONS = {
     'edit_voice_channel': [PermissionFlagsBits.ManageChannels],
     'edit_category': [PermissionFlagsBits.ManageChannels],
     'edit_channels_bulk': [PermissionFlagsBits.ManageChannels],
+    'check_perms': [PermissionFlagsBits.ManageRoles],
     // These don't need special permissions
     'generate_image': [],
     'image_generation': [],
     'join_voice': [],
     'leave_voice': [],
     'voice_conversation': [],
-    'list_voice_channels': [],
-    'check_perms': [], // Anyone can check permissions
+    'list_voice_channels': []
 };
 
 /**

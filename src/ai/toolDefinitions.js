@@ -990,32 +990,6 @@ export const CHECK_PERMS_TOOL = {
     }
 };
 
-/**
- * Tool definition for analyzing server mood and activity
- * This gives the AI context about what's happening in the server
- */
-export const VIBE_CHECK_TOOL = {
-    type: "function",
-    function: {
-        name: "vibe_check",
-        description: "Analyze the current server mood and activity. Scans recent messages across accessible channels to generate a vibe report including overall mood, activity level, trending topics, popular emojis, and most active members. Perfect for understanding 'what's the energy rn' without scrolling through messages.",
-        parameters: {
-            type: "object",
-            properties: {
-                channel_count: {
-                    type: "integer",
-                    description: "Optional: Number of text channels to scan (default 5, max 10). More channels = more comprehensive but slower."
-                },
-                message_count: {
-                    type: "integer",
-                    description: "Optional: Number of recent messages to analyze per channel (default 50, max 100)."
-                }
-            },
-            required: []
-        }
-    }
-};
-
 // ============================================================
 // TOOL COLLECTIONS
 // ============================================================
@@ -1050,8 +1024,7 @@ export const DISCORD_TOOLS = [
     LIST_ROLES_TOOL,
     ASSIGN_ROLE_TOOL,
     SETUP_ROLES_TOOL,
-    CHECK_PERMS_TOOL,
-    VIBE_CHECK_TOOL
+    CHECK_PERMS_TOOL
 ];
 
 /**
