@@ -1,5 +1,5 @@
 import { EmbedBuilder, AttachmentBuilder, REST, Routes } from 'discord.js';
-import { config } from './config.js';
+import { config, getSystemPromptWithRules } from './config.js';
 import { AIClient } from './aiClient.js';
 import { RequestQueue } from './queue.js';
 import { ImageQueue } from './imageQueue.js';
@@ -756,10 +756,13 @@ async function handleAIResponse(message, userMessage, bot, requestId, images = [
 
         logger.aiRequest(message.author.tag, userMessage + (images.length > 0 ? ` [+${images.length} images]` : ''));
 
+        // Get system prompt with server rules (custom rules take priority)
+        const systemPromptWithRules = await getSystemPromptWithRules(message.guild);
+
         // Get context-aware messages for AI (includes images if present)
         const contextMessages = await contextStore.getContextSnapshot(
             message.channel.id,
-            config.systemPrompt,
+            systemPromptWithRules,
             {
                 userId: message.author.id,
                 username: message.author.tag,

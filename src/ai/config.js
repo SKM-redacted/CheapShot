@@ -129,6 +129,54 @@ ${toolsSummary}
 When a user asks what you can do, you can reference the tools above. Don't list them all - just summarize your main capabilities (chat, images, channels, roles, voice).`;
 }
 
+// Lazy import for rules manager to avoid circular dependency
+let _getGuildRules = null;
+async function loadRulesManager() {
+    if (!_getGuildRules) {
+        const { getGuildRules } = await import('../essentials/moderation/rulesManager.js');
+        _getGuildRules = getGuildRules;
+    }
+    return _getGuildRules;
+}
+
+/**
+ * Get the full system prompt with tools AND server rules
+ * Custom rules (from server's rules channel) take priority over defaults
+ * 
+ * @param {Object} guild - Discord guild (optional, uses default rules if not provided)
+ * @returns {Promise<string>} The complete system prompt with rules
+ */
+export async function getSystemPromptWithRules(guild = null) {
+    const toolsSummary = await loadToolsSummary();
+
+    let rulesSection = '';
+
+    if (guild) {
+        try {
+            const getRules = await loadRulesManager();
+            const { rules, isCustom } = await getRules(guild);
+
+            rulesSection = `
+SERVER RULES (${isCustom ? 'Custom Rules' : 'Default Rules'}):
+${rules}
+
+MODERATION GUIDELINES:
+- Be aware of the above rules when responding
+- If users discuss rule-breaking behavior, you may gently remind them of the rules
+- Don't be preachy about rules unless someone is clearly violating them
+`;
+        } catch (error) {
+            // Silently continue without rules if there's an error
+        }
+    }
+
+    return `${config.baseSystemPrompt}
+${rulesSection}
+${toolsSummary}
+
+When a user asks what you can do, you can reference the tools above. Don't list them all - just summarize your main capabilities (chat, images, channels, roles, voice).`;
+}
+
 // For backwards compatibility, also export a static version (without dynamic tools)
 // This will be replaced by getSystemPrompt() calls where possible
 config.systemPrompt = config.baseSystemPrompt;
