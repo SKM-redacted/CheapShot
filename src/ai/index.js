@@ -19,6 +19,7 @@ import { voiceCommands, handleVoiceCommand } from './voiceCommands.js';
 import { voiceMemory } from './voiceMemory.js';
 import { extractImagesFromMessage, hasImages } from './imageUtils.js';
 import { generationTracker } from './generationTracker.js';
+import { setupModeration } from '../essentials/moderation/index.js';
 
 // Initialize clients and queues
 const aiClient = new AIClient();
@@ -1135,6 +1136,9 @@ async function start() {
 
         // Setup interaction handler for slash commands
         botManager.onInteraction(handleInteraction);
+
+        // Setup moderation module - analyzes all messages via AI (results go into limbo)
+        setupModeration(botManager);
 
         // Setup AI response callback for voice conversations - now with streaming and memory!
         // Also includes sentiment analysis for tone-aware responses!
