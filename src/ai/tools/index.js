@@ -96,7 +96,8 @@ export {
     handlePinMessagesBulk,
     handleUnpinMessagesBulk,
     handleDeleteMessagesBulk,
-    handlePublishMessagesBulk
+    handlePublishMessagesBulk,
+    handleListMessages
 } from './messageTools.js';
 
 // ============================================================

@@ -52,6 +52,7 @@ const TOOL_PERMISSIONS = {
     'edit_channels_bulk': [PermissionFlagsBits.ManageChannels],
     'check_perms': [PermissionFlagsBits.ManageRoles],
     'list_pinned_messages': [PermissionFlagsBits.ReadMessageHistory],
+    'list_messages': [PermissionFlagsBits.ReadMessageHistory],
     // Sticker Management - requires ManageGuildExpressions (newer) or ManageEmojisAndStickers (legacy)
     'create_sticker': [PermissionFlagsBits.ManageGuildExpressions],
     'delete_sticker': [PermissionFlagsBits.ManageGuildExpressions],
@@ -267,6 +268,7 @@ function getToolActionName(toolName) {
         'pin_messages_bulk': 'pin multiple messages',
         'unpin_messages_bulk': 'unpin multiple messages',
         'list_pinned_messages': 'read pinned messages',
+        'list_messages': 'read channel history',
         'publish_message': 'publish announcements',
         'get_server_info': 'view server information',
         'configure_channel_permissions': 'configure channel permissions',

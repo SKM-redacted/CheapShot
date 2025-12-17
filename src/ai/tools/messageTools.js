@@ -22,15 +22,18 @@ export async function handlePinMessage(guild, args, context = {}) {
     const { message_id, channel: channelName } = args;
     const { message: contextMessage } = context;
 
-    if (!message_id) return { success: false, error: 'Must specify message_id to pin' };
+    // Resolve message ID: explicit arg -> reply reference -> fail
+    const targetMessageId = message_id || contextMessage?.reference?.messageId;
+
+    if (!targetMessageId) return { success: false, error: 'Must specify message_id or reply to a message to pin it' };
 
     try {
         let targetChannel = channelName ? findChannel(guild, channelName, 'text') : contextMessage?.channel;
         if (!targetChannel) return { success: false, error: 'Could not find channel' };
 
-        const msg = await targetChannel.messages.fetch(message_id);
+        const msg = await targetChannel.messages.fetch(targetMessageId);
         await msg.pin();
-        logger.info('TOOL', `Pinned message ${message_id} in #${targetChannel.name}`);
+        logger.info('TOOL', `Pinned message ${targetMessageId} in #${targetChannel.name}`);
 
         return { success: true, message: `📌 Pinned message in #${targetChannel.name}` };
     } catch (error) {
@@ -46,15 +49,18 @@ export async function handleUnpinMessage(guild, args, context = {}) {
     const { message_id, channel: channelName } = args;
     const { message: contextMessage } = context;
 
-    if (!message_id) return { success: false, error: 'Must specify message_id to unpin' };
+    // Resolve message ID: explicit arg -> reply reference -> fail
+    const targetMessageId = message_id || contextMessage?.reference?.messageId;
+
+    if (!targetMessageId) return { success: false, error: 'Must specify message_id or reply to a message to unpin it' };
 
     try {
         let targetChannel = channelName ? findChannel(guild, channelName, 'text') : contextMessage?.channel;
         if (!targetChannel) return { success: false, error: 'Could not find channel' };
 
-        const msg = await targetChannel.messages.fetch(message_id);
+        const msg = await targetChannel.messages.fetch(targetMessageId);
         await msg.unpin();
-        logger.info('TOOL', `Unpinned message ${message_id} in #${targetChannel.name}`);
+        logger.info('TOOL', `Unpinned message ${targetMessageId} in #${targetChannel.name}`);
 
         return { success: true, message: `📍 Unpinned message in #${targetChannel.name}` };
     } catch (error) {
@@ -100,7 +106,10 @@ export async function handlePublishMessage(guild, args, context = {}) {
     const { message_id, channel: channelName } = args;
     const { message: contextMessage } = context;
 
-    if (!message_id) return { success: false, error: 'Must specify message_id to publish' };
+    // Resolve message ID: explicit arg -> reply reference -> fail
+    const targetMessageId = message_id || contextMessage?.reference?.messageId;
+
+    if (!targetMessageId) return { success: false, error: 'Must specify message_id or reply to a message to publish it' };
 
     try {
         let targetChannel = channelName ? findChannel(guild, channelName, 'text') : contextMessage?.channel;
@@ -109,9 +118,9 @@ export async function handlePublishMessage(guild, args, context = {}) {
             return { success: false, error: 'Can only publish messages in announcement channels' };
         }
 
-        const msg = await targetChannel.messages.fetch(message_id);
+        const msg = await targetChannel.messages.fetch(targetMessageId);
         await msg.crosspost();
-        logger.info('TOOL', `Published message ${message_id}`);
+        logger.info('TOOL', `Published message ${targetMessageId}`);
 
         return { success: true, message: `📣 Published message to following servers` };
     } catch (error) {
@@ -127,15 +136,18 @@ export async function handleDeleteMessage(guild, args, context = {}) {
     const { message_id, channel: channelName, reason } = args;
     const { message: contextMessage } = context;
 
-    if (!message_id) return { success: false, error: 'Must specify message_id to delete' };
+    // Resolve message ID: explicit arg -> reply reference -> fail
+    const targetMessageId = message_id || contextMessage?.reference?.messageId;
+
+    if (!targetMessageId) return { success: false, error: 'Must specify message_id or reply to a message to delete it' };
 
     try {
         let targetChannel = channelName ? findChannel(guild, channelName, 'text') : contextMessage?.channel;
         if (!targetChannel) return { success: false, error: 'Could not find channel' };
 
-        const msg = await targetChannel.messages.fetch(message_id);
+        const msg = await targetChannel.messages.fetch(targetMessageId);
         await msg.delete();
-        logger.info('TOOL', `Deleted message ${message_id} in #${targetChannel.name}`);
+        logger.info('TOOL', `Deleted message ${targetMessageId} in #${targetChannel.name}`);
 
         return { success: true, message: `🗑️ Deleted message in #${targetChannel.name}` };
     } catch (error) {
@@ -307,6 +319,50 @@ export async function handlePublishMessagesBulk(guild, args, context = {}) {
         };
     } catch (error) {
         logger.error('TOOL', `Failed to publish messages bulk: ${error.message}`);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Handler for listing recent messages in a channel
+ * Used for finding message IDs for other operations (pin, delete, etc.)
+ */
+export async function handleListMessages(guild, args, context = {}) {
+    const { channel: channelName, count = 10 } = args;
+    const { message: contextMessage } = context;
+
+    try {
+        let targetChannel = channelName ? findChannel(guild, channelName, 'text') : contextMessage?.channel;
+        if (!targetChannel) return { success: false, error: 'Could not find channel' };
+
+        // Validate count (1-50)
+        const limit = Math.max(1, Math.min(50, count || 10));
+
+        const messages = await targetChannel.messages.fetch({ limit });
+
+        const messageList = messages.map(m => ({
+            id: m.id,
+            author: m.author.username,
+            content: m.content.substring(0, 100) + (m.content.length > 100 ? '...' : ''),
+            has_attachments: m.attachments.size > 0,
+            has_embeds: m.embeds.length > 0,
+            timestamp: m.createdAt.toISOString()
+        }));
+
+        const summary = `📜 **Last ${messageList.length} messages in #${targetChannel.name}**\n` +
+            messageList.map(m => `• **${m.author}**: ${m.content || '[Media/Embed]'} (${m.id})`).join('\n');
+
+        logger.info('TOOL', `Listed ${messageList.length} messages from #${targetChannel.name}`);
+
+        return {
+            success: true,
+            messages: messageList,
+            count: messageList.length,
+            channel: targetChannel.name,
+            summary
+        };
+    } catch (error) {
+        logger.error('TOOL', `Failed to list messages: ${error.message}`);
         return { success: false, error: error.message };
     }
 }

@@ -1415,6 +1415,31 @@ export const DELETE_STICKERS_BULK_TOOL = {
 
 
 
+/**
+ * Tool definition for listing recent messages in a channel
+ */
+export const LIST_MESSAGES_TOOL = {
+    type: "function",
+    function: {
+        name: "list_messages",
+        description: "List recent messages in a channel to get their IDs. Use this when you need to pin/delete/interact with a message but don't have its ID.",
+        parameters: {
+            type: "object",
+            properties: {
+                count: {
+                    type: "integer",
+                    description: "Number of messages to list (default 10, max 50)."
+                },
+                channel: {
+                    type: "string",
+                    description: "Optional: The name of the channel to list messages from. Defaults to current channel."
+                }
+            },
+            required: []
+        }
+    }
+};
+
 // ============================================================
 // MESSAGE MANAGEMENT TOOLS (Pinning, Publishing)
 // ============================================================
@@ -1616,6 +1641,7 @@ export const DISCORD_TOOLS = [
     PIN_MESSAGE_TOOL,
     UNPIN_MESSAGE_TOOL,
     LIST_PINNED_MESSAGES_TOOL,
+    LIST_MESSAGES_TOOL,
     PUBLISH_MESSAGE_TOOL,
     PIN_MESSAGES_BULK_TOOL,
     UNPIN_MESSAGES_BULK_TOOL,
