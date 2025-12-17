@@ -1084,6 +1084,68 @@ export const MANAGE_MESSAGES_TOOL = {
 };
 
 /**
+ * Tool definition for deleting a single message by ID
+ */
+export const DELETE_MESSAGE_TOOL = {
+    type: "function",
+    function: {
+        name: "delete_message",
+        description: "Delete a single message by its message ID. Use this when someone asks you to delete a specific message. You need the message ID which can be obtained by right-clicking a message in Discord with developer mode enabled.",
+        parameters: {
+            type: "object",
+            properties: {
+                message_id: {
+                    type: "string",
+                    description: "The ID of the message to delete."
+                },
+                channel: {
+                    type: "string",
+                    description: "Optional: The name of the channel the message is in. Defaults to the current channel."
+                },
+                reason: {
+                    type: "string",
+                    description: "Optional: The reason for deleting this message. Will be logged."
+                }
+            },
+            required: ["message_id"]
+        }
+    }
+};
+
+/**
+ * Tool definition for bulk deleting messages by their IDs
+ * This uses Discord's message.delete() for each ID rather than bulkDelete by count
+ */
+export const DELETE_MESSAGES_BULK_TOOL = {
+    type: "function",
+    function: {
+        name: "delete_messages_bulk",
+        description: "Delete multiple messages at once by their message IDs. Use this when you need to delete specific messages by ID. Note: Messages older than 14 days cannot be bulk deleted by Discord API limitations.",
+        parameters: {
+            type: "object",
+            properties: {
+                message_ids: {
+                    type: "array",
+                    description: "Array of message IDs to delete.",
+                    items: {
+                        type: "string"
+                    }
+                },
+                channel: {
+                    type: "string",
+                    description: "Optional: The name of the channel the messages are in. Defaults to the current channel."
+                },
+                reason: {
+                    type: "string",
+                    description: "Optional: The reason for deleting these messages. Will be logged."
+                }
+            },
+            required: ["message_ids"]
+        }
+    }
+};
+
+/**
  * Tool definition for renaming any channel
  */
 export const RENAME_CHANNEL_TOOL = {
@@ -1210,6 +1272,327 @@ export const SEARCH_MEMBERS_TOOL = {
 };
 
 // ============================================================
+// STICKER MANAGEMENT TOOLS
+// ============================================================
+
+/**
+ * Tool definition for creating a sticker
+ */
+export const CREATE_STICKER_TOOL = {
+    type: "function",
+    function: {
+        name: "create_sticker",
+        description: "Create a new custom sticker for the Discord server. Stickers must be PNG, APNG, or Lottie JSON format, 320x320 pixels, under 512KB. Use this when the user asks to create, make, or add a sticker.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: {
+                    type: "string",
+                    description: "The name for the sticker (2-30 characters)."
+                },
+                file_url: {
+                    type: "string",
+                    description: "URL to the sticker image file (PNG, APNG, or Lottie JSON). Must be 320x320 pixels and under 512KB."
+                },
+                tags: {
+                    type: "string",
+                    description: "A Unicode emoji that represents the sticker's expression (e.g., '😀', '😎', '🎉'). This is used for sticker suggestions."
+                },
+                description: {
+                    type: "string",
+                    description: "Optional: A description for the sticker (2-100 characters)."
+                }
+            },
+            required: ["name", "file_url", "tags"]
+        }
+    }
+};
+
+/**
+ * Tool definition for deleting a sticker
+ */
+export const DELETE_STICKER_TOOL = {
+    type: "function",
+    function: {
+        name: "delete_sticker",
+        description: "Delete a custom sticker from the Discord server. Use this when the user asks to delete, remove, or get rid of a sticker.",
+        parameters: {
+            type: "object",
+            properties: {
+                sticker_name: {
+                    type: "string",
+                    description: "The name of the sticker to delete."
+                }
+            },
+            required: ["sticker_name"]
+        }
+    }
+};
+
+/**
+ * Tool definition for listing stickers
+ */
+export const LIST_STICKERS_TOOL = {
+    type: "function",
+    function: {
+        name: "list_stickers",
+        description: "List all custom stickers in the Discord server. Use this to see what stickers exist before creating or deleting stickers.",
+        parameters: {
+            type: "object",
+            properties: {},
+            required: []
+        }
+    }
+};
+
+/**
+ * Tool definition for bulk creating stickers
+ */
+export const CREATE_STICKERS_BULK_TOOL = {
+    type: "function",
+    function: {
+        name: "create_stickers_bulk",
+        description: "Create multiple stickers at once in parallel. Use this when the user wants to add many stickers at once.",
+        parameters: {
+            type: "object",
+            properties: {
+                stickers: {
+                    type: "array",
+                    description: "Array of stickers to create.",
+                    items: {
+                        type: "object",
+                        properties: {
+                            name: {
+                                type: "string",
+                                description: "The name for the sticker (2-30 characters)"
+                            },
+                            file_url: {
+                                type: "string",
+                                description: "URL to the sticker image file"
+                            },
+                            tags: {
+                                type: "string",
+                                description: "A Unicode emoji representing the sticker's expression"
+                            },
+                            description: {
+                                type: "string",
+                                description: "Optional description for the sticker"
+                            }
+                        },
+                        required: ["name", "file_url", "tags"]
+                    }
+                }
+            },
+            required: ["stickers"]
+        }
+    }
+};
+
+/**
+ * Tool definition for bulk deleting stickers
+ */
+export const DELETE_STICKERS_BULK_TOOL = {
+    type: "function",
+    function: {
+        name: "delete_stickers_bulk",
+        description: "Delete multiple stickers at once in parallel. Use this after using list_stickers to see what exists, then call this with the specific stickers you want to delete.",
+        parameters: {
+            type: "object",
+            properties: {
+                sticker_names: {
+                    type: "array",
+                    description: "Array of sticker names to delete.",
+                    items: {
+                        type: "string",
+                        description: "The name of the sticker to delete"
+                    }
+                }
+            },
+            required: ["sticker_names"]
+        }
+    }
+};
+
+
+
+/**
+ * Tool definition for listing recent messages in a channel
+ */
+export const LIST_MESSAGES_TOOL = {
+    type: "function",
+    function: {
+        name: "list_messages",
+        description: "List recent messages in a channel to get their IDs. Use this when you need to pin/delete/interact with a message but don't have its ID.",
+        parameters: {
+            type: "object",
+            properties: {
+                count: {
+                    type: "integer",
+                    description: "Number of messages to list (default 10, max 50)."
+                },
+                channel: {
+                    type: "string",
+                    description: "Optional: The name of the channel to list messages from. Defaults to current channel."
+                }
+            },
+            required: []
+        }
+    }
+};
+
+// ============================================================
+// MESSAGE MANAGEMENT TOOLS (Pinning, Publishing)
+// ============================================================
+
+/**
+ * Tool definition for pinning a message
+ */
+export const PIN_MESSAGE_TOOL = {
+    type: "function",
+    function: {
+        name: "pin_message",
+        description: "Pin a message to the channel. Pinned messages appear in the channel's pins list.",
+        parameters: {
+            type: "object",
+            properties: {
+                message_id: {
+                    type: "string",
+                    description: "The ID of the message to pin."
+                },
+                channel: {
+                    type: "string",
+                    description: "Optional: The name of the channel the message is in. Defaults to current channel."
+                }
+            },
+            required: ["message_id"]
+        }
+    }
+};
+
+/**
+ * Tool definition for unpinning a message
+ */
+export const UNPIN_MESSAGE_TOOL = {
+    type: "function",
+    function: {
+        name: "unpin_message",
+        description: "Unpin a message from the channel.",
+        parameters: {
+            type: "object",
+            properties: {
+                message_id: {
+                    type: "string",
+                    description: "The ID of the message to unpin."
+                },
+                channel: {
+                    type: "string",
+                    description: "Optional: The name of the channel the message is in. Defaults to current channel."
+                }
+            },
+            required: ["message_id"]
+        }
+    }
+};
+
+/**
+ * Tool definition for listing pinned messages
+ */
+export const LIST_PINNED_MESSAGES_TOOL = {
+    type: "function",
+    function: {
+        name: "list_pinned_messages",
+        description: "List all pinned messages in a channel.",
+        parameters: {
+            type: "object",
+            properties: {
+                channel: {
+                    type: "string",
+                    description: "Optional: The name of the channel to list pins from. Defaults to current channel."
+                }
+            },
+            required: []
+        }
+    }
+};
+
+/**
+ * Tool definition for publishing a message (Announcement channels only)
+ */
+export const PUBLISH_MESSAGE_TOOL = {
+    type: "function",
+    function: {
+        name: "publish_message",
+        description: "Publish a message in an Announcement channel so it is pushed to following servers.",
+        parameters: {
+            type: "object",
+            properties: {
+                message_id: {
+                    type: "string",
+                    description: "The ID of the message to publish."
+                },
+                channel: {
+                    type: "string",
+                    description: "Optional: The name of the channel the message is in. Defaults to current channel."
+                }
+            },
+            required: ["message_id"]
+        }
+    }
+};
+
+/**
+ * Tool definition for bulk pinning messages
+ */
+export const PIN_MESSAGES_BULK_TOOL = {
+    type: "function",
+    function: {
+        name: "pin_messages_bulk",
+        description: "Pin multiple messages at once.",
+        parameters: {
+            type: "object",
+            properties: {
+                message_ids: {
+                    type: "array",
+                    description: "Array of message IDs to pin.",
+                    items: { type: "string" }
+                },
+                channel: {
+                    type: "string",
+                    description: "Optional: The name of the channel the messages are in. Defaults to current channel."
+                }
+            },
+            required: ["message_ids"]
+        }
+    }
+};
+
+/**
+ * Tool definition for bulk unpinning messages
+ */
+export const UNPIN_MESSAGES_BULK_TOOL = {
+    type: "function",
+    function: {
+        name: "unpin_messages_bulk",
+        description: "Unpin multiple messages at once.",
+        parameters: {
+            type: "object",
+            properties: {
+                message_ids: {
+                    type: "array",
+                    description: "Array of message IDs to unpin.",
+                    items: { type: "string" }
+                },
+                channel: {
+                    type: "string",
+                    description: "Optional: The name of the channel the messages are in. Defaults to current channel."
+                }
+            },
+            required: ["message_ids"]
+        }
+    }
+};
+
+// ============================================================
 // TOOL COLLECTIONS
 // ============================================================
 
@@ -1253,6 +1636,21 @@ export const DISCORD_TOOLS = [
     BAN_MEMBER_TOOL,
     TIMEOUT_MEMBER_TOOL,
     MANAGE_MESSAGES_TOOL,
+    DELETE_MESSAGE_TOOL,
+    DELETE_MESSAGES_BULK_TOOL,
+    PIN_MESSAGE_TOOL,
+    UNPIN_MESSAGE_TOOL,
+    LIST_PINNED_MESSAGES_TOOL,
+    LIST_MESSAGES_TOOL,
+    PUBLISH_MESSAGE_TOOL,
+    PIN_MESSAGES_BULK_TOOL,
+    UNPIN_MESSAGES_BULK_TOOL,
+    // Sticker Management
+    CREATE_STICKER_TOOL,
+    DELETE_STICKER_TOOL,
+    LIST_STICKERS_TOOL,
+    CREATE_STICKERS_BULK_TOOL,
+    DELETE_STICKERS_BULK_TOOL,
     // Utility
     CHECK_PERMS_TOOL,
     LIST_ROLE_PERMISSIONS_TOOL,

@@ -4,7 +4,7 @@ import { AIClient } from './aiClient.js';
 import { RequestQueue } from './queue.js';
 import { ImageQueue } from './imageQueue.js';
 import { ImageClient, TOOLS } from './imageClient.js';
-import { handleCreateVoiceChannel, handleCreateTextChannel, handleCreateCategory, handleDeleteChannel, handleDeleteChannelsBulk, handleListChannels, handleGetServerInfo, handleSetupServerStructure, handleConfigureChannelPermissions, handleEditTextChannel, handleEditVoiceChannel, handleEditCategory, handleEditChannelsBulk, handleCreateRole, handleDeleteRole, handleDeleteRolesBulk, handleEditRole, handleListRoles, handleAssignRole, handleSetupRoles, handleJoinVoice, handleLeaveVoice, handleVoiceConversation, handleMoveMember, handleMoveMembersBulk, handleListVoiceChannels, handleCheckPerms, handleListRolePermissions, handleSearchMembers, handleKickMember, handleBanMember, handleTimeoutMember, handleManageMessages, handleRenameChannel, handleMoveChannel } from './discordTools.js';
+import { handleCreateVoiceChannel, handleCreateTextChannel, handleCreateCategory, handleDeleteChannel, handleDeleteChannelsBulk, handleListChannels, handleGetServerInfo, handleSetupServerStructure, handleConfigureChannelPermissions, handleEditTextChannel, handleEditVoiceChannel, handleEditCategory, handleEditChannelsBulk, handleCreateRole, handleDeleteRole, handleDeleteRolesBulk, handleEditRole, handleListRoles, handleAssignRole, handleSetupRoles, handleJoinVoice, handleLeaveVoice, handleVoiceConversation, handleMoveMember, handleMoveMembersBulk, handleListVoiceChannels, handleCheckPerms, handleListRolePermissions, handleSearchMembers, handleKickMember, handleBanMember, handleTimeoutMember, handleManageMessages, handleRenameChannel, handleMoveChannel, handleDeleteMessage, handleDeleteMessagesBulk, handleCreateSticker, handleDeleteSticker, handleListStickers, handleCreateStickersBulk, handleDeleteStickersBulk, handlePinMessage, handleUnpinMessage, handleListPinnedMessages, handlePublishMessage, handlePinMessagesBulk, handleUnpinMessagesBulk, handlePublishMessagesBulk, handleListMessages } from './discordTools.js';
 import { checkToolPermission } from './permissionChecker.js';
 import { executeToolLoop, buildActionsContext } from './toolExecutionLoop.js';
 // Note: Server setup is now handled through AI tool calling (setup_server_structure)
@@ -157,11 +157,53 @@ async function executeSingleTool(toolCall, context) {
         case 'manage_messages':
             return await handleManageMessages(guild, toolCall.arguments, { message: context.message });
 
+        case 'delete_message':
+            return await handleDeleteMessage(guild, toolCall.arguments, { message: context.message });
+
+        case 'delete_messages_bulk':
+            return await handleDeleteMessagesBulk(guild, toolCall.arguments, { message: context.message });
+
         case 'rename_channel':
             return await handleRenameChannel(guild, toolCall.arguments);
 
         case 'move_channel':
             return await handleMoveChannel(guild, toolCall.arguments);
+
+        case 'create_sticker':
+            return await handleCreateSticker(guild, toolCall.arguments);
+
+        case 'delete_sticker':
+            return await handleDeleteSticker(guild, toolCall.arguments);
+
+        case 'list_stickers':
+            return await handleListStickers(guild, toolCall.arguments);
+
+        case 'create_stickers_bulk':
+            return await handleCreateStickersBulk(guild, toolCall.arguments);
+
+        case 'delete_stickers_bulk':
+            return await handleDeleteStickersBulk(guild, toolCall.arguments);
+
+        case 'pin_message':
+            return await handlePinMessage(guild, toolCall.arguments, { message: context.message });
+
+        case 'unpin_message':
+            return await handleUnpinMessage(guild, toolCall.arguments, { message: context.message });
+
+        case 'list_pinned_messages':
+            return await handleListPinnedMessages(guild, toolCall.arguments, { message: context.message });
+
+        case 'publish_message':
+            return await handlePublishMessage(guild, toolCall.arguments, { message: context.message });
+
+        case 'pin_messages_bulk':
+            return await handlePinMessagesBulk(guild, toolCall.arguments, { message: context.message });
+
+        case 'unpin_messages_bulk':
+            return await handleUnpinMessagesBulk(guild, toolCall.arguments, { message: context.message });
+
+        case 'list_messages':
+            return await handleListMessages(guild, toolCall.arguments, { message: context.message });
 
         default:
             logger.warn('TOOL', `Unknown tool: ${toolCall.name}`);
@@ -330,11 +372,72 @@ function formatToolResultMessage(toolName, result) {
         case 'manage_messages':
             return `🗑️ ${result.message || `Deleted ${result.deleted} message(s)`}`;
 
+        case 'delete_message':
+            return `🗑️ ${result.message || 'Deleted message'}`;
+
+        case 'delete_messages_bulk':
+            return `🗑️ ${result.message || `Deleted ${result.deleted} message(s)${result.failed > 0 ? `, ${result.failed} failed` : ''}`}`;
+
         case 'rename_channel':
             return `✏️ ${result.message || `Renamed channel to **${result.channel?.new_name}**`}`;
 
         case 'move_channel':
             return `📁 ${result.message || `Moved **${result.channel?.name}** to **${result.to_category || 'no category'}**`}`;
+
+        case 'create_sticker':
+            return `✅ ${result.message || `Created sticker **${result.sticker?.name}**`}`;
+
+        case 'delete_sticker':
+            return `🗑️ ${result.message || `Deleted sticker`}`;
+
+        case 'list_stickers':
+            // Silent - reconnaissance tool
+            return null;
+
+        case 'create_stickers_bulk':
+            let createStickerMsg = `🏷️ **${result.message}**`;
+            if (result.failed > 0) {
+                createStickerMsg += ` (${result.failed} failed)`;
+            }
+            return createStickerMsg;
+
+        case 'delete_stickers_bulk':
+            let deleteStickerMsg = `🗑️ **${result.message}**`;
+            if (result.failed > 0) {
+                deleteStickerMsg += ` (${result.failed} failed)`;
+            }
+            return deleteStickerMsg;
+
+        case 'pin_message':
+            return `📌 ${result.message || 'Pinned message'}`;
+
+        case 'unpin_message':
+            return `📍 ${result.message || 'Unpinned message'}`;
+
+        case 'list_pinned_messages':
+            // reconnaissance tool
+            return null;
+
+        case 'publish_message':
+            return `📣 ${result.message || 'Published message'}`;
+
+        case 'pin_messages_bulk':
+            let pinBulkMsg = `📌 **${result.message}**`;
+            if (result.failed > 0) {
+                pinBulkMsg += ` (${result.failed} failed)`;
+            }
+            return pinBulkMsg;
+
+        case 'unpin_messages_bulk':
+            let unpinBulkMsg = `📍 **${result.message}**`;
+            if (result.failed > 0) {
+                unpinBulkMsg += ` (${result.failed} failed)`;
+            }
+            return unpinBulkMsg;
+
+        case 'list_messages':
+            // reconnaissance tool
+            return null;
 
         default:
             return `✅ Completed ${toolName}`;

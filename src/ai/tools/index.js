@@ -96,7 +96,8 @@ export {
     handlePinMessagesBulk,
     handleUnpinMessagesBulk,
     handleDeleteMessagesBulk,
-    handlePublishMessagesBulk
+    handlePublishMessagesBulk,
+    handleListMessages
 } from './messageTools.js';
 
 // ============================================================
@@ -131,6 +132,17 @@ export {
     handleCreateEmojisBulk,
     handleDeleteEmojisBulk
 } from './emojiTools.js';
+
+// ============================================================
+// STICKER TOOL EXPORTS
+// ============================================================
+export {
+    handleCreateSticker,
+    handleDeleteSticker,
+    handleListStickers,
+    handleCreateStickersBulk,
+    handleDeleteStickersBulk
+} from './stickerTools.js';
 
 // ============================================================
 // THREAD TOOL EXPORTS
