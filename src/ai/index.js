@@ -18,7 +18,11 @@ import { ttsClient } from './ttsClient.js';
 import { voiceCommands, handleVoiceCommand } from './voiceCommands.js';
 import { voiceMemory } from './voiceMemory.js';
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 import { extractImagesFromMessage, hasImages } from './imageUtils.js';
+=======
+import { generationTracker } from './generationTracker.js';
+>>>>>>> Stashed changes
 =======
 import { generationTracker } from './generationTracker.js';
 >>>>>>> Stashed changes
@@ -560,7 +564,11 @@ async function handleMessage(message, bot) {
                 }
                 selectedBot = loadBalancer.pickBot(message.channel.id) || bot;
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
                 await handleAIResponse(message, userMessage, selectedBot, requestId, messageImages);
+=======
+                await handleAIResponse(message, userMessage, selectedBot, requestId, abortController);
+>>>>>>> Stashed changes
 =======
                 await handleAIResponse(message, userMessage, selectedBot, requestId, abortController);
 >>>>>>> Stashed changes
@@ -570,7 +578,11 @@ async function handleMessage(message, bot) {
             botManager.startRequest(selectedBot);
             try {
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
                 await handleAIResponse(message, userMessage, selectedBot, requestId, messageImages);
+=======
+                await handleAIResponse(message, userMessage, selectedBot, requestId, abortController);
+>>>>>>> Stashed changes
 =======
                 await handleAIResponse(message, userMessage, selectedBot, requestId, abortController);
 >>>>>>> Stashed changes
@@ -595,9 +607,15 @@ async function handleMessage(message, bot) {
  * @param {Object} bot - Selected bot for this request
  * @param {string} requestId - Pending request ID
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
  * @param {Array} images - Optional array of images extracted from the message
  */
 async function handleAIResponse(message, userMessage, bot, requestId, images = []) {
+=======
+ * @param {AbortController} abortController - Controller for cancellation
+ */
+async function handleAIResponse(message, userMessage, bot, requestId, abortController) {
+>>>>>>> Stashed changes
 =======
  * @param {AbortController} abortController - Controller for cancellation
  */
