@@ -327,6 +327,30 @@ function buildActionsContext(actions) {
                     }
                 }
                 break;
+            case 'list_role_permissions':
+                // Include full permission details so AI can format a response
+                description = 'Listed role permissions:';
+                if (action.result?.roles?.length > 0) {
+                    description += `\n  ROLE PERMISSIONS (${action.result.roles.length} roles):`;
+                    for (const role of action.result.roles) {
+                        description += `\n    - "${role.name}" [${role.color}] (${role.members} members)`;
+                        if (role.isAdmin) {
+                            description += '\n        👑 ADMINISTRATOR - Has all permissions';
+                        } else if (role.permissions && Object.keys(role.permissions).length > 0) {
+                            for (const [category, perms] of Object.entries(role.permissions)) {
+                                if (Array.isArray(perms) && perms.length > 0) {
+                                    description += `\n        ${category}: ${perms.join(', ')}`;
+                                }
+                            }
+                        } else {
+                            description += '\n        (Basic member permissions only)';
+                        }
+                    }
+                    description += '\n  Use this information to answer the user\'s question about permissions.';
+                } else {
+                    description += '\n  No roles found (besides @everyone)';
+                }
+                break;
 
             // Voice channel tools
             case 'list_voice_channels':

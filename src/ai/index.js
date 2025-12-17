@@ -4,7 +4,7 @@ import { AIClient } from './aiClient.js';
 import { RequestQueue } from './queue.js';
 import { ImageQueue } from './imageQueue.js';
 import { ImageClient, TOOLS } from './imageClient.js';
-import { handleCreateVoiceChannel, handleCreateTextChannel, handleCreateCategory, handleDeleteChannel, handleDeleteChannelsBulk, handleListChannels, handleGetServerInfo, handleSetupServerStructure, handleConfigureChannelPermissions, handleEditTextChannel, handleEditVoiceChannel, handleEditCategory, handleEditChannelsBulk, handleCreateRole, handleDeleteRole, handleDeleteRolesBulk, handleEditRole, handleListRoles, handleAssignRole, handleSetupRoles, handleJoinVoice, handleLeaveVoice, handleVoiceConversation, handleMoveMember, handleMoveMembersBulk, handleListVoiceChannels, handleCheckPerms } from './discordTools.js';
+import { handleCreateVoiceChannel, handleCreateTextChannel, handleCreateCategory, handleDeleteChannel, handleDeleteChannelsBulk, handleListChannels, handleGetServerInfo, handleSetupServerStructure, handleConfigureChannelPermissions, handleEditTextChannel, handleEditVoiceChannel, handleEditCategory, handleEditChannelsBulk, handleCreateRole, handleDeleteRole, handleDeleteRolesBulk, handleEditRole, handleListRoles, handleAssignRole, handleSetupRoles, handleJoinVoice, handleLeaveVoice, handleVoiceConversation, handleMoveMember, handleMoveMembersBulk, handleListVoiceChannels, handleCheckPerms, handleListRolePermissions, handleKickMember, handleBanMember, handleTimeoutMember, handleManageMessages, handleRenameChannel, handleMoveChannel } from './discordTools.js';
 import { checkToolPermission } from './permissionChecker.js';
 import { executeToolLoop, buildActionsContext } from './toolExecutionLoop.js';
 // Note: Server setup is now handled through AI tool calling (setup_server_structure)
@@ -136,6 +136,27 @@ async function executeSingleTool(toolCall, context) {
         case 'check_perms':
             return await handleCheckPerms(guild, toolCall.arguments, { member: context.member });
 
+        case 'list_role_permissions':
+            return await handleListRolePermissions(guild, toolCall.arguments);
+
+        case 'kick_member':
+            return await handleKickMember(guild, toolCall.arguments);
+
+        case 'ban_member':
+            return await handleBanMember(guild, toolCall.arguments);
+
+        case 'timeout_member':
+            return await handleTimeoutMember(guild, toolCall.arguments);
+
+        case 'manage_messages':
+            return await handleManageMessages(guild, toolCall.arguments, { message: context.message });
+
+        case 'rename_channel':
+            return await handleRenameChannel(guild, toolCall.arguments);
+
+        case 'move_channel':
+            return await handleMoveChannel(guild, toolCall.arguments);
+
         default:
             logger.warn('TOOL', `Unknown tool: ${toolCall.name}`);
             return { success: false, error: `Unknown tool: ${toolCall.name}` };
@@ -173,10 +194,12 @@ function formatToolResultMessage(toolName, result) {
             return `🗑️ Deleted ${delType} **${result.deleted?.name}**`;
 
         case 'list_channels':
-            return `📋 **Server Channels:**\n${result.summary}`;
+            // Silent - reconnaissance tool for AI internal use
+            return null;
 
         case 'get_server_info':
-            return result.summary;
+            // Silent - reconnaissance tool for AI internal use
+            return null;
 
         case 'delete_channels_bulk':
             let bulkMsg = `🗑️ **${result.summary}**`;
@@ -239,7 +262,12 @@ function formatToolResultMessage(toolName, result) {
             return `✏️ Edited role **${result.role?.name}**: ${editChanges}`;
 
         case 'list_roles':
-            return `🎭 **Server Roles:**\n${result.summary}`;
+            // Silent - reconnaissance tool for AI internal use
+            return null;
+
+        case 'list_role_permissions':
+            // Silent - AI will format and present the data in its response
+            return null;
 
         case 'assign_role':
             if (result.action === 'none') {
@@ -271,13 +299,32 @@ function formatToolResultMessage(toolName, result) {
             return `📍 ${result.message || `Moved **${result.member?.name}** to **${result.to_channel?.name}**`}`;
 
         case 'list_voice_channels':
-            return `🎙️ ${result.message}`;
+            // Silent - reconnaissance tool for AI internal use
+            return null;
 
         case 'move_members_bulk':
             return `📍 ${result.message}`;
 
         case 'check_perms':
             return result.summary;
+
+        case 'kick_member':
+            return `👢 ${result.message || `Kicked **${result.member?.name}** from the server`}`;
+
+        case 'ban_member':
+            return `🔨 ${result.message || `Banned **${result.member?.name}** from the server`}`;
+
+        case 'timeout_member':
+            return `⏰ ${result.message || `Timed out **${result.member?.name}** for ${result.duration}`}`;
+
+        case 'manage_messages':
+            return `🗑️ ${result.message || `Deleted ${result.deleted} message(s)`}`;
+
+        case 'rename_channel':
+            return `✏️ ${result.message || `Renamed channel to **${result.channel?.new_name}**`}`;
+
+        case 'move_channel':
+            return `📁 ${result.message || `Moved **${result.channel?.name}** to **${result.to_category || 'no category'}**`}`;
 
         default:
             return `✅ Completed ${toolName}`;
@@ -821,17 +868,43 @@ You have completed the above action(s). Based on the results and the user's orig
                             { role: 'user', content: continuePrompt }
                         ];
 
-                        // Call AI again for continuation
+                        // Call AI again for continuation with retry logic
                         let newToolCalls = [];
                         let continueText = '';
+                        let continuationSucceeded = false;
+                        const MAX_CONTINUATION_RETRIES = 2;
 
-                        await aiClient.streamChatWithContext(
-                            continueMessages,
-                            async (chunk) => { continueText += chunk; },
-                            async (complete) => { continueText = complete; },
-                            async (error) => { logger.error('TOOL_LOOP', `Continuation error: ${error.message}`); },
-                            async (toolCall) => { newToolCalls.push(toolCall); }
-                        );
+                        for (let retryAttempt = 0; retryAttempt <= MAX_CONTINUATION_RETRIES; retryAttempt++) {
+                            try {
+                                newToolCalls = [];
+                                continueText = '';
+
+                                await aiClient.streamChatWithContext(
+                                    continueMessages,
+                                    async (chunk) => { continueText += chunk; },
+                                    async (complete) => { continueText = complete; },
+                                    async (error) => { throw error; }, // Throw so we can catch and retry
+                                    async (toolCall) => { newToolCalls.push(toolCall); }
+                                );
+
+                                continuationSucceeded = true;
+                                break; // Success, exit retry loop
+
+                            } catch (retryError) {
+                                logger.error('TOOL_LOOP', `Continuation attempt ${retryAttempt + 1} failed: ${retryError.message}`);
+                                if (retryAttempt < MAX_CONTINUATION_RETRIES) {
+                                    // Exponential backoff before retry
+                                    await new Promise(r => setTimeout(r, 1000 * (retryAttempt + 1)));
+                                }
+                            }
+                        }
+
+                        // If all retries failed, log and break (don't leave user hanging)
+                        if (!continuationSucceeded) {
+                            logger.error('TOOL_LOOP', `All ${MAX_CONTINUATION_RETRIES + 1} continuation attempts failed, stopping tool loop`);
+                            await message.channel.send('⚠️ I ran into an API issue while processing. The actions above completed, but I couldn\'t continue.');
+                            break;
+                        }
 
                         // Check if AI is done
                         if (newToolCalls.length === 0) {
@@ -987,6 +1060,9 @@ async function start() {
     try {
         // Initialize all bots
         await botManager.initialize();
+
+        // Initialize TTS client early so it's ready when we join voice
+        ttsClient.initialize();
 
         // Register slash commands on first bot
         await registerSlashCommands();

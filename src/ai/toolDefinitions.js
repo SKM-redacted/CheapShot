@@ -964,6 +964,176 @@ export const SETUP_ROLES_TOOL = {
 };
 
 // ============================================================
+// MODERATION TOOLS
+// ============================================================
+
+/**
+ * Tool definition for kicking a member from the server
+ */
+export const KICK_MEMBER_TOOL = {
+    type: "function",
+    function: {
+        name: "kick_member",
+        description: "Kick a member from the Discord server. They can rejoin with an invite. Use this when someone asks to kick a user.",
+        parameters: {
+            type: "object",
+            properties: {
+                member: {
+                    type: "string",
+                    description: "The username, display name, or mention of the member to kick."
+                },
+                reason: {
+                    type: "string",
+                    description: "Optional: The reason for kicking this member. Will be logged in audit log."
+                }
+            },
+            required: ["member"]
+        }
+    }
+};
+
+/**
+ * Tool definition for banning a member from the server
+ */
+export const BAN_MEMBER_TOOL = {
+    type: "function",
+    function: {
+        name: "ban_member",
+        description: "Ban a member from the Discord server. They cannot rejoin unless unbanned. Use this for serious rule violations.",
+        parameters: {
+            type: "object",
+            properties: {
+                member: {
+                    type: "string",
+                    description: "The username, display name, user ID, or mention of the member to ban."
+                },
+                reason: {
+                    type: "string",
+                    description: "Optional: The reason for banning this member. Will be logged in audit log."
+                },
+                delete_messages: {
+                    type: "integer",
+                    description: "Optional: Number of days of messages to delete from this user (0-7). Default is 0."
+                }
+            },
+            required: ["member"]
+        }
+    }
+};
+
+/**
+ * Tool definition for timing out a member
+ */
+export const TIMEOUT_MEMBER_TOOL = {
+    type: "function",
+    function: {
+        name: "timeout_member",
+        description: "Timeout (mute) a member for a specified duration. They won't be able to send messages or speak in voice channels. Use this for minor infractions.",
+        parameters: {
+            type: "object",
+            properties: {
+                member: {
+                    type: "string",
+                    description: "The username, display name, or mention of the member to timeout."
+                },
+                duration: {
+                    type: "string",
+                    description: "How long to timeout the member. Examples: '5m' (5 minutes), '1h' (1 hour), '1d' (1 day), '1w' (1 week). Max is 28 days."
+                },
+                reason: {
+                    type: "string",
+                    description: "Optional: The reason for timing out this member. Will be logged in audit log."
+                }
+            },
+            required: ["member", "duration"]
+        }
+    }
+};
+
+/**
+ * Tool definition for managing (deleting/purging) messages
+ */
+export const MANAGE_MESSAGES_TOOL = {
+    type: "function",
+    function: {
+        name: "manage_messages",
+        description: "Delete messages from a channel. Can delete a specific number of recent messages or messages from a specific user. Use this to clean up spam or inappropriate content.",
+        parameters: {
+            type: "object",
+            properties: {
+                channel: {
+                    type: "string",
+                    description: "Optional: The name of the channel to delete messages from. Defaults to the current channel."
+                },
+                count: {
+                    type: "integer",
+                    description: "Number of messages to delete (1-100). Default is 10."
+                },
+                from_user: {
+                    type: "string",
+                    description: "Optional: Only delete messages from this user (username or ID)."
+                },
+                reason: {
+                    type: "string",
+                    description: "Optional: The reason for deleting messages. Will be logged."
+                }
+            },
+            required: []
+        }
+    }
+};
+
+/**
+ * Tool definition for renaming any channel
+ */
+export const RENAME_CHANNEL_TOOL = {
+    type: "function",
+    function: {
+        name: "rename_channel",
+        description: "Rename a channel (text, voice, or category). This is a quick way to rename without specifying channel type.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: {
+                    type: "string",
+                    description: "The current name of the channel to rename."
+                },
+                new_name: {
+                    type: "string",
+                    description: "The new name for the channel."
+                }
+            },
+            required: ["name", "new_name"]
+        }
+    }
+};
+
+/**
+ * Tool definition for moving a channel to a different category
+ */
+export const MOVE_CHANNEL_TOOL = {
+    type: "function",
+    function: {
+        name: "move_channel",
+        description: "Move a channel to a different category. Use this to reorganize channels in the server.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: {
+                    type: "string",
+                    description: "The name of the channel to move."
+                },
+                category: {
+                    type: "string",
+                    description: "The name of the category to move the channel to. Use empty string to remove from any category."
+                }
+            },
+            required: ["name", "category"]
+        }
+    }
+};
+
+// ============================================================
 // UTILITY / INFO TOOLS
 // ============================================================
 
@@ -990,6 +1160,28 @@ export const CHECK_PERMS_TOOL = {
     }
 };
 
+/**
+ * Tool definition for listing roles with detailed permissions
+ * Use this when the user wants to see what permissions each role has
+ */
+export const LIST_ROLE_PERMISSIONS_TOOL = {
+    type: "function",
+    function: {
+        name: "list_role_permissions",
+        description: "List all roles in the server with their DETAILED permissions. Use this when someone asks about role permissions, what a role can do, or wants to audit permissions. For just listing roles without permission details, use list_roles instead.",
+        parameters: {
+            type: "object",
+            properties: {
+                role: {
+                    type: "string",
+                    description: "Optional: Name of a specific role to check. If not provided, lists permissions for all roles."
+                }
+            },
+            required: []
+        }
+    }
+};
+
 // ============================================================
 // TOOL COLLECTIONS
 // ============================================================
@@ -998,6 +1190,7 @@ export const CHECK_PERMS_TOOL = {
  * All Discord-related tools
  */
 export const DISCORD_TOOLS = [
+    // Channel Management
     CREATE_VOICE_CHANNEL_TOOL,
     CREATE_TEXT_CHANNEL_TOOL,
     CREATE_CATEGORY_TOOL,
@@ -1011,12 +1204,16 @@ export const DISCORD_TOOLS = [
     EDIT_VOICE_CHANNEL_TOOL,
     EDIT_CATEGORY_TOOL,
     EDIT_CHANNELS_BULK_TOOL,
+    RENAME_CHANNEL_TOOL,
+    MOVE_CHANNEL_TOOL,
+    // Voice Channel Tools
     JOIN_VOICE_TOOL,
     LEAVE_VOICE_TOOL,
     VOICE_CONVERSATION_TOOL,
     MOVE_MEMBER_TOOL,
     MOVE_MEMBERS_BULK_TOOL,
     LIST_VOICE_CHANNELS_TOOL,
+    // Role Management
     CREATE_ROLE_TOOL,
     DELETE_ROLE_TOOL,
     DELETE_ROLES_BULK_TOOL,
@@ -1024,7 +1221,14 @@ export const DISCORD_TOOLS = [
     LIST_ROLES_TOOL,
     ASSIGN_ROLE_TOOL,
     SETUP_ROLES_TOOL,
-    CHECK_PERMS_TOOL
+    // Moderation
+    KICK_MEMBER_TOOL,
+    BAN_MEMBER_TOOL,
+    TIMEOUT_MEMBER_TOOL,
+    MANAGE_MESSAGES_TOOL,
+    // Utility
+    CHECK_PERMS_TOOL,
+    LIST_ROLE_PERMISSIONS_TOOL
 ];
 
 /**

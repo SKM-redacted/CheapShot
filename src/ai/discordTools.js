@@ -2197,6 +2197,134 @@ export async function handleListRoles(guild, args) {
 }
 
 /**
+ * Handler for listing roles with their detailed permissions
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { role?: string }
+ * @returns {Promise<{success: boolean, roles?: Array, summary?: string, error?: string}>}
+ */
+export async function handleListRolePermissions(guild, args) {
+    const { role: roleName } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot list role permissions: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    try {
+        // Get roles to check (either specific role or all)
+        let rolesToCheck;
+        if (roleName) {
+            const role = guild.roles.cache.find(r =>
+                r.name.toLowerCase() === roleName.toLowerCase() ||
+                r.name.toLowerCase().includes(roleName.toLowerCase())
+            );
+            if (!role) {
+                return { success: false, error: `Could not find role "${roleName}"` };
+            }
+            rolesToCheck = [role];
+        } else {
+            rolesToCheck = guild.roles.cache
+                .filter(r => r.name !== '@everyone')
+                .sort((a, b) => b.position - a.position)
+                .map(r => r);
+        }
+
+        // Permission categories for organized display
+        const permCategories = {
+            'General': [
+                { flag: PermissionFlagsBits.Administrator, name: 'Administrator', emoji: '👑' },
+                { flag: PermissionFlagsBits.ManageGuild, name: 'Manage Server', emoji: '⚙️' },
+                { flag: PermissionFlagsBits.ManageChannels, name: 'Manage Channels', emoji: '📁' },
+                { flag: PermissionFlagsBits.ManageRoles, name: 'Manage Roles', emoji: '🎭' },
+                { flag: PermissionFlagsBits.ViewAuditLog, name: 'View Audit Log', emoji: '📋' },
+                { flag: PermissionFlagsBits.ManageWebhooks, name: 'Manage Webhooks', emoji: '🔗' },
+                { flag: PermissionFlagsBits.ManageEmojisAndStickers, name: 'Manage Emojis', emoji: '😀' },
+            ],
+            'Moderation': [
+                { flag: PermissionFlagsBits.KickMembers, name: 'Kick Members', emoji: '👢' },
+                { flag: PermissionFlagsBits.BanMembers, name: 'Ban Members', emoji: '🔨' },
+                { flag: PermissionFlagsBits.ModerateMembers, name: 'Timeout Members', emoji: '⏰' },
+                { flag: PermissionFlagsBits.ManageNicknames, name: 'Manage Nicknames', emoji: '📝' },
+                { flag: PermissionFlagsBits.ManageMessages, name: 'Manage Messages', emoji: '🗑️' },
+            ],
+            'Voice': [
+                { flag: PermissionFlagsBits.MoveMembers, name: 'Move Members', emoji: '📍' },
+                { flag: PermissionFlagsBits.MuteMembers, name: 'Mute Members', emoji: '🔇' },
+                { flag: PermissionFlagsBits.DeafenMembers, name: 'Deafen Members', emoji: '🔕' },
+                { flag: PermissionFlagsBits.PrioritySpeaker, name: 'Priority Speaker', emoji: '🎤' },
+            ],
+            'Text': [
+                { flag: PermissionFlagsBits.MentionEveryone, name: 'Mention Everyone', emoji: '📢' },
+                { flag: PermissionFlagsBits.ManageThreads, name: 'Manage Threads', emoji: '🧵' },
+                { flag: PermissionFlagsBits.SendTTSMessages, name: 'Send TTS', emoji: '🔊' },
+            ]
+        };
+
+        const roleResults = [];
+        const summaryLines = [];
+
+        for (const role of rolesToCheck) {
+            const permissions = role.permissions;
+            const hasAdmin = permissions.has(PermissionFlagsBits.Administrator);
+
+            const rolePerms = {
+                name: role.name,
+                color: role.hexColor,
+                position: role.position,
+                members: role.members.size,
+                isAdmin: hasAdmin,
+                permissions: {}
+            };
+
+            // Header for this role
+            summaryLines.push(`\n**${role.name}** ${role.hexColor !== '#000000' ? `[${role.hexColor}]` : ''} - ${role.members.size} member(s)`);
+
+            if (hasAdmin) {
+                summaryLines.push(`  👑 **ADMINISTRATOR** - Has all permissions`);
+                rolePerms.permissions = { Administrator: true };
+            } else {
+                // Check each category
+                for (const [category, perms] of Object.entries(permCategories)) {
+                    const hasPerms = perms.filter(p => permissions.has(p.flag));
+                    if (hasPerms.length > 0) {
+                        const permList = hasPerms.map(p => `${p.emoji} ${p.name}`).join(', ');
+                        summaryLines.push(`  **${category}:** ${permList}`);
+                        rolePerms.permissions[category] = hasPerms.map(p => p.name);
+                    }
+                }
+
+                // If no special permissions
+                if (Object.keys(rolePerms.permissions).length === 0) {
+                    summaryLines.push(`  *(Basic member permissions only)*`);
+                }
+            }
+
+            roleResults.push(rolePerms);
+        }
+
+        const header = roleName
+            ? `🔐 **Permissions for ${rolesToCheck[0].name}:**`
+            : `🔐 **Role Permissions** (${roleResults.length} roles):`;
+
+        logger.info('TOOL', `Listed permissions for ${roleResults.length} role(s) in guild ${guild.name}`);
+
+        return {
+            success: true,
+            roles: roleResults,
+            summary: header + summaryLines.join('\n'),
+            message: header + summaryLines.join('\n')
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to list role permissions: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to list role permissions'
+        };
+    }
+}
+
+/**
  * Handler for assigning or removing a role from a member
  * @param {Object} guild - Discord guild object
  * @param {Object} args - Tool arguments { role_name, member, action? }
@@ -3041,3 +3169,507 @@ export async function handleCheckPerms(guild, args, context = {}) {
         };
     }
 }
+
+// ============================================================
+// MODERATION HANDLERS
+// ============================================================
+
+/**
+ * Handler for kicking a member from the server
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { member, reason? }
+ * @returns {Promise<{success: boolean, member?: Object, error?: string}>}
+ */
+export async function handleKickMember(guild, args) {
+    const { member: memberIdentifier, reason } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot kick member: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    if (!memberIdentifier) {
+        return { success: false, error: 'Must specify which member to kick' };
+    }
+
+    try {
+        // Find the member
+        const targetMember = await findMemberSmart(guild, memberIdentifier);
+        if (!targetMember) {
+            return { success: false, error: `Could not find member "${memberIdentifier}"` };
+        }
+
+        // Check if the member is kickable
+        if (!targetMember.kickable) {
+            return { success: false, error: `Cannot kick ${targetMember.displayName} - they may have higher permissions than me` };
+        }
+
+        // Check if trying to kick the server owner
+        if (targetMember.id === guild.ownerId) {
+            return { success: false, error: 'Cannot kick the server owner' };
+        }
+
+        logger.info('TOOL', `Kicking ${targetMember.displayName} from ${guild.name}${reason ? ` (Reason: ${reason})` : ''}`);
+
+        await targetMember.kick(reason || 'Kicked by CheapShot AI');
+
+        logger.info('TOOL', `Successfully kicked ${targetMember.displayName}`);
+
+        return {
+            success: true,
+            member: {
+                id: targetMember.id,
+                name: targetMember.displayName,
+                username: targetMember.user.tag
+            },
+            reason: reason || 'No reason provided',
+            message: `Kicked ${targetMember.displayName} from the server${reason ? ` for: ${reason}` : ''}`
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to kick member: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to kick member'
+        };
+    }
+}
+
+/**
+ * Handler for banning a member from the server
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { member, reason?, delete_messages? }
+ * @returns {Promise<{success: boolean, member?: Object, error?: string}>}
+ */
+export async function handleBanMember(guild, args) {
+    const { member: memberIdentifier, reason, delete_messages = 0 } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot ban member: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    if (!memberIdentifier) {
+        return { success: false, error: 'Must specify which member to ban' };
+    }
+
+    try {
+        // Find the member (can also ban by ID for users not in server)
+        const targetMember = await findMemberSmart(guild, memberIdentifier);
+
+        // If member not found, try to ban by ID directly
+        let targetId = null;
+        let targetName = memberIdentifier;
+
+        if (targetMember) {
+            // Check if the member is bannable
+            if (!targetMember.bannable) {
+                return { success: false, error: `Cannot ban ${targetMember.displayName} - they may have higher permissions than me` };
+            }
+
+            // Check if trying to ban the server owner
+            if (targetMember.id === guild.ownerId) {
+                return { success: false, error: 'Cannot ban the server owner' };
+            }
+
+            targetId = targetMember.id;
+            targetName = targetMember.displayName;
+        } else {
+            // Check if it looks like a user ID
+            const cleanId = memberIdentifier.replace(/[<@!>]/g, '').trim();
+            if (/^\d{17,19}$/.test(cleanId)) {
+                targetId = cleanId;
+            } else {
+                return { success: false, error: `Could not find member "${memberIdentifier}"` };
+            }
+        }
+
+        // Validate delete_messages (0-7 days)
+        const deleteMessageDays = Math.max(0, Math.min(7, delete_messages || 0));
+
+        logger.info('TOOL', `Banning ${targetName} from ${guild.name}${reason ? ` (Reason: ${reason})` : ''}`);
+
+        await guild.members.ban(targetId, {
+            reason: reason || 'Banned by CheapShot AI',
+            deleteMessageSeconds: deleteMessageDays * 24 * 60 * 60
+        });
+
+        logger.info('TOOL', `Successfully banned ${targetName}`);
+
+        return {
+            success: true,
+            member: {
+                id: targetId,
+                name: targetName,
+                username: targetMember?.user?.tag || targetName
+            },
+            reason: reason || 'No reason provided',
+            deleted_messages_days: deleteMessageDays,
+            message: `Banned ${targetName} from the server${reason ? ` for: ${reason}` : ''}${deleteMessageDays > 0 ? ` (deleted ${deleteMessageDays} day(s) of messages)` : ''}`
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to ban member: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to ban member'
+        };
+    }
+}
+
+/**
+ * Parse a duration string into milliseconds
+ * @param {string} duration - Duration string like '5m', '1h', '1d', '1w'
+ * @returns {number|null} Duration in milliseconds, or null if invalid
+ */
+function parseDuration(duration) {
+    const match = duration.match(/^(\d+)\s*(s|sec|second|seconds|m|min|minute|minutes|h|hr|hour|hours|d|day|days|w|week|weeks)$/i);
+    if (!match) return null;
+
+    const value = parseInt(match[1]);
+    const unit = match[2].toLowerCase();
+
+    const multipliers = {
+        's': 1000,
+        'sec': 1000,
+        'second': 1000,
+        'seconds': 1000,
+        'm': 60 * 1000,
+        'min': 60 * 1000,
+        'minute': 60 * 1000,
+        'minutes': 60 * 1000,
+        'h': 60 * 60 * 1000,
+        'hr': 60 * 60 * 1000,
+        'hour': 60 * 60 * 1000,
+        'hours': 60 * 60 * 1000,
+        'd': 24 * 60 * 60 * 1000,
+        'day': 24 * 60 * 60 * 1000,
+        'days': 24 * 60 * 60 * 1000,
+        'w': 7 * 24 * 60 * 60 * 1000,
+        'week': 7 * 24 * 60 * 60 * 1000,
+        'weeks': 7 * 24 * 60 * 60 * 1000
+    };
+
+    return value * (multipliers[unit] || 0);
+}
+
+/**
+ * Handler for timing out a member
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { member, duration, reason? }
+ * @returns {Promise<{success: boolean, member?: Object, error?: string}>}
+ */
+export async function handleTimeoutMember(guild, args) {
+    const { member: memberIdentifier, duration, reason } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot timeout member: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    if (!memberIdentifier) {
+        return { success: false, error: 'Must specify which member to timeout' };
+    }
+
+    if (!duration) {
+        return { success: false, error: 'Must specify timeout duration (e.g., "5m", "1h", "1d")' };
+    }
+
+    try {
+        // Parse the duration
+        const durationMs = parseDuration(duration);
+        if (!durationMs) {
+            return { success: false, error: `Invalid duration format "${duration}". Use formats like: 5m, 1h, 1d, 1w` };
+        }
+
+        // Max timeout is 28 days
+        const maxTimeout = 28 * 24 * 60 * 60 * 1000;
+        if (durationMs > maxTimeout) {
+            return { success: false, error: 'Maximum timeout duration is 28 days' };
+        }
+
+        // Find the member
+        const targetMember = await findMemberSmart(guild, memberIdentifier);
+        if (!targetMember) {
+            return { success: false, error: `Could not find member "${memberIdentifier}"` };
+        }
+
+        // Check if the member is moderatable
+        if (!targetMember.moderatable) {
+            return { success: false, error: `Cannot timeout ${targetMember.displayName} - they may have higher permissions than me` };
+        }
+
+        // Check if trying to timeout the server owner
+        if (targetMember.id === guild.ownerId) {
+            return { success: false, error: 'Cannot timeout the server owner' };
+        }
+
+        logger.info('TOOL', `Timing out ${targetMember.displayName} for ${duration}${reason ? ` (Reason: ${reason})` : ''}`);
+
+        await targetMember.timeout(durationMs, reason || 'Timed out by CheapShot AI');
+
+        // Calculate human-readable end time
+        const endTime = new Date(Date.now() + durationMs);
+        const endTimeStr = endTime.toLocaleString();
+
+        logger.info('TOOL', `Successfully timed out ${targetMember.displayName} until ${endTimeStr}`);
+
+        return {
+            success: true,
+            member: {
+                id: targetMember.id,
+                name: targetMember.displayName,
+                username: targetMember.user.tag
+            },
+            duration: duration,
+            duration_ms: durationMs,
+            ends_at: endTimeStr,
+            reason: reason || 'No reason provided',
+            message: `Timed out ${targetMember.displayName} for ${duration}${reason ? ` (Reason: ${reason})` : ''}`
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to timeout member: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to timeout member'
+        };
+    }
+}
+
+/**
+ * Handler for managing (deleting/purging) messages
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { channel?, count?, from_user?, reason? }
+ * @param {Object} context - Additional context { message }
+ * @returns {Promise<{success: boolean, deleted?: number, error?: string}>}
+ */
+export async function handleManageMessages(guild, args, context = {}) {
+    const { channel: channelName, count = 10, from_user, reason } = args;
+    const { message } = context;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot manage messages: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    try {
+        let targetChannel;
+
+        // If channel name specified, find it
+        if (channelName) {
+            targetChannel = findChannel(guild, channelName, 'text');
+            if (!targetChannel) {
+                return { success: false, error: `Could not find text channel "${channelName}"` };
+            }
+        } else if (message?.channel) {
+            // Use the current channel
+            targetChannel = message.channel;
+        } else {
+            return { success: false, error: 'No channel specified and could not determine current channel' };
+        }
+
+        // Validate count (1-100)
+        const deleteCount = Math.max(1, Math.min(100, count || 10));
+
+        logger.info('TOOL', `Deleting up to ${deleteCount} messages from #${targetChannel.name}${from_user ? ` by ${from_user}` : ''}`);
+
+        // Fetch messages
+        let messages = await targetChannel.messages.fetch({ limit: deleteCount });
+
+        // Filter by user if specified
+        if (from_user) {
+            const targetMember = await findMemberSmart(guild, from_user);
+            if (targetMember) {
+                messages = messages.filter(m => m.author.id === targetMember.id);
+            } else {
+                // Try to filter by username/ID directly
+                const cleanId = from_user.replace(/[<@!>]/g, '').trim().toLowerCase();
+                messages = messages.filter(m =>
+                    m.author.id === cleanId ||
+                    m.author.username.toLowerCase().includes(cleanId) ||
+                    m.author.displayName?.toLowerCase().includes(cleanId)
+                );
+            }
+        }
+
+        // Filter out messages older than 14 days (Discord limitation)
+        const twoWeeksAgo = Date.now() - (14 * 24 * 60 * 60 * 1000);
+        messages = messages.filter(m => m.createdTimestamp > twoWeeksAgo);
+
+        if (messages.size === 0) {
+            return { success: true, deleted: 0, message: 'No messages found to delete' };
+        }
+
+        // Bulk delete
+        const deleted = await targetChannel.bulkDelete(messages, true);
+
+        logger.info('TOOL', `Successfully deleted ${deleted.size} messages from #${targetChannel.name}`);
+
+        return {
+            success: true,
+            deleted: deleted.size,
+            channel: {
+                id: targetChannel.id,
+                name: targetChannel.name
+            },
+            from_user: from_user || 'all users',
+            reason: reason,
+            message: `Deleted ${deleted.size} message${deleted.size !== 1 ? 's' : ''} from #${targetChannel.name}${from_user ? ` by ${from_user}` : ''}`
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to manage messages: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to delete messages'
+        };
+    }
+}
+
+// ============================================================
+// CHANNEL CONVENIENCE HANDLERS
+// ============================================================
+
+/**
+ * Handler for renaming any channel (convenience wrapper)
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { name, new_name }
+ * @returns {Promise<{success: boolean, channel?: Object, error?: string}>}
+ */
+export async function handleRenameChannel(guild, args) {
+    const { name, new_name } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot rename channel: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    if (!name) {
+        return { success: false, error: 'Must specify the channel name to rename' };
+    }
+
+    if (!new_name) {
+        return { success: false, error: 'Must specify the new name for the channel' };
+    }
+
+    try {
+        // Find the channel (any type)
+        const channel = findChannel(guild, name, 'any');
+        if (!channel) {
+            return { success: false, error: `Could not find channel "${name}"` };
+        }
+
+        const oldName = channel.name;
+        const channelType = channel.type === ChannelType.GuildCategory ? 'category' :
+            channel.type === ChannelType.GuildVoice ? 'voice' :
+                channel.type === ChannelType.GuildStageVoice ? 'stage' : 'text';
+
+        logger.info('TOOL', `Renaming ${channelType} channel "${oldName}" to "${new_name}"`);
+
+        await channel.setName(new_name);
+
+        logger.info('TOOL', `Successfully renamed channel to "${new_name}"`);
+
+        return {
+            success: true,
+            channel: {
+                id: channel.id,
+                old_name: oldName,
+                new_name: channel.name,
+                type: channelType
+            },
+            message: `Renamed ${channelType} channel "${oldName}" to "${channel.name}"`
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to rename channel: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to rename channel'
+        };
+    }
+}
+
+/**
+ * Handler for moving a channel to a different category
+ * @param {Object} guild - Discord guild object
+ * @param {Object} args - Tool arguments { name, category }
+ * @returns {Promise<{success: boolean, channel?: Object, error?: string}>}
+ */
+export async function handleMoveChannel(guild, args) {
+    const { name, category: categoryName } = args;
+
+    if (!guild) {
+        logger.error('TOOL', 'Cannot move channel: No guild context');
+        return { success: false, error: 'No server context available' };
+    }
+
+    if (!name) {
+        return { success: false, error: 'Must specify the channel name to move' };
+    }
+
+    if (categoryName === undefined) {
+        return { success: false, error: 'Must specify the category to move to (use empty string to remove from category)' };
+    }
+
+    try {
+        // Find the channel (text or voice, not category)
+        const channel = findChannel(guild, name, 'any');
+        if (!channel) {
+            return { success: false, error: `Could not find channel "${name}"` };
+        }
+
+        if (channel.type === ChannelType.GuildCategory) {
+            return { success: false, error: 'Cannot move a category - categories contain channels, not the other way around' };
+        }
+
+        let targetCategory = null;
+        const oldCategory = channel.parent?.name || 'no category';
+
+        // If category name is empty, remove from category
+        if (categoryName === '' || categoryName === null) {
+            targetCategory = null;
+        } else {
+            // Find the category
+            targetCategory = findChannel(guild, categoryName, 'category');
+            if (!targetCategory) {
+                return { success: false, error: `Could not find category "${categoryName}"` };
+            }
+        }
+
+        // Check if already in the target category
+        if (channel.parentId === (targetCategory?.id || null)) {
+            return {
+                success: true,
+                message: `Channel "${name}" is already in ${targetCategory ? `"${targetCategory.name}"` : 'no category'}`
+            };
+        }
+
+        logger.info('TOOL', `Moving channel "${name}" from "${oldCategory}" to "${targetCategory?.name || 'no category'}"`);
+
+        await channel.setParent(targetCategory?.id || null);
+
+        logger.info('TOOL', `Successfully moved channel to ${targetCategory?.name || 'no category'}`);
+
+        return {
+            success: true,
+            channel: {
+                id: channel.id,
+                name: channel.name,
+                type: channel.type === ChannelType.GuildVoice ? 'voice' : 'text'
+            },
+            from_category: oldCategory,
+            to_category: targetCategory?.name || null,
+            message: `Moved "${channel.name}" from "${oldCategory}" to "${targetCategory?.name || 'no category'}"`
+        };
+
+    } catch (error) {
+        logger.error('TOOL', `Failed to move channel: ${error.message}`);
+        return {
+            success: false,
+            error: error.message || 'Failed to move channel'
+        };
+    }
+}
+

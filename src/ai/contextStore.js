@@ -12,11 +12,11 @@ class ContextStore {
         // Mutex locks per channel
         this.locks = new Map();
 
-        // Max tokens before trimming (150k)
-        this.maxTokens = 150000;
+        // Max tokens before trimming (20k - keeps context focused)
+        this.maxTokens = 20000;
 
-        // Max messages before trimming (keep last 25 messages)
-        this.maxMessages = 25;
+        // Max messages before trimming (keep last 10 messages for focused responses)
+        this.maxMessages = 10;
 
         // Lock timeout (5 seconds)
         this.lockTimeout = 5000;

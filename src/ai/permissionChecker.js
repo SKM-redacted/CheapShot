@@ -26,15 +26,17 @@ const TOOL_PERMISSIONS = {
     'delete_roles_bulk': [PermissionFlagsBits.ManageRoles],
     'edit_role': [PermissionFlagsBits.ManageRoles],
     'list_roles': [PermissionFlagsBits.ManageRoles],
+    'list_role_permissions': [PermissionFlagsBits.ManageRoles],
     'assign_role': [PermissionFlagsBits.ManageRoles],
     'setup_roles': [PermissionFlagsBits.ManageRoles],
     'kick_member': [PermissionFlagsBits.KickMembers],
     'ban_member': [PermissionFlagsBits.BanMembers],
     'timeout_member': [PermissionFlagsBits.ModerateMembers],
     'move_member': [PermissionFlagsBits.MoveMembers],
+    'move_members_bulk': [PermissionFlagsBits.MoveMembers],
     'manage_messages': [PermissionFlagsBits.ManageMessages],
-    'list_channels': [PermissionFlagsBits.ManageChannels], // Requires manage channels due to private channels
-    'get_server_info': [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageRoles], // Combined channels + roles info
+    'list_channels': [PermissionFlagsBits.ManageChannels],
+    'get_server_info': [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageRoles],
     'configure_channel_permissions': [PermissionFlagsBits.ManageChannels],
     'edit_text_channel': [PermissionFlagsBits.ManageChannels],
     'edit_voice_channel': [PermissionFlagsBits.ManageChannels],
@@ -43,7 +45,6 @@ const TOOL_PERMISSIONS = {
     'check_perms': [PermissionFlagsBits.ManageRoles],
     // These don't need special permissions
     'generate_image': [],
-    'image_generation': [],
     'join_voice': [],
     'leave_voice': [],
     'voice_conversation': [],
@@ -175,6 +176,7 @@ function getToolActionName(toolName) {
         'ban_member': 'ban members',
         'timeout_member': 'timeout members',
         'move_member': 'move members in voice',
+        'move_members_bulk': 'move multiple members in voice',
         'manage_messages': 'manage messages',
         'get_server_info': 'view server information',
         'configure_channel_permissions': 'configure channel permissions',
@@ -182,6 +184,11 @@ function getToolActionName(toolName) {
         'edit_voice_channel': 'edit voice channels',
         'edit_category': 'edit categories',
         'edit_channels_bulk': 'edit multiple channels',
+        'rename_channel': 'rename channels',
+        'move_channel': 'move channels',
+        'setup_server_structure': 'set up server structure',
+        'list_channels': 'list channels',
+        'list_role_permissions': 'check role permissions',
         'check_perms': 'check user permissions',
     };
 
