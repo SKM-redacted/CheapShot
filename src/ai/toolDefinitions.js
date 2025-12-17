@@ -1413,6 +1413,160 @@ export const DELETE_STICKERS_BULK_TOOL = {
     }
 };
 
+
+
+// ============================================================
+// MESSAGE MANAGEMENT TOOLS (Pinning, Publishing)
+// ============================================================
+
+/**
+ * Tool definition for pinning a message
+ */
+export const PIN_MESSAGE_TOOL = {
+    type: "function",
+    function: {
+        name: "pin_message",
+        description: "Pin a message to the channel. Pinned messages appear in the channel's pins list.",
+        parameters: {
+            type: "object",
+            properties: {
+                message_id: {
+                    type: "string",
+                    description: "The ID of the message to pin."
+                },
+                channel: {
+                    type: "string",
+                    description: "Optional: The name of the channel the message is in. Defaults to current channel."
+                }
+            },
+            required: ["message_id"]
+        }
+    }
+};
+
+/**
+ * Tool definition for unpinning a message
+ */
+export const UNPIN_MESSAGE_TOOL = {
+    type: "function",
+    function: {
+        name: "unpin_message",
+        description: "Unpin a message from the channel.",
+        parameters: {
+            type: "object",
+            properties: {
+                message_id: {
+                    type: "string",
+                    description: "The ID of the message to unpin."
+                },
+                channel: {
+                    type: "string",
+                    description: "Optional: The name of the channel the message is in. Defaults to current channel."
+                }
+            },
+            required: ["message_id"]
+        }
+    }
+};
+
+/**
+ * Tool definition for listing pinned messages
+ */
+export const LIST_PINNED_MESSAGES_TOOL = {
+    type: "function",
+    function: {
+        name: "list_pinned_messages",
+        description: "List all pinned messages in a channel.",
+        parameters: {
+            type: "object",
+            properties: {
+                channel: {
+                    type: "string",
+                    description: "Optional: The name of the channel to list pins from. Defaults to current channel."
+                }
+            },
+            required: []
+        }
+    }
+};
+
+/**
+ * Tool definition for publishing a message (Announcement channels only)
+ */
+export const PUBLISH_MESSAGE_TOOL = {
+    type: "function",
+    function: {
+        name: "publish_message",
+        description: "Publish a message in an Announcement channel so it is pushed to following servers.",
+        parameters: {
+            type: "object",
+            properties: {
+                message_id: {
+                    type: "string",
+                    description: "The ID of the message to publish."
+                },
+                channel: {
+                    type: "string",
+                    description: "Optional: The name of the channel the message is in. Defaults to current channel."
+                }
+            },
+            required: ["message_id"]
+        }
+    }
+};
+
+/**
+ * Tool definition for bulk pinning messages
+ */
+export const PIN_MESSAGES_BULK_TOOL = {
+    type: "function",
+    function: {
+        name: "pin_messages_bulk",
+        description: "Pin multiple messages at once.",
+        parameters: {
+            type: "object",
+            properties: {
+                message_ids: {
+                    type: "array",
+                    description: "Array of message IDs to pin.",
+                    items: { type: "string" }
+                },
+                channel: {
+                    type: "string",
+                    description: "Optional: The name of the channel the messages are in. Defaults to current channel."
+                }
+            },
+            required: ["message_ids"]
+        }
+    }
+};
+
+/**
+ * Tool definition for bulk unpinning messages
+ */
+export const UNPIN_MESSAGES_BULK_TOOL = {
+    type: "function",
+    function: {
+        name: "unpin_messages_bulk",
+        description: "Unpin multiple messages at once.",
+        parameters: {
+            type: "object",
+            properties: {
+                message_ids: {
+                    type: "array",
+                    description: "Array of message IDs to unpin.",
+                    items: { type: "string" }
+                },
+                channel: {
+                    type: "string",
+                    description: "Optional: The name of the channel the messages are in. Defaults to current channel."
+                }
+            },
+            required: ["message_ids"]
+        }
+    }
+};
+
 // ============================================================
 // TOOL COLLECTIONS
 // ============================================================
@@ -1459,6 +1613,12 @@ export const DISCORD_TOOLS = [
     MANAGE_MESSAGES_TOOL,
     DELETE_MESSAGE_TOOL,
     DELETE_MESSAGES_BULK_TOOL,
+    PIN_MESSAGE_TOOL,
+    UNPIN_MESSAGE_TOOL,
+    LIST_PINNED_MESSAGES_TOOL,
+    PUBLISH_MESSAGE_TOOL,
+    PIN_MESSAGES_BULK_TOOL,
+    UNPIN_MESSAGES_BULK_TOOL,
     // Sticker Management
     CREATE_STICKER_TOOL,
     DELETE_STICKER_TOOL,

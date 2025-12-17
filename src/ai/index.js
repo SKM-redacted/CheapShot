@@ -4,7 +4,7 @@ import { AIClient } from './aiClient.js';
 import { RequestQueue } from './queue.js';
 import { ImageQueue } from './imageQueue.js';
 import { ImageClient, TOOLS } from './imageClient.js';
-import { handleCreateVoiceChannel, handleCreateTextChannel, handleCreateCategory, handleDeleteChannel, handleDeleteChannelsBulk, handleListChannels, handleGetServerInfo, handleSetupServerStructure, handleConfigureChannelPermissions, handleEditTextChannel, handleEditVoiceChannel, handleEditCategory, handleEditChannelsBulk, handleCreateRole, handleDeleteRole, handleDeleteRolesBulk, handleEditRole, handleListRoles, handleAssignRole, handleSetupRoles, handleJoinVoice, handleLeaveVoice, handleVoiceConversation, handleMoveMember, handleMoveMembersBulk, handleListVoiceChannels, handleCheckPerms, handleListRolePermissions, handleSearchMembers, handleKickMember, handleBanMember, handleTimeoutMember, handleManageMessages, handleRenameChannel, handleMoveChannel, handleDeleteMessage, handleDeleteMessagesBulk, handleCreateSticker, handleDeleteSticker, handleListStickers, handleCreateStickersBulk, handleDeleteStickersBulk } from './discordTools.js';
+import { handleCreateVoiceChannel, handleCreateTextChannel, handleCreateCategory, handleDeleteChannel, handleDeleteChannelsBulk, handleListChannels, handleGetServerInfo, handleSetupServerStructure, handleConfigureChannelPermissions, handleEditTextChannel, handleEditVoiceChannel, handleEditCategory, handleEditChannelsBulk, handleCreateRole, handleDeleteRole, handleDeleteRolesBulk, handleEditRole, handleListRoles, handleAssignRole, handleSetupRoles, handleJoinVoice, handleLeaveVoice, handleVoiceConversation, handleMoveMember, handleMoveMembersBulk, handleListVoiceChannels, handleCheckPerms, handleListRolePermissions, handleSearchMembers, handleKickMember, handleBanMember, handleTimeoutMember, handleManageMessages, handleRenameChannel, handleMoveChannel, handleDeleteMessage, handleDeleteMessagesBulk, handleCreateSticker, handleDeleteSticker, handleListStickers, handleCreateStickersBulk, handleDeleteStickersBulk, handlePinMessage, handleUnpinMessage, handleListPinnedMessages, handlePublishMessage, handlePinMessagesBulk, handleUnpinMessagesBulk, handlePublishMessagesBulk } from './discordTools.js';
 import { checkToolPermission } from './permissionChecker.js';
 import { executeToolLoop, buildActionsContext } from './toolExecutionLoop.js';
 // Note: Server setup is now handled through AI tool calling (setup_server_structure)
@@ -183,6 +183,24 @@ async function executeSingleTool(toolCall, context) {
 
         case 'delete_stickers_bulk':
             return await handleDeleteStickersBulk(guild, toolCall.arguments);
+
+        case 'pin_message':
+            return await handlePinMessage(guild, toolCall.arguments, { message: context.message });
+
+        case 'unpin_message':
+            return await handleUnpinMessage(guild, toolCall.arguments, { message: context.message });
+
+        case 'list_pinned_messages':
+            return await handleListPinnedMessages(guild, toolCall.arguments, { message: context.message });
+
+        case 'publish_message':
+            return await handlePublishMessage(guild, toolCall.arguments, { message: context.message });
+
+        case 'pin_messages_bulk':
+            return await handlePinMessagesBulk(guild, toolCall.arguments, { message: context.message });
+
+        case 'unpin_messages_bulk':
+            return await handleUnpinMessagesBulk(guild, toolCall.arguments, { message: context.message });
 
         default:
             logger.warn('TOOL', `Unknown tool: ${toolCall.name}`);
@@ -386,6 +404,33 @@ function formatToolResultMessage(toolName, result) {
                 deleteStickerMsg += ` (${result.failed} failed)`;
             }
             return deleteStickerMsg;
+
+        case 'pin_message':
+            return `📌 ${result.message || 'Pinned message'}`;
+
+        case 'unpin_message':
+            return `📍 ${result.message || 'Unpinned message'}`;
+
+        case 'list_pinned_messages':
+            // reconnaissance tool
+            return null;
+
+        case 'publish_message':
+            return `📣 ${result.message || 'Published message'}`;
+
+        case 'pin_messages_bulk':
+            let pinBulkMsg = `📌 **${result.message}**`;
+            if (result.failed > 0) {
+                pinBulkMsg += ` (${result.failed} failed)`;
+            }
+            return pinBulkMsg;
+
+        case 'unpin_messages_bulk':
+            let unpinBulkMsg = `📍 **${result.message}**`;
+            if (result.failed > 0) {
+                unpinBulkMsg += ` (${result.failed} failed)`;
+            }
+            return unpinBulkMsg;
 
         default:
             return `✅ Completed ${toolName}`;
