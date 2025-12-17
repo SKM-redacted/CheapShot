@@ -17,6 +17,7 @@ import { voiceClient } from './voiceClient.js';
 import { ttsClient } from './ttsClient.js';
 import { voiceCommands, handleVoiceCommand } from './voiceCommands.js';
 import { voiceMemory } from './voiceMemory.js';
+import { extractImagesFromMessage, hasImages } from './imageUtils.js';
 
 // Initialize clients and queues
 const aiClient = new AIClient();
@@ -492,19 +493,36 @@ async function handleMessage(message, bot) {
 
     let userMessage = message.content.replace(/<@!?\d+>/g, '').trim();
 
-    if (!userMessage) {
+    // Extract images from the message (attachments, embeds, URLs)
+    let messageImages = [];
+    if (hasImages(message)) {
+        logger.info('IMAGE', `Extracting images from message by ${message.author.tag}`);
+        messageImages = await extractImagesFromMessage(message);
+        if (messageImages.length > 0) {
+            logger.info('IMAGE', `Found ${messageImages.length} image(s) to process`);
+        }
+    }
+
+    // Allow messages with only images (no text) for vision analysis
+    if (!userMessage && messageImages.length === 0) {
         await message.reply('Hey! How can I help you? Just ask me anything! 🎯');
         return;
     }
 
+    // If no text but has images, provide a default prompt
+    if (!userMessage && messageImages.length > 0) {
+        userMessage = 'What\'s in this image?';
+    }
+
     logger.message(message.author.tag, userMessage, message.channel.id);
 
-    // Add to context store
+    // Add to context store (with images if present)
     await contextStore.addUserMessage(
         message.channel.id,
         message.author.id,
         message.author.tag,
-        userMessage
+        userMessage,
+        messageImages.length > 0 ? messageImages : null
     );
 
     // Add pending request
@@ -525,13 +543,13 @@ async function handleMessage(message, bot) {
             // All bots at capacity, queue the request
             await requestQueue.enqueue(async () => {
                 selectedBot = loadBalancer.pickBot(message.channel.id) || bot;
-                await handleAIResponse(message, userMessage, selectedBot, requestId);
+                await handleAIResponse(message, userMessage, selectedBot, requestId, messageImages);
             });
         } else {
             // Bot available, process immediately
             botManager.startRequest(selectedBot);
             try {
-                await handleAIResponse(message, userMessage, selectedBot, requestId);
+                await handleAIResponse(message, userMessage, selectedBot, requestId, messageImages);
             } finally {
                 botManager.endRequest(selectedBot);
             }
@@ -551,8 +569,9 @@ async function handleMessage(message, bot) {
  * @param {string} userMessage - User's message content
  * @param {Object} bot - Selected bot for this request
  * @param {string} requestId - Pending request ID
+ * @param {Array} images - Optional array of images extracted from the message
  */
-async function handleAIResponse(message, userMessage, bot, requestId) {
+async function handleAIResponse(message, userMessage, bot, requestId, images = []) {
     // NOTE: Server setup is now handled naturally through AI tool calling
     // The AI will use setup_server_structure for bulk creation, which executes in parallel
     // This allows the AI to reason about what structure to create rather than forcing keyword-based actions
@@ -654,8 +673,13 @@ async function handleAIResponse(message, userMessage, bot, requestId) {
         logger.debug('STREAM', `Burst streaming enabled, ${botCount} bots available for parallel requests`);
     }
 
+    // Show different thinking message if processing images
+    const thinkingMessage = images.length > 0
+        ? `🖼️ *Analyzing ${images.length} image${images.length > 1 ? 's' : ''}...*`
+        : '🤔 *Thinking...*';
+
     try {
-        replyMessage = await message.reply('🤔 *Thinking...*');
+        replyMessage = await message.reply(thinkingMessage);
         lastEditTime = Date.now();
 
         // Record the initial send
@@ -663,16 +687,17 @@ async function handleAIResponse(message, userMessage, bot, requestId) {
             botManager.recordBotAction(bot, message.channel.id);
         }
 
-        logger.aiRequest(message.author.tag, userMessage);
+        logger.aiRequest(message.author.tag, userMessage + (images.length > 0 ? ` [+${images.length} images]` : ''));
 
-        // Get context-aware messages for AI
+        // Get context-aware messages for AI (includes images if present)
         const contextMessages = await contextStore.getContextSnapshot(
             message.channel.id,
             config.systemPrompt,
             {
                 userId: message.author.id,
                 username: message.author.tag,
-                content: userMessage
+                content: userMessage,
+                images: images.length > 0 ? images : undefined
             }
         );
 

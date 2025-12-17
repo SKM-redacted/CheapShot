@@ -77,9 +77,10 @@ class ContextStore {
      * @param {string} userId 
      * @param {string} username 
      * @param {string} content 
+     * @param {Array} images - Optional array of image data from extractImagesFromMessage
      * @returns {Promise<Object>} The added message
      */
-    async addUserMessage(channelId, userId, username, content) {
+    async addUserMessage(channelId, userId, username, content, images = null) {
         const release = await this.acquireLock(channelId);
 
         try {
@@ -93,8 +94,18 @@ class ContextStore {
                 content
             };
 
+            // Store images if provided (for vision API support)
+            if (images && images.length > 0) {
+                message.images = images;
+            }
+
             context.messages.push(message);
             context.tokenCount += this.estimateTokens(content);
+
+            // Images add significantly to context size (estimate ~1000 tokens per image)
+            if (images && images.length > 0) {
+                context.tokenCount += images.length * 1000;
+            }
 
             // Trim if over limit
             this.trimContextIfNeeded(context);
@@ -186,7 +197,7 @@ class ContextStore {
      * Get a snapshot of channel context for AI request
      * @param {string} channelId 
      * @param {string} systemPrompt 
-     * @param {Object} currentRequest - { userId, username, content }
+     * @param {Object} currentRequest - { userId, username, content, images? }
      * @returns {Promise<Array>} Messages array for AI
      */
     async getContextSnapshot(channelId, systemPrompt, currentRequest) {
@@ -200,6 +211,8 @@ class ContextStore {
         });
 
         // Historical messages with timestamps and usernames
+        // Note: We don't include historical images to avoid context bloat
+        // Only the current request's images are sent
         for (const msg of context.messages) {
             const timestamp = new Date(msg.timestamp).toLocaleTimeString('en-US', {
                 hour: 'numeric',
@@ -209,9 +222,15 @@ class ContextStore {
             });
 
             if (msg.role === 'user') {
+                // For historical messages, just include text (no images to save context)
+                const textContent = `[${timestamp}] [${msg.username}]: ${msg.content}`;
+
+                // Add a note if the message had images
+                const imageNote = msg.images?.length > 0 ? ` [${msg.images.length} image(s) attached]` : '';
+
                 messages.push({
                     role: 'user',
-                    content: `[${timestamp}] [${msg.username}]: ${msg.content}`
+                    content: textContent + imageNote
                 });
             } else {
                 messages.push({
@@ -237,7 +256,7 @@ class ContextStore {
             });
         }
 
-        // Current request (highlighted)
+        // Current request (highlighted) - with images if present
         const currentTimestamp = new Date().toLocaleTimeString('en-US', {
             hour: 'numeric',
             minute: '2-digit',
@@ -245,10 +264,36 @@ class ContextStore {
             hour12: true
         });
 
-        messages.push({
-            role: 'user',
-            content: `[${currentTimestamp}] [${currentRequest.username}]: ${currentRequest.content}\n\n[You are responding to this message]`
-        });
+        const currentText = `[${currentTimestamp}] [${currentRequest.username}]: ${currentRequest.content}\n\n[You are responding to this message]`;
+
+        // If current request has images, use multi-part content format (Vision API)
+        if (currentRequest.images && currentRequest.images.length > 0) {
+            const content = [
+                { type: 'text', text: currentText }
+            ];
+
+            // Add images in Vision API format
+            for (const img of currentRequest.images) {
+                if (img.base64 && img.mimeType) {
+                    content.push({
+                        type: 'image_url',
+                        image_url: {
+                            url: `data:${img.mimeType};base64,${img.base64}`
+                        }
+                    });
+                }
+            }
+
+            messages.push({
+                role: 'user',
+                content: content
+            });
+        } else {
+            messages.push({
+                role: 'user',
+                content: currentText
+            });
+        }
 
         return messages;
     }
