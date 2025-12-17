@@ -17,7 +17,11 @@ import { voiceClient } from './voiceClient.js';
 import { ttsClient } from './ttsClient.js';
 import { voiceCommands, handleVoiceCommand } from './voiceCommands.js';
 import { voiceMemory } from './voiceMemory.js';
+<<<<<<< Updated upstream
 import { extractImagesFromMessage, hasImages } from './imageUtils.js';
+=======
+import { generationTracker } from './generationTracker.js';
+>>>>>>> Stashed changes
 
 // Initialize clients and queues
 const aiClient = new AIClient();
@@ -533,6 +537,13 @@ async function handleMessage(message, bot) {
         userMessage
     );
 
+    // Start tracking this generation (will cancel previous tool-calling generation if exists)
+    const abortController = generationTracker.startGeneration(
+        message.author.id,
+        message.channel.id,
+        requestId
+    );
+
     await message.channel.sendTyping();
 
     try {
@@ -542,14 +553,27 @@ async function handleMessage(message, bot) {
         if (!selectedBot) {
             // All bots at capacity, queue the request
             await requestQueue.enqueue(async () => {
+                // Check if cancelled while waiting in queue
+                if (abortController.signal.aborted) {
+                    logger.info('QUEUE', `Request ${requestId} was cancelled while in queue`);
+                    return;
+                }
                 selectedBot = loadBalancer.pickBot(message.channel.id) || bot;
+<<<<<<< Updated upstream
                 await handleAIResponse(message, userMessage, selectedBot, requestId, messageImages);
+=======
+                await handleAIResponse(message, userMessage, selectedBot, requestId, abortController);
+>>>>>>> Stashed changes
             });
         } else {
             // Bot available, process immediately
             botManager.startRequest(selectedBot);
             try {
+<<<<<<< Updated upstream
                 await handleAIResponse(message, userMessage, selectedBot, requestId, messageImages);
+=======
+                await handleAIResponse(message, userMessage, selectedBot, requestId, abortController);
+>>>>>>> Stashed changes
             } finally {
                 botManager.endRequest(selectedBot);
             }
@@ -558,8 +582,9 @@ async function handleMessage(message, bot) {
         logger.error('QUEUE', 'Queue error', error);
         await message.reply('❌ Sorry, I encountered an error. Please try again later.');
     } finally {
-        // Remove pending request
+        // Remove pending request and end generation tracking
         await contextStore.removePendingRequest(message.channel.id, requestId);
+        generationTracker.endGeneration(message.author.id, requestId);
     }
 }
 
@@ -569,9 +594,15 @@ async function handleMessage(message, bot) {
  * @param {string} userMessage - User's message content
  * @param {Object} bot - Selected bot for this request
  * @param {string} requestId - Pending request ID
+<<<<<<< Updated upstream
  * @param {Array} images - Optional array of images extracted from the message
  */
 async function handleAIResponse(message, userMessage, bot, requestId, images = []) {
+=======
+ * @param {AbortController} abortController - Controller for cancellation
+ */
+async function handleAIResponse(message, userMessage, bot, requestId, abortController) {
+>>>>>>> Stashed changes
     // NOTE: Server setup is now handled naturally through AI tool calling
     // The AI will use setup_server_structure for bulk creation, which executes in parallel
     // This allows the AI to reason about what structure to create rather than forcing keyword-based actions
@@ -786,6 +817,13 @@ async function handleAIResponse(message, userMessage, bot, requestId, images = [
 
                 // Execute pending tool calls with multi-step loop
                 if (pendingToolCalls.length > 0) {
+                    // Check if cancelled before starting tool execution
+                    if (abortController?.signal?.aborted) {
+                        logger.info('TOOL_LOOP', `Generation ${requestId} was cancelled before tool execution`);
+                        await message.channel.send('\u26a0\ufe0f *Previous request cancelled - processing your new message instead*');
+                        return;
+                    }
+
                     // Get member for permission checks
                     const member = message.guild?.members?.cache?.get(message.author.id)
                         || await message.guild?.members?.fetch(message.author.id).catch(() => null);
@@ -804,6 +842,13 @@ async function handleAIResponse(message, userMessage, bot, requestId, images = [
 
                     // Execute tool loop
                     while (currentToolCalls.length > 0 && loopIteration < MAX_LOOP_ITERATIONS) {
+                        // Check for cancellation at the start of each iteration
+                        if (abortController?.signal?.aborted) {
+                            logger.info('TOOL_LOOP', `Generation ${requestId} was cancelled, stopping tool loop`);
+                            await message.channel.send('⚠️ *Previous request cancelled - processing your new message instead*');
+                            break;
+                        }
+
                         loopIteration++;
                         logger.debug('TOOL_LOOP', `Iteration ${loopIteration}, executing ${currentToolCalls.length} tool(s) in parallel`);
 
@@ -993,6 +1038,8 @@ You have completed the above action(s). Based on the results and the user's orig
             async (toolCall) => {
                 logger.toolCall(toolCall.name, toolCall.arguments);
                 pendingToolCalls.push(toolCall);
+                // Mark this generation as having tool calls (makes it eligible for cancellation)
+                generationTracker.markHasToolCalls(message.author.id);
             }
         );
     } catch (error) {
