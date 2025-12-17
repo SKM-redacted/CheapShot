@@ -2,49 +2,127 @@
  * Moderation AI Client
  * 
  * Handles AI API calls for moderation analysis.
- * Uses simplified response format to avoid refusals.
+ * Uses pattern matching for obvious violations, AI for ambiguous cases.
  */
 
 import { config } from '../../ai/config.js';
+import { logger } from '../../ai/logger.js';
 import { MODERATION_CONFIG } from './constants.js';
 
 /**
+ * Check for obvious violations using patterns (before AI)
+ * Returns severity if detected, null otherwise
+ */
+export function checkPatterns(content) {
+    // Severity 4 - Immediate timeout (worst violations)
+    const severity4Patterns = [
+        // Racial slurs - multiple variations
+        /n[i1!l]gg[e3a@]/i,
+        /n[i1!l]g+[e3a@]r/i,
+        /n[i1!l]g+a/i,
+        // Other severe slurs
+        /f[a@4]gg?[o0]t/i,
+        /f[a@4]g\b/i,
+        /\bk[i1!]ke\b/i,
+        /\bch[i1!]nk\b/i,
+        /\bsp[i1!]c\b/i,
+        /\bsp[i1!]ck\b/i,
+        /\btr[a@4]nn[yi1!e]/i,
+        /\btr[o0]on\b/i,
+        /\bc[o0][o0]n\b/i,
+        /\bgook\b/i,
+        /\bwetback/i,
+        /\bbeaner/i,
+        // Threats
+        /\b(kill|murder|shoot|stab)\s*(you|yourself|urself|u|your\s*family)/i,
+        /\bkys\b/i,
+        /\bkill\s*your\s*self/i,
+        /\bdie\s+in\s+a\s+fire/i,
+        /\bget\s+cancer/i,
+        /\bhope\s+(you|u)\s+(die|get\s+cancer)/i,
+        // Scam/phishing patterns
+        /free\s+(nudes?|nitro|robux|vbucks|gift\s*card)/i,
+        /click\s+(this|here|the)\s*(link|url)/i,
+        /(discord\.gift|discordgift|steamcommunity\.ru|discorde?\.com)/i,
+        /\bfree\s+(?:discord\s+)?nitro\b/i,
+        /\bsteam\s+gift/i,
+    ];
+
+    for (const pattern of severity4Patterns) {
+        if (pattern.test(content)) {
+            logger.debug('MODERATION', `Pattern match (severity 4): ${pattern}`);
+            return 4;
+        }
+    }
+
+    // Severity 3 - Delete + Warning (serious but not extreme)
+    const severity3Patterns = [
+        /\b(fuck|shit|bitch)\s*(you|off|u)\b/i,
+        /\bstfu\b/i,
+        /\bretard(ed)?\b/i,
+        /\bautist(ic)?\b/i,
+        /\bkill\s*(myself|yourself)/i,
+        /\bgo\s+fuck\s+(yourself|urself)/i,
+        /\bpiece\s+of\s+shit\b/i,
+        /\bfuck\s+off\b/i,
+        /\bshut\s+(the\s+)?fuck\s+up\b/i,
+    ];
+
+    for (const pattern of severity3Patterns) {
+        if (pattern.test(content)) {
+            logger.debug('MODERATION', `Pattern match (severity 3): ${pattern}`);
+            return 3;
+        }
+    }
+
+    // Severity 2 - Warning (rude but not severe)
+    const severity2Patterns = [
+        /\bidiot\b/i,
+        /\bstupid\b/i,
+        /\bdumbass\b/i,
+        /\bmoron\b/i,
+        /\bloser\b/i,
+        /\bpathetic\b/i,
+    ];
+
+    for (const pattern of severity2Patterns) {
+        if (pattern.test(content)) {
+            logger.debug('MODERATION', `Pattern match (severity 2): ${pattern}`);
+            return 2;
+        }
+    }
+
+    return null; // Let AI decide
+}
+
+/**
  * Build the moderation system prompt
- * @param {string} rules - Server rules
- * @returns {string}
  */
 export function buildSystemPrompt(rules) {
-    return `You are a content moderation classifier. Rate message severity 0-4:
-
-0 = Normal/fine message
-1 = Mildly rude or off-topic  
-2 = Insults, minor harassment
-3 = Serious harassment, hate, slurs
-4 = Extreme: racial slurs, death threats, doxxing, CSAM
-
-CRITICAL: Racial slurs (n-word, etc) = ALWAYS 4
-Homophobic/transphobic slurs = ALWAYS 3-4
-Direct threats = ALWAYS 4
-
-Server rules summary: Be respectful, no hate speech, no harassment.
-
-Reply with ONLY the number 0-4. Nothing else.`;
+    return `Rate Discord message severity 0-4. Reply with just the number.
+0=fine 1=minor 2=rude 3=harassment 4=extreme
+Most normal messages are 0.`;
 }
 
 /**
  * Send a moderation request to the AI
- * @param {string} content - Message to analyze
- * @param {string} rules - Server rules
- * @returns {Promise<string|null>}
  */
 export async function sendModerationRequest(content, rules) {
+    // First check patterns for obvious violations
+    const patternSeverity = checkPatterns(content);
+    if (patternSeverity !== null) {
+        logger.info('MODERATION', `Pattern detected severity ${patternSeverity}`);
+        return patternSeverity.toString();
+    }
+
+    // Let AI handle ambiguous cases
     const url = `${config.onyxApiBase}/v1/chat/completions`;
 
     const body = {
         model: config.gatekeeperModel || config.aiModel,
         messages: [
             { role: 'system', content: buildSystemPrompt(rules) },
-            { role: 'user', content: `Rate this message: "${content}"` }
+            { role: 'user', content: `Rate: "${content}"` }
         ],
         stream: false,
         max_tokens: 5

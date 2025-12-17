@@ -51,6 +51,11 @@ export {
     getWarningDecayHours
 } from './warningTracker.js';
 
+// Action Executor
+export {
+    executeActions
+} from './actionExecutor.js';
+
 // Analyzer
 export {
     analyzeMessage,
@@ -77,5 +82,5 @@ export function setupModeration(botManager) {
         logger.debug('MODERATION', 'Rules cache cleared');
     }, MODERATION_CONFIG.RULES_CACHE_MINUTES * 60 * 1000);
 
-    logger.info('MODERATION', 'Initialized - warning system active');
+    logger.info('MODERATION', 'Initialized - auto-moderation active');
 }
