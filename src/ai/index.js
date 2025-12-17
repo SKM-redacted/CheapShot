@@ -4,7 +4,7 @@ import { AIClient } from './aiClient.js';
 import { RequestQueue } from './queue.js';
 import { ImageQueue } from './imageQueue.js';
 import { ImageClient, TOOLS } from './imageClient.js';
-import { handleCreateVoiceChannel, handleCreateTextChannel, handleCreateCategory, handleDeleteChannel, handleDeleteChannelsBulk, handleListChannels, handleGetServerInfo, handleSetupServerStructure, handleConfigureChannelPermissions, handleEditTextChannel, handleEditVoiceChannel, handleEditCategory, handleEditChannelsBulk, handleCreateRole, handleDeleteRole, handleDeleteRolesBulk, handleEditRole, handleListRoles, handleAssignRole, handleSetupRoles, handleJoinVoice, handleLeaveVoice, handleVoiceConversation, handleMoveMember, handleMoveMembersBulk, handleListVoiceChannels, handleCheckPerms, handleListRolePermissions, handleKickMember, handleBanMember, handleTimeoutMember, handleManageMessages, handleRenameChannel, handleMoveChannel } from './discordTools.js';
+import { handleCreateVoiceChannel, handleCreateTextChannel, handleCreateCategory, handleDeleteChannel, handleDeleteChannelsBulk, handleListChannels, handleGetServerInfo, handleSetupServerStructure, handleConfigureChannelPermissions, handleEditTextChannel, handleEditVoiceChannel, handleEditCategory, handleEditChannelsBulk, handleCreateRole, handleDeleteRole, handleDeleteRolesBulk, handleEditRole, handleListRoles, handleAssignRole, handleSetupRoles, handleJoinVoice, handleLeaveVoice, handleVoiceConversation, handleMoveMember, handleMoveMembersBulk, handleListVoiceChannels, handleCheckPerms, handleListRolePermissions, handleSearchMembers, handleKickMember, handleBanMember, handleTimeoutMember, handleManageMessages, handleRenameChannel, handleMoveChannel } from './discordTools.js';
 import { checkToolPermission } from './permissionChecker.js';
 import { executeToolLoop, buildActionsContext } from './toolExecutionLoop.js';
 // Note: Server setup is now handled through AI tool calling (setup_server_structure)
@@ -138,6 +138,9 @@ async function executeSingleTool(toolCall, context) {
 
         case 'list_role_permissions':
             return await handleListRolePermissions(guild, toolCall.arguments);
+
+        case 'search_members':
+            return await handleSearchMembers(guild, toolCall.arguments);
 
         case 'kick_member':
             return await handleKickMember(guild, toolCall.arguments);
@@ -307,6 +310,10 @@ function formatToolResultMessage(toolName, result) {
 
         case 'check_perms':
             return result.summary;
+
+        case 'search_members':
+            // Show the search results to help the AI (and user) identify the right member
+            return result.summary || result.message || `Found ${result.count || 0} member(s)`;
 
         case 'kick_member':
             return `👢 ${result.message || `Kicked **${result.member?.name}** from the server`}`;

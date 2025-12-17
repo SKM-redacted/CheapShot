@@ -35,6 +35,7 @@ const TOOL_PERMISSIONS = {
     'move_member': [PermissionFlagsBits.MoveMembers],
     'move_members_bulk': [PermissionFlagsBits.MoveMembers],
     'manage_messages': [PermissionFlagsBits.ManageMessages],
+    'search_members': [PermissionFlagsBits.ModerateMembers],
     'list_channels': [PermissionFlagsBits.ManageChannels],
     'get_server_info': [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageRoles],
     'configure_channel_permissions': [PermissionFlagsBits.ManageChannels],
@@ -53,16 +54,83 @@ const TOOL_PERMISSIONS = {
 
 /**
  * Human-readable permission names for error messages
+ * This is a comprehensive list of ALL Discord permissions
  */
 const PERMISSION_NAMES = {
-    [PermissionFlagsBits.ManageChannels]: 'Manage Channels',
+    // ============================================================
+    // GENERAL SERVER PERMISSIONS
+    // ============================================================
+    [PermissionFlagsBits.Administrator]: 'Administrator',
+    [PermissionFlagsBits.ViewAuditLog]: 'View Audit Log',
+    [PermissionFlagsBits.ViewGuildInsights]: 'View Server Insights',
+    [PermissionFlagsBits.ManageGuild]: 'Manage Server',
     [PermissionFlagsBits.ManageRoles]: 'Manage Roles',
+    [PermissionFlagsBits.ManageChannels]: 'Manage Channels',
     [PermissionFlagsBits.KickMembers]: 'Kick Members',
     [PermissionFlagsBits.BanMembers]: 'Ban Members',
+    [PermissionFlagsBits.CreateInstantInvite]: 'Create Invite',
+    [PermissionFlagsBits.ChangeNickname]: 'Change Nickname',
+    [PermissionFlagsBits.ManageNicknames]: 'Manage Nicknames',
+    [PermissionFlagsBits.ManageGuildExpressions]: 'Manage Expressions',
+    [PermissionFlagsBits.CreateGuildExpressions]: 'Create Expressions',
+    [PermissionFlagsBits.ManageWebhooks]: 'Manage Webhooks',
+    [PermissionFlagsBits.ViewChannel]: 'View Channels',
     [PermissionFlagsBits.ModerateMembers]: 'Timeout Members',
-    [PermissionFlagsBits.MoveMembers]: 'Move Members',
+
+    // ============================================================
+    // TEXT CHANNEL PERMISSIONS
+    // ============================================================
+    [PermissionFlagsBits.SendMessages]: 'Send Messages',
+    [PermissionFlagsBits.SendTTSMessages]: 'Send TTS Messages',
     [PermissionFlagsBits.ManageMessages]: 'Manage Messages',
-    [PermissionFlagsBits.Administrator]: 'Administrator',
+    [PermissionFlagsBits.EmbedLinks]: 'Embed Links',
+    [PermissionFlagsBits.AttachFiles]: 'Attach Files',
+    [PermissionFlagsBits.ReadMessageHistory]: 'Read Message History',
+    [PermissionFlagsBits.MentionEveryone]: 'Mention @everyone',
+    [PermissionFlagsBits.UseExternalEmojis]: 'Use External Emojis',
+    [PermissionFlagsBits.UseExternalStickers]: 'Use External Stickers',
+    [PermissionFlagsBits.AddReactions]: 'Add Reactions',
+    [PermissionFlagsBits.ManageThreads]: 'Manage Threads',
+    [PermissionFlagsBits.CreatePublicThreads]: 'Create Public Threads',
+    [PermissionFlagsBits.CreatePrivateThreads]: 'Create Private Threads',
+    [PermissionFlagsBits.SendMessagesInThreads]: 'Send Messages in Threads',
+    [PermissionFlagsBits.UseApplicationCommands]: 'Use Application Commands',
+
+    // ============================================================
+    // VOICE CHANNEL PERMISSIONS
+    // ============================================================
+    [PermissionFlagsBits.Connect]: 'Connect',
+    [PermissionFlagsBits.Speak]: 'Speak',
+    [PermissionFlagsBits.Stream]: 'Video/Stream',
+    [PermissionFlagsBits.MuteMembers]: 'Mute Members',
+    [PermissionFlagsBits.DeafenMembers]: 'Deafen Members',
+    [PermissionFlagsBits.MoveMembers]: 'Move Members',
+    [PermissionFlagsBits.UseVAD]: 'Use Voice Activity',
+    [PermissionFlagsBits.PrioritySpeaker]: 'Priority Speaker',
+    [PermissionFlagsBits.UseSoundboard]: 'Use Soundboard',
+    [PermissionFlagsBits.UseExternalSounds]: 'Use External Sounds',
+    [PermissionFlagsBits.SendVoiceMessages]: 'Send Voice Messages',
+
+    // ============================================================
+    // STAGE CHANNEL PERMISSIONS
+    // ============================================================
+    [PermissionFlagsBits.RequestToSpeak]: 'Request to Speak',
+
+    // ============================================================
+    // EVENTS PERMISSIONS
+    // ============================================================
+    [PermissionFlagsBits.ManageEvents]: 'Manage Events',
+    [PermissionFlagsBits.CreateEvents]: 'Create Events',
+
+    // ============================================================
+    // MONETIZATION PERMISSIONS
+    // ============================================================
+    [PermissionFlagsBits.ViewCreatorMonetizationAnalytics]: 'View Monetization Analytics',
+
+    // ============================================================
+    // APPS/ACTIVITIES PERMISSIONS
+    // ============================================================
+    [PermissionFlagsBits.UseEmbeddedActivities]: 'Use Activities',
 };
 
 /**

@@ -974,7 +974,7 @@ export const KICK_MEMBER_TOOL = {
     type: "function",
     function: {
         name: "kick_member",
-        description: "Kick a member from the Discord server. They can rejoin with an invite. Use this when someone asks to kick a user.",
+        description: "Kick a member from the Discord server. They can rejoin with an invite. IMPORTANT: If you can't find a member, use search_members first to find them by name and get their exact username or ID.",
         parameters: {
             type: "object",
             properties: {
@@ -999,7 +999,7 @@ export const BAN_MEMBER_TOOL = {
     type: "function",
     function: {
         name: "ban_member",
-        description: "Ban a member from the Discord server. They cannot rejoin unless unbanned. Use this for serious rule violations.",
+        description: "Ban a member from the Discord server. They cannot rejoin unless unbanned. IMPORTANT: If you can't find a member, use search_members first to find them by name and get their exact username or ID.",
         parameters: {
             type: "object",
             properties: {
@@ -1028,7 +1028,7 @@ export const TIMEOUT_MEMBER_TOOL = {
     type: "function",
     function: {
         name: "timeout_member",
-        description: "Timeout (mute) a member for a specified duration. They won't be able to send messages or speak in voice channels. Use this for minor infractions.",
+        description: "Timeout (mute) a member for a specified duration. They won't be able to send messages or speak in voice channels. IMPORTANT: If you can't find a member, use search_members first to find them by name and get their exact username or ID.",
         parameters: {
             type: "object",
             properties: {
@@ -1182,6 +1182,33 @@ export const LIST_ROLE_PERMISSIONS_TOOL = {
     }
 };
 
+/**
+ * Tool definition for searching/finding members in the server
+ * IMPORTANT: Use this BEFORE moderation actions (kick, ban, timeout) if you're unsure of the exact username
+ * This returns matching members with their IDs so you can target the correct user
+ */
+export const SEARCH_MEMBERS_TOOL = {
+    type: "function",
+    function: {
+        name: "search_members",
+        description: "Search for members in the server by name. IMPORTANT: Use this BEFORE kick_member, ban_member, or timeout_member if you can't find a user. Returns up to 10 matching members with their IDs, usernames, and nicknames. This helps you find the correct user even in large servers with millions of members.",
+        parameters: {
+            type: "object",
+            properties: {
+                query: {
+                    type: "string",
+                    description: "The name to search for. Can be a partial username, display name, or nickname."
+                },
+                limit: {
+                    type: "integer",
+                    description: "Optional: Maximum number of results to return (1-25). Default is 10."
+                }
+            },
+            required: ["query"]
+        }
+    }
+};
+
 // ============================================================
 // TOOL COLLECTIONS
 // ============================================================
@@ -1228,7 +1255,8 @@ export const DISCORD_TOOLS = [
     MANAGE_MESSAGES_TOOL,
     // Utility
     CHECK_PERMS_TOOL,
-    LIST_ROLE_PERMISSIONS_TOOL
+    LIST_ROLE_PERMISSIONS_TOOL,
+    SEARCH_MEMBERS_TOOL
 ];
 
 /**
