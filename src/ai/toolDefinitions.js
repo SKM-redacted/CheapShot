@@ -1090,13 +1090,13 @@ export const DELETE_MESSAGE_TOOL = {
     type: "function",
     function: {
         name: "delete_message",
-        description: "Delete a single message by its message ID. Use this when someone asks you to delete a specific message. You need the message ID which can be obtained by right-clicking a message in Discord with developer mode enabled.",
+        description: "Delete a single message. If the user is replying to a message, you do NOT need to provide the message_id - the replied-to message will be deleted. Only provide message_id if you need to delete a specific message by ID (e.g., from list_messages).",
         parameters: {
             type: "object",
             properties: {
                 message_id: {
                     type: "string",
-                    description: "The ID of the message to delete."
+                    description: "Optional: The ID of the message to delete. If not provided and the user is replying to a message, that message will be deleted."
                 },
                 channel: {
                     type: "string",
@@ -1107,7 +1107,7 @@ export const DELETE_MESSAGE_TOOL = {
                     description: "Optional: The reason for deleting this message. Will be logged."
                 }
             },
-            required: ["message_id"]
+            required: []
         }
     }
 };
@@ -1451,20 +1451,20 @@ export const PIN_MESSAGE_TOOL = {
     type: "function",
     function: {
         name: "pin_message",
-        description: "Pin a message to the channel. Pinned messages appear in the channel's pins list.",
+        description: "Pin a message to the channel. If the user is replying to a message, you do NOT need to provide the message_id - the replied-to message will be pinned. Only provide message_id if you need to pin a specific message by ID.",
         parameters: {
             type: "object",
             properties: {
                 message_id: {
                     type: "string",
-                    description: "The ID of the message to pin."
+                    description: "Optional: The ID of the message to pin. If not provided and the user is replying to a message, that message will be pinned."
                 },
                 channel: {
                     type: "string",
                     description: "Optional: The name of the channel the message is in. Defaults to current channel."
                 }
             },
-            required: ["message_id"]
+            required: []
         }
     }
 };
@@ -1476,20 +1476,20 @@ export const UNPIN_MESSAGE_TOOL = {
     type: "function",
     function: {
         name: "unpin_message",
-        description: "Unpin a message from the channel.",
+        description: "Unpin a message from the channel. If the user is replying to a message, you do NOT need to provide the message_id - the replied-to message will be unpinned. Only provide message_id if you need to unpin a specific message by ID.",
         parameters: {
             type: "object",
             properties: {
                 message_id: {
                     type: "string",
-                    description: "The ID of the message to unpin."
+                    description: "Optional: The ID of the message to unpin. If not provided and the user is replying to a message, that message will be unpinned."
                 },
                 channel: {
                     type: "string",
                     description: "Optional: The name of the channel the message is in. Defaults to current channel."
                 }
             },
-            required: ["message_id"]
+            required: []
         }
     }
 };
@@ -1522,20 +1522,20 @@ export const PUBLISH_MESSAGE_TOOL = {
     type: "function",
     function: {
         name: "publish_message",
-        description: "Publish a message in an Announcement channel so it is pushed to following servers.",
+        description: "Publish a message in an Announcement channel so it is pushed to following servers. If the user is replying to a message, you do NOT need to provide the message_id - the replied-to message will be published. Only provide message_id if you need to publish a specific message by ID.",
         parameters: {
             type: "object",
             properties: {
                 message_id: {
                     type: "string",
-                    description: "The ID of the message to publish."
+                    description: "Optional: The ID of the message to publish. If not provided and the user is replying to a message, that message will be published."
                 },
                 channel: {
                     type: "string",
                     description: "Optional: The name of the channel the message is in. Defaults to current channel."
                 }
             },
-            required: ["message_id"]
+            required: []
         }
     }
 };
