@@ -1,11 +1,12 @@
 /**
  * Rules Manager
  * 
- * Handles finding, creating, and caching server rules channels.
+ * Handles finding and caching server rules channels.
  * Extracts custom rules or falls back to default rules.
+ * Does NOT create channels - just uses defaults if no rules channel exists.
  */
 
-import { ChannelType, PermissionFlagsBits } from 'discord.js';
+import { ChannelType } from 'discord.js';
 import { logger } from '../../ai/logger.js';
 import { DEFAULT_RULES } from './defaultRules.js';
 
@@ -16,7 +17,7 @@ const guildRulesCache = new Map();
 const rulesChannelCache = new Map();
 
 // Keywords to identify a rules channel
-const RULES_CHANNEL_KEYWORDS = ['rules', 'rule', 'guidelines', 'server-rules', 'community-rules', 'info'];
+const RULES_CHANNEL_KEYWORDS = ['rules', 'rule', 'guidelines', 'server-rules', 'community-rules'];
 
 /**
  * Find a rules channel in the guild
@@ -51,46 +52,6 @@ export function findRulesChannel(guild) {
     }
 
     return null;
-}
-
-/**
- * Create a rules channel with default rules
- * @param {Object} guild - Discord guild
- * @returns {Promise<Object|null>} The created channel or null
- */
-export async function createRulesChannel(guild) {
-    if (!guild) return null;
-
-    try {
-        // Create the rules channel
-        const rulesChannel = await guild.channels.create({
-            name: '📜-rules',
-            type: ChannelType.GuildText,
-            topic: 'Server rules and guidelines - Please read before participating!',
-            permissionOverwrites: [
-                {
-                    id: guild.id, // @everyone
-                    deny: [PermissionFlagsBits.SendMessages], // Read-only
-                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory]
-                }
-            ],
-            reason: 'CheapShot Moderation: Creating rules channel'
-        });
-
-        // Send the default rules
-        await rulesChannel.send(DEFAULT_RULES);
-
-        // Cache the channel
-        rulesChannelCache.set(guild.id, rulesChannel.id);
-        guildRulesCache.set(guild.id, DEFAULT_RULES);
-
-        logger.info('MODERATION', `Created rules channel in ${guild.name}`);
-
-        return rulesChannel;
-    } catch (error) {
-        logger.error('MODERATION', `Failed to create rules channel in ${guild.name}: ${error.message}`);
-        return null;
-    }
 }
 
 /**
@@ -144,6 +105,7 @@ export async function extractRulesFromChannel(channel) {
 /**
  * Get rules for a guild (cached)
  * Custom rules take priority over default rules
+ * If no rules channel exists, uses default rules (doesn't create a channel)
  * 
  * @param {Object} guild - Discord guild
  * @returns {Promise<{rules: string, isCustom: boolean}>} Rules text and whether they're custom
@@ -161,20 +123,13 @@ export async function getGuildRules(guild) {
         };
     }
 
-    // Find or create rules channel
-    let rulesChannel = findRulesChannel(guild);
+    // Find rules channel
+    const rulesChannel = findRulesChannel(guild);
 
     if (!rulesChannel) {
-        // No rules channel found - create one
-        logger.info('MODERATION', `No rules channel found in ${guild.name}, creating one...`);
-        rulesChannel = await createRulesChannel(guild);
-
-        if (rulesChannel) {
-            guildRulesCache.set(cacheKey, DEFAULT_RULES);
-            return { rules: DEFAULT_RULES, isCustom: false };
-        }
-
-        // Failed to create - use defaults anyway
+        // No rules channel found - use defaults (don't create one)
+        guildRulesCache.set(cacheKey, DEFAULT_RULES);
+        logger.debug('MODERATION', `No rules channel in ${guild.name}, using default rules`);
         return { rules: DEFAULT_RULES, isCustom: false };
     }
 
