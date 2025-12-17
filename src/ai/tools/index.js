@@ -133,6 +133,17 @@ export {
 } from './emojiTools.js';
 
 // ============================================================
+// STICKER TOOL EXPORTS
+// ============================================================
+export {
+    handleCreateSticker,
+    handleDeleteSticker,
+    handleListStickers,
+    handleCreateStickersBulk,
+    handleDeleteStickersBulk
+} from './stickerTools.js';
+
+// ============================================================
 // THREAD TOOL EXPORTS
 // ============================================================
 export {

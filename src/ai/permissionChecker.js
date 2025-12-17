@@ -35,6 +35,8 @@ const TOOL_PERMISSIONS = {
     'move_member': [PermissionFlagsBits.MoveMembers],
     'move_members_bulk': [PermissionFlagsBits.MoveMembers],
     'manage_messages': [PermissionFlagsBits.ManageMessages],
+    'delete_message': [PermissionFlagsBits.ManageMessages],
+    'delete_messages_bulk': [PermissionFlagsBits.ManageMessages],
     'search_members': [PermissionFlagsBits.ModerateMembers],
     'list_channels': [PermissionFlagsBits.ManageChannels],
     'get_server_info': [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageRoles],
@@ -44,6 +46,12 @@ const TOOL_PERMISSIONS = {
     'edit_category': [PermissionFlagsBits.ManageChannels],
     'edit_channels_bulk': [PermissionFlagsBits.ManageChannels],
     'check_perms': [PermissionFlagsBits.ManageRoles],
+    // Sticker Management - requires ManageGuildExpressions (newer) or ManageEmojisAndStickers (legacy)
+    'create_sticker': [PermissionFlagsBits.ManageGuildExpressions],
+    'delete_sticker': [PermissionFlagsBits.ManageGuildExpressions],
+    'list_stickers': [PermissionFlagsBits.ManageGuildExpressions],
+    'create_stickers_bulk': [PermissionFlagsBits.ManageGuildExpressions],
+    'delete_stickers_bulk': [PermissionFlagsBits.ManageGuildExpressions],
     // These don't need special permissions
     'generate_image': [],
     'join_voice': [],
@@ -246,6 +254,8 @@ function getToolActionName(toolName) {
         'move_member': 'move members in voice',
         'move_members_bulk': 'move multiple members in voice',
         'manage_messages': 'manage messages',
+        'delete_message': 'delete messages',
+        'delete_messages_bulk': 'delete multiple messages',
         'get_server_info': 'view server information',
         'configure_channel_permissions': 'configure channel permissions',
         'edit_text_channel': 'edit text channels',
@@ -258,6 +268,12 @@ function getToolActionName(toolName) {
         'list_channels': 'list channels',
         'list_role_permissions': 'check role permissions',
         'check_perms': 'check user permissions',
+        // Sticker management
+        'create_sticker': 'create stickers',
+        'delete_sticker': 'delete stickers',
+        'list_stickers': 'list stickers',
+        'create_stickers_bulk': 'create multiple stickers',
+        'delete_stickers_bulk': 'delete multiple stickers',
     };
 
     return actionNames[toolName] || toolName.replace(/_/g, ' ');
