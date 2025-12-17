@@ -70,6 +70,14 @@ import { clearRulesCache } from './rulesManager.js';
  * Setup moderation on bot manager
  */
 export function setupModeration(botManager) {
+    // Check if moderation is enabled via env var (defaults to true if not set)
+    const moderationEnabled = process.env.MODERATION_ENABLED?.toLowerCase() !== 'false';
+
+    if (!moderationEnabled) {
+        logger.info('MODERATION', 'Auto-moderation is DISABLED via MODERATION_ENABLED=false');
+        return;
+    }
+
     for (const bot of botManager.bots) {
         bot.client.on('messageCreate', async (message) => {
             handleModerationMessage(message, bot);
