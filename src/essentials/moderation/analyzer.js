@@ -1,159 +1,94 @@
 /**
  * Message Analyzer
  * 
- * Sends messages to AI for moderation analysis.
- * Uses server rules (custom or default) in the analysis.
+ * Core analysis logic - ties together AI client, parser, and action executor.
  */
 
-import { config } from '../../ai/config.js';
 import { logger } from '../../ai/logger.js';
 import { getGuildRules } from './rulesManager.js';
+import { sendModerationRequest } from './aiClient.js';
+import { parseResponse } from './responseParser.js';
+import { executeActions } from './actionExecutor.js';
 
 /**
- * Build moderation system prompt with rules context
- * @param {string} rules - Server rules
- * @returns {string} System prompt for moderation AI
+ * Build message context for AI
  */
-function getModerationSystemPrompt(rules) {
-    return `You are a content moderation analyzer for a Discord server.
-
-SERVER RULES:
-${rules}
-
-Analyze the following message against these rules. Respond ONLY with a JSON object:
-{
-  "toxicity": 0-10,
-  "spam": 0-10,
-  "rule_violations": ["list of violated rules or empty array"],
-  "risk": "low" | "medium" | "high",
-  "reason": "brief explanation if any issues found"
-}
-
-Be concise. Only flag genuine violations, not borderline cases.`;
-}
-
-/**
- * Make a moderation-focused chat request (non-streaming)
- * 
- * @param {string} content - Message content to analyze
- * @param {string} rules - Server rules for context
- * @returns {Promise<string>} AI response
- */
-async function moderationChat(content, rules) {
-    const url = `${config.onyxApiBase}/v1/chat/completions`;
-
-    const body = {
-        model: config.gatekeeperModel || config.aiModel,
-        messages: [
-            {
-                role: 'system',
-                content: getModerationSystemPrompt(rules)
-            },
-            {
-                role: 'user',
-                content: content
-            }
-        ],
-        stream: false,
-        max_tokens: 200
-    };
-
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-App-Name': 'cheapshot-moderation'
-        },
-        body: JSON.stringify(body)
-    });
-
-    if (!response.ok) {
-        throw new Error(`Moderation API request failed: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content || null;
-}
-
-/**
- * Parse AI moderation response into structured data
- * @param {string} response - Raw AI response
- * @returns {Object|null} Parsed moderation result
- */
-export function parseModerationResponse(response) {
-    if (!response) return null;
-
-    try {
-        // Try to extract JSON from response
-        const jsonMatch = response.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-            return JSON.parse(jsonMatch[0]);
-        }
-    } catch (error) {
-        logger.debug('MODERATION', `Failed to parse response: ${error.message}`);
-    }
-
-    return null;
-}
-
-/**
- * Analyze a message through AI for moderation purposes.
- * The result is logged but not acted upon (goes into limbo).
- * 
- * @param {Object} message - Discord message object
- * @returns {Promise<Object|null>} AI analysis result or null if failed
- */
-export async function analyzeMessage(message) {
-    // Skip bot messages
-    if (message.author.bot) return null;
-
-    // Skip empty messages
-    if (!message.content || message.content.trim().length === 0) return null;
-
-    // Skip DMs
-    if (!message.guild) return null;
-
-    try {
-        // Get rules for this guild (custom rules take priority)
-        const { rules, isCustom } = await getGuildRules(message.guild);
-
-        const messageContext = `
+function buildMessageContext(message) {
+    return `
 Channel: #${message.channel?.name || 'unknown'}
 Author: ${message.author.tag}
 Message: "${message.content}"
 `;
+}
 
-        // Send to AI for analysis
-        const response = await moderationChat(messageContext, rules);
+/**
+ * Analyze a message for rule violations and execute actions
+ * @param {Object} message - Discord message
+ * @returns {Promise<Object|null>}
+ */
+export async function analyzeMessage(message) {
+    // Skip bots, empty, DMs
+    if (message.author.bot) return null;
+    if (!message.content?.trim()) return null;
+    if (!message.guild) return null;
 
-        // Parse the response
-        const parsed = parseModerationResponse(response);
+    try {
+        const { rules, isCustom } = await getGuildRules(message.guild);
+        const context = buildMessageContext(message);
+        const response = await sendModerationRequest(context, rules);
 
-        // Log for debugging (response goes into limbo)
-        if (parsed) {
-            logger.debug('MODERATION',
-                `[${message.guild.name}] ${message.author.tag}: risk=${parsed.risk}, toxicity=${parsed.toxicity}, using ${isCustom ? 'custom' : 'default'} rules`
+        if (!response) {
+            logger.warn('MODERATION', `No response from AI for ${message.author.tag}`);
+            return null;
+        }
+
+        const result = parseResponse(response);
+
+        if (!result) {
+            logger.warn('MODERATION', `Failed to parse: ${response.substring(0, 50)}`);
+            return null;
+        }
+
+        // Log the result
+        logResult(message, result);
+
+        // Execute actions if severity >= 2
+        if (result.severity >= 2) {
+            const { actionsExecuted, warningCount } = await executeActions(message, result);
+            result.actionsExecuted = actionsExecuted;
+            result.warningCount = warningCount;
+
+            logger.info('MODERATION',
+                `⚡ Executed: [${actionsExecuted.join(', ')}] for ${message.author.tag} (warnings: ${warningCount})`
             );
         }
 
-        return parsed;
+        return result;
     } catch (error) {
-        // Silently fail - moderation shouldn't break normal operation
-        logger.error('MODERATION', `Analysis failed: ${error.message}`);
+        logger.error('MODERATION', `Analysis failed for ${message.author.tag}: ${error.message}`);
         return null;
     }
 }
 
 /**
- * Message handler for moderation
- * Called on every message received (fire and forget)
- * 
- * @param {Object} message - Discord message  
- * @param {Object} bot - Bot that received the message
+ * Log analysis result
+ */
+function logResult(message, result) {
+    if (!result) return;
+
+    const emoji = result.severity >= 3 ? '🚨' : result.severity >= 2 ? '⚠️' : '✅';
+
+    logger.info('MODERATION',
+        `${emoji} [${message.guild.name}] ${message.author.tag}: severity=${result.severity}, ` +
+        `actions=[${result.actions.join(',')}]`
+    );
+}
+
+/**
+ * Message handler (fire and forget)
  */
 export async function handleModerationMessage(message, bot) {
-    // Fire and forget - don't await to avoid blocking main message flow
-    analyzeMessage(message).catch(() => {
-        // Silently ignore errors
+    analyzeMessage(message).catch((err) => {
+        logger.error('MODERATION', `Handler error: ${err.message}`);
     });
 }

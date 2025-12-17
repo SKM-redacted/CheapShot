@@ -15,7 +15,7 @@ Welcome to our community! Please read and follow these guidelines:
  
 • No NSFW content outside designated channels
 • No spam, excessive caps, or message flooding
-• Keep profanity to a minimum
+• Profanity is allowed
 
 🛡️ Protect Privacy
 

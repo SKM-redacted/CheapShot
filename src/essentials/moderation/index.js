@@ -1,56 +1,86 @@
 /**
  * Moderation Module
  * 
- * Main entry point for the moderation system.
- * - Analyzes every message via AI against server rules
- * - Custom rules (from rules channel) take priority over defaults
- * - Results go into limbo (logged but not acted upon)
+ * Main entry point - re-exports all submodules.
  */
 
 import { logger } from '../../ai/logger.js';
+import { MODERATION_CONFIG } from './constants.js';
 
-// Re-export everything from submodules
+// Constants
+export {
+    ACTION_TYPES,
+    SEVERITY,
+    MODERATION_CONFIG,
+    getTimeoutDuration,
+    getTimeoutDurationString
+} from './constants.js';
+
+// Rules
 export { DEFAULT_RULES } from './defaultRules.js';
 export {
     getGuildRules,
     findRulesChannel,
-    createRulesChannel,
     extractRulesFromChannel,
     invalidateRulesCache,
     clearRulesCache,
     hasCustomRules
 } from './rulesManager.js';
+
+// AI Client
+export {
+    buildSystemPrompt,
+    sendModerationRequest
+} from './aiClient.js';
+
+// Parser
+export {
+    parseResponse,
+    hasViolation,
+    hasTimeout,
+    getTimeoutAction
+} from './responseParser.js';
+
+// Warnings
+export {
+    addWarning,
+    getWarningCount,
+    clearWarnings,
+    getUserWarnings,
+    getWarningThreshold,
+    getWarningDecayHours
+} from './warningTracker.js';
+
+// Action Executor
+export {
+    executeActions
+} from './actionExecutor.js';
+
+// Analyzer
 export {
     analyzeMessage,
-    handleModerationMessage,
-    parseModerationResponse
+    handleModerationMessage
 } from './analyzer.js';
 
-// Import for internal use
+// Internal imports
 import { handleModerationMessage } from './analyzer.js';
 import { clearRulesCache } from './rulesManager.js';
 
 /**
- * Setup moderation on the bot manager
- * Call this from the main index.js start() function
- * 
- * @param {Object} botManager - BotManager instance
+ * Setup moderation on bot manager
  */
 export function setupModeration(botManager) {
-    // Register a separate message handler for moderation
-    // This runs in parallel with the main AI response handler
     for (const bot of botManager.bots) {
         bot.client.on('messageCreate', async (message) => {
-            // Fire and forget - moderation analysis runs independently
             handleModerationMessage(message, bot);
         });
     }
 
-    // Set up cache refresh every 30 minutes
+    // Refresh rules cache periodically
     setInterval(() => {
         clearRulesCache();
-        logger.debug('MODERATION', 'Cleared rules cache for refresh');
-    }, 30 * 60 * 1000);
+        logger.debug('MODERATION', 'Rules cache cleared');
+    }, MODERATION_CONFIG.RULES_CACHE_MINUTES * 60 * 1000);
 
-    logger.info('MODERATION', 'Moderation module initialized - analyzing all messages');
+    logger.info('MODERATION', 'Initialized - auto-moderation active');
 }
