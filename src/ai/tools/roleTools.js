@@ -99,9 +99,11 @@ export async function handleCreateRole(guild, args) {
 
 /**
  * Handler for deleting a role
+ * Includes smart recovery: if role not found, suggests similar roles that exist.
+ * 
  * @param {Object} guild - Discord guild object
  * @param {Object} args - Tool arguments { name }
- * @returns {Promise<{success: boolean, deleted?: Object, error?: string}>}
+ * @returns {Promise<{success: boolean, deleted?: Object, similar_roles?: Array, error?: string}>}
  */
 export async function handleDeleteRole(guild, args) {
     const { name } = args;
@@ -121,7 +123,37 @@ export async function handleDeleteRole(guild, args) {
 
         if (!role) {
             logger.warn('TOOL', `No role found matching "${name}"`);
-            return { success: false, error: `No role found matching "${name}"` };
+
+            // Smart recovery: find similar role names
+            const searchLower = name.toLowerCase().replace(/[^\w\s]/g, ''); // Remove emojis/symbols for matching
+            const allRoles = guild.roles.cache
+                .filter(r => r.name !== '@everyone')
+                .sort((a, b) => b.position - a.position);
+
+            // Find roles with similar names (partial match or cleaned name match)
+            const similarRoles = allRoles
+                .filter(r => {
+                    const roleLower = r.name.toLowerCase();
+                    const roleClean = roleLower.replace(/[^\w\s]/g, '');
+                    return roleLower.includes(searchLower) ||
+                        roleClean.includes(searchLower) ||
+                        searchLower.includes(roleClean);
+                })
+                .map(r => r.name)
+                .slice(0, 5);
+
+            // Get all role names for context
+            const allRoleNames = allRoles.map(r => r.name).slice(0, 15);
+
+            return {
+                success: false,
+                error: `No role found matching "${name}"`,
+                similar_roles: similarRoles.length > 0 ? similarRoles : undefined,
+                available_roles: allRoleNames,
+                hint: similarRoles.length > 0
+                    ? `Did you mean: ${similarRoles.map(r => `"${r}"`).join(', ')}?`
+                    : `Available roles: ${allRoleNames.map(r => `"${r}"`).join(', ')}`
+            };
         }
 
         // Check if role is manageable
@@ -157,9 +189,12 @@ export async function handleDeleteRole(guild, args) {
 
 /**
  * Handler for bulk deleting multiple roles at once
+ * PRE-FLIGHT: Always fetches and returns the actual role list so the AI
+ * always sees what roles exist, preventing wrong guesses.
+ * 
  * @param {Object} guild - Discord guild object
  * @param {Object} args - Tool arguments { roles: Array<string> }
- * @returns {Promise<{success: boolean, deleted?: Array, failed?: Array, summary?: string, error?: string}>}
+ * @returns {Promise<{success: boolean, deleted?: Array, failed?: Array, summary?: string, actual_roles: Array, error?: string}>}
  */
 export async function handleDeleteRolesBulk(guild, args) {
     const { roles = [] } = args;
@@ -169,9 +204,27 @@ export async function handleDeleteRolesBulk(guild, args) {
         return { success: false, error: 'No server context available' };
     }
 
+    // PRE-FLIGHT: Always get actual roles first so AI can see what exists
+    const actualRoles = guild.roles.cache
+        .filter(r => r.name !== '@everyone')
+        .sort((a, b) => b.position - a.position)
+        .map(r => ({
+            name: r.name,
+            color: r.hexColor,
+            members: r.members.size
+        }));
+
+    const actualRoleNames = actualRoles.map(r => r.name);
+
     if (!Array.isArray(roles) || roles.length === 0) {
         logger.error('TOOL', 'Cannot bulk delete roles: No roles specified');
-        return { success: false, error: 'No roles specified for deletion' };
+        return {
+            success: false,
+            error: 'No roles specified for deletion',
+            actual_roles: actualRoles,
+            actual_role_names: actualRoleNames,
+            hint: `Here are the roles that exist: ${actualRoleNames.map(r => `"${r}"`).join(', ')}`
+        };
     }
 
     logger.info('TOOL', `Bulk deleting ${roles.length} roles in parallel`);
@@ -200,12 +253,38 @@ export async function handleDeleteRolesBulk(guild, args) {
 
     logger.info('TOOL', `Bulk role delete complete: ${deleted.length} deleted, ${failed.length} failed`);
 
-    return {
-        success: deleted.length > 0,
+    // Re-fetch actual roles after deletion to show current state
+    const remainingRoles = guild.roles.cache
+        .filter(r => r.name !== '@everyone')
+        .sort((a, b) => b.position - a.position)
+        .map(r => ({
+            name: r.name,
+            color: r.hexColor,
+            members: r.members.size
+        }));
+
+    // Build response - ALWAYS include actual roles
+    const response = {
+        success: deleted.length > 0 || failed.length === 0,
         deleted: deleted.map(r => ({ name: r.deleted?.name || r.name })),
         failed: failed.map(r => ({ name: r.name, error: r.error })),
-        summary: `Deleted ${deleted.length} role${deleted.length !== 1 ? 's' : ''}${failed.length > 0 ? `, ${failed.length} failed` : ''}`
+        summary: `Deleted ${deleted.length} role${deleted.length !== 1 ? 's' : ''}${failed.length > 0 ? `, ${failed.length} failed` : ''}`,
+        // ALWAYS include remaining roles so AI knows current state
+        remaining_roles: remainingRoles.map(r => r.name)
     };
+
+    // If there were failures, add extra context
+    if (failed.length > 0) {
+        const notFoundCount = failed.filter(r =>
+            r.error?.includes('No role found') || r.error?.includes('not found')
+        ).length;
+
+        if (notFoundCount > 0) {
+            response.message = `⚠️ ${notFoundCount} role(s) were not found. The remaining roles on this server are: ${remainingRoles.map(r => `"${r.name}"`).join(', ')}`;
+        }
+    }
+
+    return response;
 }
 
 // ============================================================

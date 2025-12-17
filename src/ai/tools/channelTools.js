@@ -357,9 +357,12 @@ export async function handleDeleteChannel(guild, args) {
 
 /**
  * Handler for bulk deleting multiple channels at once
+ * PRE-FLIGHT: Always fetches and returns the actual channel list so the AI
+ * always sees what channels exist, preventing wrong guesses.
+ * 
  * @param {Object} guild - Discord guild object
  * @param {Object} args - Tool arguments { channels: Array<{name: string, type?: string}> }
- * @returns {Promise<{success: boolean, deleted?: Array, failed?: Array, error?: string}>}
+ * @returns {Promise<{success: boolean, deleted?: Array, failed?: Array, remaining_channels: Object, error?: string}>}
  */
 export async function handleDeleteChannelsBulk(guild, args) {
     const { channels = [] } = args;
@@ -369,9 +372,34 @@ export async function handleDeleteChannelsBulk(guild, args) {
         return { success: false, error: 'No server context available' };
     }
 
+    // PRE-FLIGHT: Always get actual channels first so AI can see what exists
+    const getChannelData = () => ({
+        categories: guild.channels.cache
+            .filter(ch => ch.type === ChannelType.GuildCategory)
+            .map(ch => ch.name),
+        text_channels: guild.channels.cache
+            .filter(ch => ch.type === ChannelType.GuildText)
+            .map(ch => ch.name),
+        voice_channels: guild.channels.cache
+            .filter(ch => ch.type === ChannelType.GuildVoice)
+            .map(ch => ch.name)
+    });
+
+    const actualChannels = getChannelData();
+    const allChannelNames = [
+        ...actualChannels.categories.map(c => `📁 ${c}`),
+        ...actualChannels.text_channels.map(c => `#${c}`),
+        ...actualChannels.voice_channels.map(c => `🔊 ${c}`)
+    ];
+
     if (!Array.isArray(channels) || channels.length === 0) {
         logger.error('TOOL', 'Cannot bulk delete channels: No channels specified');
-        return { success: false, error: 'No channels specified for deletion' };
+        return {
+            success: false,
+            error: 'No channels specified for deletion',
+            actual_channels: actualChannels,
+            hint: `Here are the channels that exist: ${allChannelNames.join(', ')}`
+        };
     }
 
     logger.info('TOOL', `Bulk deleting ${channels.length} channels in parallel`);
@@ -405,12 +433,36 @@ export async function handleDeleteChannelsBulk(guild, args) {
 
     logger.info('TOOL', `Bulk delete complete: ${deleted.length} deleted, ${failed.length} failed`);
 
-    return {
-        success: deleted.length > 0,
+    // Re-fetch channels after deletion to show current state
+    const remainingChannels = getChannelData();
+    const remainingNames = [
+        ...remainingChannels.categories.map(c => `📁 ${c}`),
+        ...remainingChannels.text_channels.map(c => `#${c}`),
+        ...remainingChannels.voice_channels.map(c => `🔊 ${c}`)
+    ];
+
+    // Build response - ALWAYS include remaining channels
+    const response = {
+        success: deleted.length > 0 || failed.length === 0,
         deleted: deleted.map(r => ({ name: r.deleted?.name || r.name, type: r.deleted?.type || r.type })),
         failed: failed.map(r => ({ name: r.name, error: r.error })),
-        summary: `Deleted ${deleted.length} channel(s)${failed.length > 0 ? `, ${failed.length} failed` : ''}`
+        summary: `Deleted ${deleted.length} channel(s)${failed.length > 0 ? `, ${failed.length} failed` : ''}`,
+        // ALWAYS include remaining channels so AI knows current state
+        remaining_channels: remainingChannels
     };
+
+    // If there were failures, add extra context
+    if (failed.length > 0) {
+        const notFoundCount = failed.filter(r =>
+            r.error?.includes('No ') && r.error?.includes(' found')
+        ).length;
+
+        if (notFoundCount > 0) {
+            response.message = `⚠️ ${notFoundCount} channel(s) were not found. The remaining channels on this server are: ${remainingNames.join(', ')}`;
+        }
+    }
+
+    return response;
 }
 
 // ============================================================
