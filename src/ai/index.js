@@ -17,15 +17,8 @@ import { voiceClient } from './voiceClient.js';
 import { ttsClient } from './ttsClient.js';
 import { voiceCommands, handleVoiceCommand } from './voiceCommands.js';
 import { voiceMemory } from './voiceMemory.js';
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
 import { extractImagesFromMessage, hasImages } from './imageUtils.js';
-=======
 import { generationTracker } from './generationTracker.js';
->>>>>>> Stashed changes
-=======
-import { generationTracker } from './generationTracker.js';
->>>>>>> Stashed changes
 
 // Initialize clients and queues
 const aiClient = new AIClient();
@@ -563,29 +556,13 @@ async function handleMessage(message, bot) {
                     return;
                 }
                 selectedBot = loadBalancer.pickBot(message.channel.id) || bot;
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-                await handleAIResponse(message, userMessage, selectedBot, requestId, messageImages);
-=======
-                await handleAIResponse(message, userMessage, selectedBot, requestId, abortController);
->>>>>>> Stashed changes
-=======
-                await handleAIResponse(message, userMessage, selectedBot, requestId, abortController);
->>>>>>> Stashed changes
+                await handleAIResponse(message, userMessage, selectedBot, requestId, messageImages, abortController);
             });
         } else {
             // Bot available, process immediately
             botManager.startRequest(selectedBot);
             try {
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-                await handleAIResponse(message, userMessage, selectedBot, requestId, messageImages);
-=======
-                await handleAIResponse(message, userMessage, selectedBot, requestId, abortController);
->>>>>>> Stashed changes
-=======
-                await handleAIResponse(message, userMessage, selectedBot, requestId, abortController);
->>>>>>> Stashed changes
+                await handleAIResponse(message, userMessage, selectedBot, requestId, messageImages, abortController);
             } finally {
                 botManager.endRequest(selectedBot);
             }
@@ -606,21 +583,10 @@ async function handleMessage(message, bot) {
  * @param {string} userMessage - User's message content
  * @param {Object} bot - Selected bot for this request
  * @param {string} requestId - Pending request ID
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
  * @param {Array} images - Optional array of images extracted from the message
- */
-async function handleAIResponse(message, userMessage, bot, requestId, images = []) {
-=======
  * @param {AbortController} abortController - Controller for cancellation
  */
-async function handleAIResponse(message, userMessage, bot, requestId, abortController) {
->>>>>>> Stashed changes
-=======
- * @param {AbortController} abortController - Controller for cancellation
- */
-async function handleAIResponse(message, userMessage, bot, requestId, abortController) {
->>>>>>> Stashed changes
+async function handleAIResponse(message, userMessage, bot, requestId, images = [], abortController) {
     // NOTE: Server setup is now handled naturally through AI tool calling
     // The AI will use setup_server_structure for bulk creation, which executes in parallel
     // This allows the AI to reason about what structure to create rather than forcing keyword-based actions
