@@ -43,7 +43,10 @@ export const MODERATION_CONFIG = {
     MAX_TOKENS: 200,
 
     // Cache settings
-    RULES_CACHE_MINUTES: 30
+    RULES_CACHE_MINUTES: 30,
+
+    // Mod log channel (leave blank to disable, set to channel ID to enable)
+    MOD_LOG_CHANNEL_ID: ''
 };
 
 /**

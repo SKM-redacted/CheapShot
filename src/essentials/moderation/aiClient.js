@@ -11,16 +11,16 @@ import { MODERATION_CONFIG } from './constants.js';
 
 /**
  * Check for obvious violations using patterns (before AI)
- * Returns severity if detected, null otherwise
+ * Returns "severity|rule" string if detected, null otherwise
  */
 export function checkPatterns(content) {
     // Severity 4 - Immediate timeout (worst violations)
-    const severity4Patterns = [
-        // Racial slurs - multiple variations
+
+    // Check for racial slurs - multiple variations
+    const slurPatterns = [
         /n[i1!l]gg[e3a@]/i,
         /n[i1!l]g+[e3a@]r/i,
         /n[i1!l]g+a/i,
-        // Other severe slurs
         /f[a@4]gg?[o0]t/i,
         /f[a@4]g\b/i,
         /\bk[i1!]ke\b/i,
@@ -33,14 +33,34 @@ export function checkPatterns(content) {
         /\bgook\b/i,
         /\bwetback/i,
         /\bbeaner/i,
-        // Threats
+    ];
+
+    for (const pattern of slurPatterns) {
+        if (pattern.test(content)) {
+            logger.debug('MODERATION', `Pattern match (Hate Speech): ${pattern}`);
+            return '4|Hate Speech';
+        }
+    }
+
+    // Check for threats
+    const threatPatterns = [
         /\b(kill|murder|shoot|stab)\s*(you|yourself|urself|u|your\s*family)/i,
         /\bkys\b/i,
         /\bkill\s*your\s*self/i,
         /\bdie\s+in\s+a\s+fire/i,
         /\bget\s+cancer/i,
         /\bhope\s+(you|u)\s+(die|get\s+cancer)/i,
-        // Scam/phishing patterns
+    ];
+
+    for (const pattern of threatPatterns) {
+        if (pattern.test(content)) {
+            logger.debug('MODERATION', `Pattern match (Threats): ${pattern}`);
+            return '4|Threats';
+        }
+    }
+
+    // Check for scam/phishing patterns
+    const scamPatterns = [
         /free\s+(nudes?|nitro|robux|vbucks|gift\s*card)/i,
         /click\s+(this|here|the)\s*(link|url)/i,
         /(discord\.gift|discordgift|steamcommunity\.ru|discorde?\.com)/i,
@@ -48,60 +68,58 @@ export function checkPatterns(content) {
         /\bsteam\s+gift/i,
     ];
 
-    for (const pattern of severity4Patterns) {
+    for (const pattern of scamPatterns) {
         if (pattern.test(content)) {
-            logger.debug('MODERATION', `Pattern match (severity 4): ${pattern}`);
-            return 4;
+            logger.debug('MODERATION', `Pattern match (Scam/Phishing): ${pattern}`);
+            return '4|Scam/Phishing';
         }
     }
 
-    // Severity 3 - Delete + Warning (serious but not extreme)
-    const severity3Patterns = [
-        /\b(fuck|shit|bitch)\s*(you|off|u)\b/i,
-        /\bstfu\b/i,
+    // Severity 3 - Delete + Warning (actually harmful content)
+    const harmfulPatterns = [
+        // Ableist slurs (these are never okay)
         /\bretard(ed)?\b/i,
         /\bautist(ic)?\b/i,
-        /\bkill\s*(myself|yourself)/i,
-        /\bgo\s+fuck\s+(yourself|urself)/i,
-        /\bpiece\s+of\s+shit\b/i,
-        /\bfuck\s+off\b/i,
-        /\bshut\s+(the\s+)?fuck\s+up\b/i,
+        // Self-harm encouragement (the real line)
+        /\bkill\s*(yourself|urself)\b/i,
+        /\b(go\s+)?die\b.*\b(hole|fire|alone)/i,
+        /\bcrying\s*(yourself|urself)?\s*to\s*death/i,
+        /\bdig\s*(yourself|urself)?\s*(a|into)\s*(a\s+)?.*\bhole\b/i,
+        /\bnobody\s+(loves|likes|cares)/i,
+        /\bkill\s+yourself/i,
+        /\bharm\s+(yourself|urself)/i,
     ];
 
-    for (const pattern of severity3Patterns) {
+    for (const pattern of harmfulPatterns) {
         if (pattern.test(content)) {
-            logger.debug('MODERATION', `Pattern match (severity 3): ${pattern}`);
-            return 3;
+            logger.debug('MODERATION', `Pattern match (Harmful): ${pattern}`);
+            return '3|Harmful Content';
         }
     }
 
-    // Severity 2 - Warning (rude but not severe)
-    const severity2Patterns = [
-        /\bidiot\b/i,
-        /\bstupid\b/i,
-        /\bdumbass\b/i,
-        /\bmoron\b/i,
-        /\bloser\b/i,
-        /\bpathetic\b/i,
-    ];
+    // NOTE: Profanity (even targeted like "fuck you") goes to AI
+    // AI checks if server rules allow profanity or not
 
-    for (const pattern of severity2Patterns) {
-        if (pattern.test(content)) {
-            logger.debug('MODERATION', `Pattern match (severity 2): ${pattern}`);
-            return 2;
-        }
-    }
-
-    return null; // Let AI decide
+    return null; // Let AI decide for everything else
 }
 
 /**
- * Build the moderation system prompt
+ * Build the moderation system prompt with server rules
  */
 export function buildSystemPrompt(rules) {
-    return `Rate Discord message severity 0-4. Reply with just the number.
-0=fine 1=minor 2=rude 3=harassment 4=extreme
-Most normal messages are 0.`;
+    return `You are a content filter. Output ONLY "N|rule" where N is 0-4.
+
+0=fine 1=minor 2=warn 3=delete 4=timeout
+
+Server rules: ${rules}
+
+Logic:
+- "idiot","stupid","dumb" → 0|none
+- Profanity: if rules allow → 0|none, else → 2|Profanity
+- Slurs/hate → 4|Hate Speech
+- Threats → 4|Threats
+
+RESPOND WITH ONLY THE FORMAT. NO OTHER TEXT. Example: 0|none`;
 }
 
 /**
@@ -111,8 +129,8 @@ export async function sendModerationRequest(content, rules) {
     // First check patterns for obvious violations
     const patternSeverity = checkPatterns(content);
     if (patternSeverity !== null) {
-        logger.info('MODERATION', `Pattern detected severity ${patternSeverity}`);
-        return patternSeverity.toString();
+        logger.info('MODERATION', `Pattern detected: ${patternSeverity}`);
+        return patternSeverity;
     }
 
     // Let AI handle ambiguous cases
@@ -122,10 +140,10 @@ export async function sendModerationRequest(content, rules) {
         model: config.gatekeeperModel || config.aiModel,
         messages: [
             { role: 'system', content: buildSystemPrompt(rules) },
-            { role: 'user', content: `Rate: "${content}"` }
+            { role: 'user', content: `"${content}"` }
         ],
         stream: false,
-        max_tokens: 5
+        max_tokens: 20
     };
 
     const response = await fetch(url, {

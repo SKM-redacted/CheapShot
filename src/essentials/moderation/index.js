@@ -62,9 +62,16 @@ export {
     handleModerationMessage
 } from './analyzer.js';
 
+// Mod Log
+export {
+    sendModLogTimeout,
+    handleModActionButton
+} from './modLog.js';
+
 // Internal imports
 import { handleModerationMessage } from './analyzer.js';
 import { clearRulesCache } from './rulesManager.js';
+import { handleModActionButton } from './modLog.js';
 
 /**
  * Setup moderation on bot manager
@@ -79,8 +86,17 @@ export function setupModeration(botManager) {
     }
 
     for (const bot of botManager.bots) {
+        // Handle message moderation
         bot.client.on('messageCreate', async (message) => {
             handleModerationMessage(message, bot);
+        });
+
+        // Handle mod action buttons
+        bot.client.on('interactionCreate', async (interaction) => {
+            if (!interaction.isButton()) return;
+            if (!interaction.customId.startsWith('mod_')) return;
+
+            await handleModActionButton(interaction);
         });
     }
 

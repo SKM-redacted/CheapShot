@@ -8,21 +8,42 @@ import { logger } from '../../ai/logger.js';
 import { MODERATION_CONFIG, ACTION_TYPES } from './constants.js';
 
 /**
- * Parse AI moderation response (just a severity number 0-4)
+ * Parse AI moderation response (format: "severity|rule" e.g. "2|Harassment")
  * @param {string} response - Raw AI response
  * @returns {Object|null}
  */
 export function parseResponse(response) {
-    if (!response) return null;
-
-    // Extract just the number from the response
-    const numMatch = response.match(/[0-4]/);
-    if (!numMatch) {
-        logger.debug('MODERATION', `No severity number found in: ${response.substring(0, 50)}`);
-        return null;
+    if (!response) {
+        // No response = assume safe
+        return { severity: 0, actions: [ACTION_TYPES.NONE], rule_violated: null, reason: 'No violation', delete_message_count: 0 };
     }
 
-    const severity = parseInt(numMatch[0]);
+    let severity = 0;
+    let ruleViolated = null;
+
+    // Try to parse "severity|rule" format
+    if (response.includes('|')) {
+        const parts = response.split('|');
+        const numMatch = parts[0].match(/[0-4]/);
+        if (numMatch) {
+            severity = parseInt(numMatch[0]);
+            ruleViolated = parts[1]?.trim();
+            // Clean up the rule name
+            if (ruleViolated && ruleViolated.toLowerCase() === 'none') {
+                ruleViolated = null;
+            }
+        }
+    } else {
+        // Fallback: just extract any number 0-4
+        const numMatch = response.match(/[0-4]/);
+        if (numMatch) {
+            severity = parseInt(numMatch[0]);
+        } else {
+            // Can't parse = assume safe (fail-safe, no false positives)
+            logger.debug('MODERATION', `Parse failed, defaulting to 0: ${response.substring(0, 50)}`);
+            severity = 0;
+        }
+    }
 
     // Build actions based on severity
     const actions = getActionsForSeverity(severity);
@@ -30,8 +51,8 @@ export function parseResponse(response) {
     return {
         severity,
         actions,
-        rule_violated: null,
-        reason: getSeverityReason(severity),
+        rule_violated: ruleViolated,
+        reason: ruleViolated ? `${ruleViolated}` : getSeverityReason(severity),
         delete_message_count: severity >= 4 ? 10 : 0
     };
 }
