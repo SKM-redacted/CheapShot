@@ -38,9 +38,10 @@ export const config = {
     // Queue settings (less relevant with multi-bot, but kept for compatibility)
     maxConcurrentRequests: parseInt(process.env.MAX_CONCURRENT_REQUESTS) || 3,
 
-    // Channel restriction (only respond in these channels, empty = all channels)
-    // Supports comma-separated list: "123,456,789"
-    allowedChannelIds: (process.env.ALLOWED_CHANNEL_ID || '').split(',').map(id => id.trim()).filter(id => id),
+    // DEPRECATED: Channel restrictions are now loaded from guild directories
+    // See: data/guild/{guildId}/channels.json
+    // This is kept for backwards compatibility but no longer used
+    allowedChannelIds: [],  // Now managed per-guild via directory structure
 
     // Owner ID - user who can DM the bot directly
     ownerId: process.env.OWNER_ID,

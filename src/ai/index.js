@@ -21,6 +21,7 @@ import { extractImagesFromMessage, hasImages } from './imageUtils.js';
 import { generationTracker } from './generationTracker.js';
 import { setupModeration } from '../essentials/moderation/index.js';
 import { setupServerEvents } from '../essentials/serverSetup.js';
+import { isChannelAllowed, getAllowedChannelIds } from '../essentials/channelConfig.js';
 
 // Initialize clients and queues
 const aiClient = new AIClient();
@@ -462,8 +463,13 @@ async function handleMessage(message, bot) {
         }
         // Owner DM - proceed with response
         logger.info('DM', `Received DM from owner: ${message.author.tag}`);
-    } else if (config.allowedChannelIds.length > 0 && !config.allowedChannelIds.includes(message.channel.id)) {
-        return;
+    } else {
+        // Check if this channel is allowed based on guild directory config
+        // If no channels configured, bot won't auto-respond (mention-only mode)
+        const guildId = message.guild.id;
+        if (!isChannelAllowed(guildId, message.channel.id)) {
+            return; // Not an allowed channel for this guild
+        }
     }
 
     let userMessage = message.content.replace(/<@!?\d+>/g, '').trim();
@@ -1382,9 +1388,8 @@ async function start() {
         logger.info('STARTUP', `API Base: ${config.onyxApiBase}`);
         logger.info('STARTUP', `Voice transcription: ${config.deepgramApiKey ? 'Enabled' : 'Disabled (no API key)'}`);
 
-        if (config.allowedChannelIds.length > 0) {
-            logger.info('STARTUP', `Restricted to channels: ${config.allowedChannelIds.join(', ')}`);
-        }
+        logger.info('STARTUP', `Channel restrictions: Loaded from guild directories (data/guild/{guildId}/channels.json)`);
+        logger.info('STARTUP', `Bot responds in: public + private channels | Moderation channel: excluded`);
     } catch (error) {
         logger.error('STARTUP', 'Failed to start bot system', error);
         process.exit(1);

@@ -168,7 +168,7 @@ async function sendInviterWelcome(guild, channelIds, bot) {
                 {
                     name: '💬 Your CheapShot Channels',
                     value: `**Public:** ${publicLink}\nEveryone can chat with me here\n\n` +
-                        `**Private:** ${privateLink}\nFor commands you want to keep off the books`,
+                        `**Private:** ${privateLink}\nFor requests you want to keep off the books`,
                     inline: false
                 },
                 {
@@ -188,7 +188,7 @@ async function sendInviterWelcome(guild, channelIds, bot) {
                 },
                 {
                     name: '🛠️ Server Management',
-                    value: `Use ${privateLink} for server management commands like creating channels, roles, etc.`,
+                    value: `Just ask me naturally in ${privateLink} - "create a channel", "give @user a role", etc.`,
                     inline: false
                 },
                 {
@@ -226,11 +226,11 @@ async function createCheapShotChannels(guild, bot) {
         if (existingPublic && existingPrivate && existingModeration) {
             logger.info('SERVER_SETUP', `CheapShot channels already exist in ${guild.name}, saving IDs`);
 
-            // Save existing channel IDs
+            // Save existing channel IDs with type field
             const channelData = {
-                [CHANNEL_NAMES.public]: { id: existingPublic.id },
-                [CHANNEL_NAMES.private]: { id: existingPrivate.id },
-                [CHANNEL_NAMES.moderation]: { id: existingModeration.id }
+                [CHANNEL_NAMES.public]: { id: existingPublic.id, type: 'public' },
+                [CHANNEL_NAMES.private]: { id: existingPrivate.id, type: 'private' },
+                [CHANNEL_NAMES.moderation]: { id: existingModeration.id, type: 'moderation' }
             };
             saveChannelData(guild.id, channelData);
 
@@ -287,7 +287,7 @@ async function createCheapShotChannels(guild, bot) {
                     '• Ask me questions\n' +
                     '• Generate images\n' +
                     '• Get help with anything\n\n' +
-                    '*Just @ mention me to start chatting!*'
+                    '*Just send a message and we can get started!*'
                 )
                 .setFooter({ text: 'CheapShot AI' });
 
@@ -296,7 +296,7 @@ async function createCheapShotChannels(guild, bot) {
         } else {
             publicChannelId = existingPublic.id;
         }
-        channelData[CHANNEL_NAMES.public] = { id: publicChannelId };
+        channelData[CHANNEL_NAMES.public] = { id: publicChannelId, type: 'public' };
 
         // 2. Create private CheapShot channel (for private tool calling)
         let privateChannelId;
@@ -304,7 +304,7 @@ async function createCheapShotChannels(guild, bot) {
             const privateChannel = await guild.channels.create({
                 name: CHANNEL_NAMES.private,
                 type: ChannelType.GuildText,
-                topic: '🔒 Private CheapShot channel for personal commands and tool usage.',
+                topic: '🔒 Private CheapShot channel - just ask me anything in plain English!',
                 permissionOverwrites: [
                     {
                         id: guild.id, // @everyone - deny by default
@@ -331,12 +331,18 @@ async function createCheapShotChannels(guild, bot) {
                 .setColor(0x5865F2)
                 .setTitle('🔒 Private CheapShot Channel')
                 .setDescription(
-                    'This is your private channel for using CheapShot!\n\n' +
-                    '**Use this channel for:**\n' +
-                    '• Server management commands\n' +
-                    '• Private tool calls (creating channels, roles, etc.)\n' +
-                    '• Sensitive requests you don\'t want public\n\n' +
-                    '*Admins can grant access to trusted members via channel permissions.*'
+                    'This is the private channel for CheapShot - keep sensitive requests off the public logs.\n\n' +
+                    '**No commands needed!** Just ask me in plain English:\n' +
+                    '*"Create a channel called announcements"*\n' +
+                    '*"Give @user the Moderator role"*\n' +
+                    '*"Timeout that guy for 10 minutes"*\n\n' +
+                    '**Note:** You can also make these requests in the public channel!\n\n' +
+                    '**Permission System:**\n' +
+                    'Your Discord role permissions determine what you can ask me to do:\n' +
+                    '• Creating channels → requires **Manage Channels**\n' +
+                    '• Managing roles → requires **Manage Roles**\n' +
+                    '• Kicking/banning → requires **Kick/Ban Members**\n\n' +
+                    '*Admins can grant channel access to trusted members via channel permissions.*'
                 )
                 .setFooter({ text: 'CheapShot AI - Private' });
 
@@ -345,7 +351,7 @@ async function createCheapShotChannels(guild, bot) {
         } else {
             privateChannelId = existingPrivate.id;
         }
-        channelData[CHANNEL_NAMES.private] = { id: privateChannelId };
+        channelData[CHANNEL_NAMES.private] = { id: privateChannelId, type: 'private' };
 
         // 3. Create moderation channel (moderators only)
         let modChannelId;
@@ -393,7 +399,7 @@ async function createCheapShotChannels(guild, bot) {
         } else {
             modChannelId = existingModeration.id;
         }
-        channelData[CHANNEL_NAMES.moderation] = { id: modChannelId };
+        channelData[CHANNEL_NAMES.moderation] = { id: modChannelId, type: 'moderation' };
 
         // Save all channel IDs to the guild data file
         saveChannelData(guild.id, channelData);
@@ -443,5 +449,3 @@ export function setupServerEvents(botManager) {
 
     logger.info('SERVER_SETUP', 'Server join/leave handlers registered');
 }
-
-
