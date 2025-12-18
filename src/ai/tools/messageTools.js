@@ -22,10 +22,17 @@ export async function handlePinMessage(guild, args, context = {}) {
     const { message_id, channel: channelName } = args;
     const { message: contextMessage } = context;
 
-    // Resolve message ID: explicit arg -> reply reference -> fail
-    const targetMessageId = message_id || contextMessage?.reference?.messageId;
+    // Resolve message ID priority:
+    // 1. Explicit message_id argument
+    // 2. Reply reference (if user is replying to a message to pin)
+    // 3. The triggering message itself (user says "pin this message")
+    const targetMessageId = message_id ||
+        contextMessage?.reference?.messageId ||
+        contextMessage?.id;
 
-    if (!targetMessageId) return { success: false, error: 'Must specify message_id or reply to a message to pin it' };
+    logger.debug('TOOL', `pin_message resolved targetMessageId: ${targetMessageId} (explicit: ${message_id}, ref: ${contextMessage?.reference?.messageId}, trigger: ${contextMessage?.id})`);
+
+    if (!targetMessageId) return { success: false, error: 'Could not determine which message to pin' };
 
     try {
         let targetChannel = channelName ? findChannel(guild, channelName, 'text') : contextMessage?.channel;
@@ -35,7 +42,12 @@ export async function handlePinMessage(guild, args, context = {}) {
         await msg.pin();
         logger.info('TOOL', `Pinned message ${targetMessageId} in #${targetChannel.name}`);
 
-        return { success: true, message: `📌 Pinned message in #${targetChannel.name}` };
+        return {
+            success: true,
+            message: `📌 Pinned message in #${targetChannel.name}`,
+            message_id: targetMessageId,
+            channel: targetChannel.name
+        };
     } catch (error) {
         logger.error('TOOL', `Failed to pin message: ${error.message}`);
         return { success: false, error: error.message };
@@ -49,10 +61,12 @@ export async function handleUnpinMessage(guild, args, context = {}) {
     const { message_id, channel: channelName } = args;
     const { message: contextMessage } = context;
 
-    // Resolve message ID: explicit arg -> reply reference -> fail
-    const targetMessageId = message_id || contextMessage?.reference?.messageId;
+    // Resolve message ID: explicit arg -> reply reference -> triggering message
+    const targetMessageId = message_id ||
+        contextMessage?.reference?.messageId ||
+        contextMessage?.id;
 
-    if (!targetMessageId) return { success: false, error: 'Must specify message_id or reply to a message to unpin it' };
+    if (!targetMessageId) return { success: false, error: 'Could not determine which message to unpin' };
 
     try {
         let targetChannel = channelName ? findChannel(guild, channelName, 'text') : contextMessage?.channel;
@@ -62,7 +76,12 @@ export async function handleUnpinMessage(guild, args, context = {}) {
         await msg.unpin();
         logger.info('TOOL', `Unpinned message ${targetMessageId} in #${targetChannel.name}`);
 
-        return { success: true, message: `📍 Unpinned message in #${targetChannel.name}` };
+        return {
+            success: true,
+            message: `📍 Unpinned message in #${targetChannel.name}`,
+            message_id: targetMessageId,
+            channel: targetChannel.name
+        };
     } catch (error) {
         logger.error('TOOL', `Failed to unpin message: ${error.message}`);
         return { success: false, error: error.message };
@@ -106,10 +125,12 @@ export async function handlePublishMessage(guild, args, context = {}) {
     const { message_id, channel: channelName } = args;
     const { message: contextMessage } = context;
 
-    // Resolve message ID: explicit arg -> reply reference -> fail
-    const targetMessageId = message_id || contextMessage?.reference?.messageId;
+    // Resolve message ID: explicit arg -> reply reference -> triggering message
+    const targetMessageId = message_id ||
+        contextMessage?.reference?.messageId ||
+        contextMessage?.id;
 
-    if (!targetMessageId) return { success: false, error: 'Must specify message_id or reply to a message to publish it' };
+    if (!targetMessageId) return { success: false, error: 'Could not determine which message to publish' };
 
     try {
         let targetChannel = channelName ? findChannel(guild, channelName, 'text') : contextMessage?.channel;
@@ -121,8 +142,12 @@ export async function handlePublishMessage(guild, args, context = {}) {
         const msg = await targetChannel.messages.fetch(targetMessageId);
         await msg.crosspost();
         logger.info('TOOL', `Published message ${targetMessageId}`);
-
-        return { success: true, message: `📣 Published message to following servers` };
+        return {
+            success: true,
+            message: `📣 Published message to following servers`,
+            message_id: targetMessageId,
+            channel: targetChannel.name
+        };
     } catch (error) {
         logger.error('TOOL', `Failed to publish message: ${error.message}`);
         return { success: false, error: error.message };
@@ -136,10 +161,12 @@ export async function handleDeleteMessage(guild, args, context = {}) {
     const { message_id, channel: channelName, reason } = args;
     const { message: contextMessage } = context;
 
-    // Resolve message ID: explicit arg -> reply reference -> fail
-    const targetMessageId = message_id || contextMessage?.reference?.messageId;
+    // Resolve message ID: explicit arg -> reply reference -> triggering message
+    const targetMessageId = message_id ||
+        contextMessage?.reference?.messageId ||
+        contextMessage?.id;
 
-    if (!targetMessageId) return { success: false, error: 'Must specify message_id or reply to a message to delete it' };
+    if (!targetMessageId) return { success: false, error: 'Could not determine which message to delete' };
 
     try {
         let targetChannel = channelName ? findChannel(guild, channelName, 'text') : contextMessage?.channel;
@@ -149,7 +176,12 @@ export async function handleDeleteMessage(guild, args, context = {}) {
         await msg.delete();
         logger.info('TOOL', `Deleted message ${targetMessageId} in #${targetChannel.name}`);
 
-        return { success: true, message: `🗑️ Deleted message in #${targetChannel.name}` };
+        return {
+            success: true,
+            message: `🗑️ Deleted message in #${targetChannel.name}`,
+            message_id: targetMessageId,
+            channel: targetChannel.name
+        };
     } catch (error) {
         logger.error('TOOL', `Failed to delete message: ${error.message}`);
         return { success: false, error: error.message };
@@ -162,36 +194,74 @@ export async function handleDeleteMessage(guild, args, context = {}) {
 
 /**
  * Handler for bulk pinning messages
+ * Note: Accepts either message_ids OR count (to fetch recent messages)
+ * Using count is preferred as it avoids AI ID hallucination issues
  */
 export async function handlePinMessagesBulk(guild, args, context = {}) {
-    const { message_ids, channel: channelName } = args;
+    const { message_ids, count, channel: channelName } = args;
     const { message: contextMessage } = context;
-
-    if (!message_ids || !Array.isArray(message_ids)) {
-        return { success: false, error: 'Must provide array of message_ids' };
-    }
 
     try {
         let targetChannel = channelName ? findChannel(guild, channelName, 'text') : contextMessage?.channel;
         if (!targetChannel) return { success: false, error: 'Could not find channel' };
 
-        const results = await Promise.allSettled(
-            message_ids.map(async (id) => {
+        let idsToPin = [];
+
+        // If count is provided, fetch recent messages from the channel
+        if (count && typeof count === 'number') {
+            // Discord pin limit is 50
+            const limit = Math.min(Math.max(1, count), 50);
+            const messages = await targetChannel.messages.fetch({ limit });
+            idsToPin = messages.map(m => m.id);
+            logger.debug('TOOL', `Fetched ${idsToPin.length} messages to pin from #${targetChannel.name}`);
+        } else if (message_ids && Array.isArray(message_ids)) {
+            idsToPin = message_ids;
+        } else {
+            return { success: false, error: 'Must provide either count (recommended) or message_ids array' };
+        }
+
+        if (idsToPin.length === 0) {
+            return { success: false, error: 'No messages to pin' };
+        }
+
+        // Discord has a max of 50 pins per channel
+        if (idsToPin.length > 50) {
+            idsToPin = idsToPin.slice(0, 50);
+        }
+
+        logger.debug('TOOL', `pin_messages_bulk targeting channel: ${targetChannel.name} (${targetChannel.id})`);
+        logger.debug('TOOL', `Pinning ${idsToPin.length} messages, first ID: ${idsToPin[0]}`);
+
+        const pinned = [];
+        const failedDetails = [];
+
+        // Execute pins SEQUENTIALLY with small delay to avoid rate limits
+        for (const id of idsToPin) {
+            try {
                 const msg = await targetChannel.messages.fetch(id);
                 await msg.pin();
-                return id;
-            })
-        );
+                pinned.push(id);
+                // Small delay to avoid rate limits (Discord allows ~5 pins per 5 seconds)
+                await new Promise(r => setTimeout(r, 1100));
+            } catch (error) {
+                const errorMsg = error.message || 'Unknown error';
+                logger.debug('TOOL', `Failed to pin message ${id}: ${errorMsg}`);
+                failedDetails.push({ id, error: errorMsg });
+            }
+        }
 
-        const pinned = results.filter(r => r.status === 'fulfilled').map(r => r.value);
-        const failed = results.filter(r => r.status === 'rejected').length;
-
+        const failed = failedDetails.length;
         logger.info('TOOL', `Bulk pinned ${pinned.length} messages, ${failed} failed`);
+
+        if (failed > 0) {
+            logger.debug('TOOL', `Pin failures: ${failedDetails.map(f => f.error).join(', ')}`);
+        }
 
         return {
             success: pinned.length > 0,
             pinned: pinned.length,
             failed,
+            failedReasons: failedDetails.slice(0, 5).map(f => f.error),
             message: `📌 Pinned ${pinned.length} message(s)${failed > 0 ? `, ${failed} failed` : ''}`
         };
     } catch (error) {
@@ -202,34 +272,56 @@ export async function handlePinMessagesBulk(guild, args, context = {}) {
 
 /**
  * Handler for bulk unpinning messages
+ * Note: Accepts either message_ids OR all=true (to unpin all pinned messages)
+ * Using all=true is preferred as it avoids AI ID hallucination issues
  */
 export async function handleUnpinMessagesBulk(guild, args, context = {}) {
-    const { message_ids, channel: channelName } = args;
+    const { message_ids, all, channel: channelName } = args;
     const { message: contextMessage } = context;
-
-    if (!message_ids || !Array.isArray(message_ids)) {
-        return { success: false, error: 'Must provide array of message_ids' };
-    }
 
     try {
         let targetChannel = channelName ? findChannel(guild, channelName, 'text') : contextMessage?.channel;
         if (!targetChannel) return { success: false, error: 'Could not find channel' };
 
-        const results = await Promise.allSettled(
-            message_ids.map(async (id) => {
+        let idsToUnpin = [];
+
+        // If all=true, fetch all pinned messages
+        if (all === true) {
+            const pinnedMessages = await targetChannel.messages.fetchPinned();
+            idsToUnpin = pinnedMessages.map(m => m.id);
+            logger.debug('TOOL', `Fetched ${idsToUnpin.length} pinned messages to unpin from #${targetChannel.name}`);
+        } else if (message_ids && Array.isArray(message_ids)) {
+            idsToUnpin = message_ids;
+        } else {
+            return { success: false, error: 'Must provide either all: true (recommended) or message_ids array' };
+        }
+
+        if (idsToUnpin.length === 0) {
+            return { success: true, unpinned: 0, failed: 0, message: '📍 No pinned messages to unpin' };
+        }
+
+        const unpinned = [];
+        const failedDetails = [];
+
+        // Execute unpins SEQUENTIALLY with small delay to avoid rate limits
+        for (const id of idsToUnpin) {
+            try {
                 const msg = await targetChannel.messages.fetch(id);
                 await msg.unpin();
-                return id;
-            })
-        );
+                unpinned.push(id);
+                await new Promise(r => setTimeout(r, 1100));
+            } catch (error) {
+                const errorMsg = error.message || 'Unknown error';
+                logger.debug('TOOL', `Failed to unpin message ${id}: ${errorMsg}`);
+                failedDetails.push({ id, error: errorMsg });
+            }
+        }
 
-        const unpinned = results.filter(r => r.status === 'fulfilled').map(r => r.value);
-        const failed = results.filter(r => r.status === 'rejected').length;
-
+        const failed = failedDetails.length;
         logger.info('TOOL', `Bulk unpinned ${unpinned.length} messages, ${failed} failed`);
 
         return {
-            success: unpinned.length > 0,
+            success: unpinned.length > 0 || idsToUnpin.length === 0,
             unpinned: unpinned.length,
             failed,
             message: `📍 Unpinned ${unpinned.length} message(s)${failed > 0 ? `, ${failed} failed` : ''}`
@@ -339,6 +431,11 @@ export async function handleListMessages(guild, args, context = {}) {
         const limit = Math.max(1, Math.min(50, count || 10));
 
         const messages = await targetChannel.messages.fetch({ limit });
+
+        // Debug: Log actual message IDs fetched
+        const fetchedIds = messages.map(m => m.id);
+        logger.debug('TOOL', `list_messages from channel ${targetChannel.name} (${targetChannel.id})`);
+        logger.debug('TOOL', `First 3 message IDs: ${fetchedIds.slice(0, 3).join(', ')}`);
 
         const messageList = messages.map(m => ({
             id: m.id,

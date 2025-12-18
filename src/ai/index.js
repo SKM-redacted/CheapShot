@@ -4,7 +4,7 @@ import { AIClient } from './aiClient.js';
 import { RequestQueue } from './queue.js';
 import { ImageQueue } from './imageQueue.js';
 import { ImageClient, TOOLS } from './imageClient.js';
-import { handleCreateVoiceChannel, handleCreateTextChannel, handleCreateCategory, handleDeleteChannel, handleDeleteChannelsBulk, handleListChannels, handleGetServerInfo, handleSetupServerStructure, handleConfigureChannelPermissions, handleEditTextChannel, handleEditVoiceChannel, handleEditCategory, handleEditChannelsBulk, handleCreateRole, handleDeleteRole, handleDeleteRolesBulk, handleEditRole, handleListRoles, handleAssignRole, handleSetupRoles, handleJoinVoice, handleLeaveVoice, handleVoiceConversation, handleMoveMember, handleMoveMembersBulk, handleListVoiceChannels, handleCheckPerms, handleListRolePermissions, handleSearchMembers, handleKickMember, handleBanMember, handleTimeoutMember, handleManageMessages, handleRenameChannel, handleMoveChannel, handleDeleteMessage, handleDeleteMessagesBulk, handleCreateSticker, handleDeleteSticker, handleListStickers, handleCreateStickersBulk, handleDeleteStickersBulk, handlePinMessage, handleUnpinMessage, handleListPinnedMessages, handlePublishMessage, handlePinMessagesBulk, handleUnpinMessagesBulk, handlePublishMessagesBulk, handleListMessages } from './discordTools.js';
+import { handleCreateVoiceChannel, handleCreateTextChannel, handleCreateCategory, handleDeleteChannel, handleDeleteChannelsBulk, handleListChannels, handleGetServerInfo, handleSetupServerStructure, handleConfigureChannelPermissions, handleEditTextChannel, handleEditVoiceChannel, handleEditCategory, handleEditChannelsBulk, handleCreateRole, handleDeleteRole, handleDeleteRolesBulk, handleEditRole, handleListRoles, handleAssignRole, handleSetupRoles, handleJoinVoice, handleLeaveVoice, handleVoiceConversation, handleMoveMember, handleMoveMembersBulk, handleListVoiceChannels, handleCheckPerms, handleListRolePermissions, handleSearchMembers, handleKickMember, handleBanMember, handleTimeoutMember, handleManageMessages, handleRenameChannel, handleMoveChannel, handleDeleteMessage, handleDeleteMessagesBulk, handleCreateSticker, handleDeleteSticker, handleListStickers, handleCreateStickersBulk, handleDeleteStickersBulk, handlePinMessage, handleUnpinMessage, handleListPinnedMessages, handlePublishMessage, handlePinMessagesBulk, handleUnpinMessagesBulk, handlePublishMessagesBulk, handleListMessages, handleCreateEmoji, handleDeleteEmoji, handleListEmojis, handleCreateEmojisBulk, handleDeleteEmojisBulk, handleCreateInvite, handleListInvites, handleCreateWebhook, handleDeleteWebhook, handleListWebhooks, handleCreateWebhooksBulk, handleDeleteWebhooksBulk, handleCreateThread, handleArchiveThread, handleListThreads, handleCreateThreadsBulk, handleArchiveThreadsBulk, handleCreateEvent, handleDeleteEvent, handleListEvents, handleCreateEventsBulk, handleDeleteEventsBulk } from './discordTools.js';
 import { checkToolPermission } from './permissionChecker.js';
 import { executeToolLoop, buildActionsContext } from './toolExecutionLoop.js';
 // Note: Server setup is now handled through AI tool calling (setup_server_structure)
@@ -205,6 +205,77 @@ async function executeSingleTool(toolCall, context) {
         case 'list_messages':
             return await handleListMessages(guild, toolCall.arguments, { message: context.message });
 
+        // Emoji tools
+        case 'create_emoji':
+            return await handleCreateEmoji(guild, toolCall.arguments);
+
+        case 'delete_emoji':
+            return await handleDeleteEmoji(guild, toolCall.arguments);
+
+        case 'list_emojis':
+            return await handleListEmojis(guild, toolCall.arguments);
+
+        case 'create_emojis_bulk':
+            return await handleCreateEmojisBulk(guild, toolCall.arguments);
+
+        case 'delete_emojis_bulk':
+            return await handleDeleteEmojisBulk(guild, toolCall.arguments);
+
+        // Invite tools
+        case 'create_invite':
+            return await handleCreateInvite(guild, toolCall.arguments);
+
+        case 'list_invites':
+            return await handleListInvites(guild, toolCall.arguments);
+
+        // Webhook tools
+        case 'create_webhook':
+            return await handleCreateWebhook(guild, toolCall.arguments);
+
+        case 'delete_webhook':
+            return await handleDeleteWebhook(guild, toolCall.arguments);
+
+        case 'list_webhooks':
+            return await handleListWebhooks(guild, toolCall.arguments);
+
+        case 'create_webhooks_bulk':
+            return await handleCreateWebhooksBulk(guild, toolCall.arguments);
+
+        case 'delete_webhooks_bulk':
+            return await handleDeleteWebhooksBulk(guild, toolCall.arguments);
+
+        // Thread tools
+        case 'create_thread':
+            return await handleCreateThread(guild, toolCall.arguments, { message: context.message });
+
+        case 'archive_thread':
+            return await handleArchiveThread(guild, toolCall.arguments);
+
+        case 'list_threads':
+            return await handleListThreads(guild, toolCall.arguments);
+
+        case 'create_threads_bulk':
+            return await handleCreateThreadsBulk(guild, toolCall.arguments, { message: context.message });
+
+        case 'archive_threads_bulk':
+            return await handleArchiveThreadsBulk(guild, toolCall.arguments);
+
+        // Event tools
+        case 'create_event':
+            return await handleCreateEvent(guild, toolCall.arguments);
+
+        case 'delete_event':
+            return await handleDeleteEvent(guild, toolCall.arguments);
+
+        case 'list_events':
+            return await handleListEvents(guild, toolCall.arguments);
+
+        case 'create_events_bulk':
+            return await handleCreateEventsBulk(guild, toolCall.arguments);
+
+        case 'delete_events_bulk':
+            return await handleDeleteEventsBulk(guild, toolCall.arguments);
+
         default:
             logger.warn('TOOL', `Unknown tool: ${toolCall.name}`);
             return { success: false, error: `Unknown tool: ${toolCall.name}` };
@@ -213,234 +284,32 @@ async function executeSingleTool(toolCall, context) {
 
 /**
  * Format a tool result for Discord message
+ * Most action tools are SILENT (return null) - the AI will respond naturally
+ * Only info/search tools show their results
  * @param {string} toolName - Name of the tool
  * @param {Object} result - Tool result
- * @returns {string} Formatted message
+ * @returns {string|null} Formatted message or null for silent tools
  */
 function formatToolResultMessage(toolName, result) {
     if (!result.success) {
         if (result.permissionDenied) {
             return `❌ ${result.error}`;
         }
-        return `❌ Failed: ${result.error}`;
+        return `❌ Failed: ${result.error || 'An error occurred'}`;
     }
 
+    // INFO/SEARCH TOOLS - Show formatted results
     switch (toolName) {
-        case 'create_voice_channel':
-            const vcCat = result.channel?.category ? ` in **${result.channel.category}**` : '';
-            return `✅ Created voice channel **${result.channel?.name}**${vcCat}`;
-
-        case 'create_text_channel':
-            const tcCat = result.channel?.category ? ` in **${result.channel.category}**` : '';
-            return `✅ Created text channel **#${result.channel?.name}**${tcCat}`;
-
-        case 'create_category':
-            return `✅ Created category **${result.category?.name}**`;
-
-        case 'delete_channel':
-            const delType = result.deleted?.type || 'channel';
-            return `🗑️ Deleted ${delType} **${result.deleted?.name}**`;
-
-        case 'list_channels':
-            // Silent - reconnaissance tool for AI internal use
-            return null;
-
-        case 'get_server_info':
-            // Silent - reconnaissance tool for AI internal use
-            return null;
-
-        case 'delete_channels_bulk':
-            let bulkMsg = `🗑️ **${result.summary}**`;
-            if (result.deleted?.length > 0) {
-                bulkMsg += `\n${result.deleted.map(d => `  - ${d.type === 'voice' ? '🔊' : d.type === 'category' ? '📁' : '#'}${d.name}`).join('\n')}`;
-            }
-            if (result.failed?.length > 0) {
-                bulkMsg += `\n❌ Failed: ${result.failed.map(f => f.name).join(', ')}`;
-            }
-            return bulkMsg;
-
-        case 'generate_image':
-        case 'image_generation':
-            return null; // Image gen has its own output
-
-        case 'setup_server_structure':
-            return `✅ **${result.summary}**`;
-
-        case 'configure_channel_permissions':
-            return `🔒 **${result.channel?.name}**: ${result.summary || result.changes?.join(', ') || 'Permissions updated'}`;
-
-        case 'edit_text_channel':
-            return `✏️ Edited text channel **#${result.channel?.name}**: ${result.changes?.join(', ') || 'updated'}`;
-
-        case 'edit_voice_channel':
-            return `✏️ Edited voice channel **${result.channel?.name}**: ${result.changes?.join(', ') || 'updated'}`;
-
-        case 'edit_category':
-            return `✏️ Edited category **${result.category?.name}**: ${result.changes?.join(', ') || 'updated'}`;
-
-        case 'edit_channels_bulk':
-            let editBulkMsg = `✏️ **${result.summary}**`;
-            if (result.edited?.length > 0 && result.edited.length <= 10) {
-                editBulkMsg += '\n' + result.edited.map(e => `  • ${e.type === 'voice' ? '🔊' : e.type === 'category' ? '📁' : '#'}${e.name}: ${e.changes?.join(', ') || 'updated'}`).join('\n');
-            }
-            if (result.failed?.length > 0) {
-                editBulkMsg += `\n❌ Failed: ${result.failed.map(f => f.name).join(', ')}`;
-            }
-            return editBulkMsg;
-
-        case 'create_role':
-            const roleColor = result.role?.color !== '#000000' ? ` [${result.role?.color}]` : '';
-            return `✅ Created role **${result.role?.name}**${roleColor}`;
-
-        case 'delete_role':
-            return `🗑️ Deleted role **${result.deleted?.name}**`;
-
-        case 'delete_roles_bulk':
-            let bulkRoleMsg = `🗑️ **${result.summary}**`;
-            if (result.deleted?.length > 0) {
-                bulkRoleMsg += '\n' + result.deleted.map(r => `  \u2022 ${r.name}`).join('\n');
-            }
-            if (result.failed?.length > 0) {
-                bulkRoleMsg += `\n\u274c Failed: ${result.failed.map(f => f.name).join(', ')}`;
-            }
-            return bulkRoleMsg;
-
-        case 'edit_role':
-            const editChanges = result.changes?.join(', ') || 'updated';
-            return `✏️ Edited role **${result.role?.name}**: ${editChanges}`;
-
-        case 'list_roles':
-            // Silent - reconnaissance tool for AI internal use
-            return null;
-
-        case 'list_role_permissions':
-            // Silent - AI will format and present the data in its response
-            return null;
-
-        case 'assign_role':
-            if (result.action === 'none') {
-                return `ℹ️ ${result.message}`;
-            }
-            const actionEmoji = result.action === 'added' ? '➕' : '➖';
-            return `${actionEmoji} ${result.action === 'added' ? 'Added' : 'Removed'} role **${result.role?.name}** ${result.action === 'added' ? 'to' : 'from'} **${result.member?.name}**`;
-
-        case 'setup_roles':
-            let rolesMsg = `🎭 **${result.summary}**`;
-            if (result.details?.length > 0) {
-                const successRoles = result.details.filter(d => d.success);
-                if (successRoles.length > 0 && successRoles.length <= 10) {
-                    rolesMsg += '\n' + successRoles.map(r => `  • **${r.name}** ${r.color && r.color !== '#000000' ? `[${r.color}]` : ''}`).join('\n');
-                }
-            }
-            return rolesMsg;
-
-        case 'join_voice':
-            return `🎙️ ${result.message || `Joined **${result.channel?.name}**`}`;
-
-        case 'leave_voice':
-            return `👋 ${result.message || 'Left voice channel'}`;
-
-        case 'voice_conversation':
-            return `🗣️ ${result.message || `Conversation mode ${result.enabled ? 'enabled' : 'disabled'}`}`;
-
-        case 'move_member':
-            return `📍 ${result.message || `Moved **${result.member?.name}** to **${result.to_channel?.name}**`}`;
-
-        case 'list_voice_channels':
-            // Silent - reconnaissance tool for AI internal use
-            return null;
-
-        case 'move_members_bulk':
-            return `📍 ${result.message}`;
-
         case 'check_perms':
             return result.summary;
 
         case 'search_members':
-            // Show the search results to help the AI (and user) identify the right member
+            // Show search results to help identify the right member
             return result.summary || result.message || `Found ${result.count || 0} member(s)`;
 
-        case 'kick_member':
-            return `👢 ${result.message || `Kicked **${result.member?.name}** from the server`}`;
-
-        case 'ban_member':
-            return `🔨 ${result.message || `Banned **${result.member?.name}** from the server`}`;
-
-        case 'timeout_member':
-            return `⏰ ${result.message || `Timed out **${result.member?.name}** for ${result.duration}`}`;
-
-        case 'manage_messages':
-            return `🗑️ ${result.message || `Deleted ${result.deleted} message(s)`}`;
-
-        case 'delete_message':
-            return `🗑️ ${result.message || 'Deleted message'}`;
-
-        case 'delete_messages_bulk':
-            return `🗑️ ${result.message || `Deleted ${result.deleted} message(s)${result.failed > 0 ? `, ${result.failed} failed` : ''}`}`;
-
-        case 'rename_channel':
-            return `✏️ ${result.message || `Renamed channel to **${result.channel?.new_name}**`}`;
-
-        case 'move_channel':
-            return `📁 ${result.message || `Moved **${result.channel?.name}** to **${result.to_category || 'no category'}**`}`;
-
-        case 'create_sticker':
-            return `✅ ${result.message || `Created sticker **${result.sticker?.name}**`}`;
-
-        case 'delete_sticker':
-            return `🗑️ ${result.message || `Deleted sticker`}`;
-
-        case 'list_stickers':
-            // Silent - reconnaissance tool
-            return null;
-
-        case 'create_stickers_bulk':
-            let createStickerMsg = `🏷️ **${result.message}**`;
-            if (result.failed > 0) {
-                createStickerMsg += ` (${result.failed} failed)`;
-            }
-            return createStickerMsg;
-
-        case 'delete_stickers_bulk':
-            let deleteStickerMsg = `🗑️ **${result.message}**`;
-            if (result.failed > 0) {
-                deleteStickerMsg += ` (${result.failed} failed)`;
-            }
-            return deleteStickerMsg;
-
-        case 'pin_message':
-            return `📌 ${result.message || 'Pinned message'}`;
-
-        case 'unpin_message':
-            return `📍 ${result.message || 'Unpinned message'}`;
-
-        case 'list_pinned_messages':
-            // reconnaissance tool
-            return null;
-
-        case 'publish_message':
-            return `📣 ${result.message || 'Published message'}`;
-
-        case 'pin_messages_bulk':
-            let pinBulkMsg = `📌 **${result.message}**`;
-            if (result.failed > 0) {
-                pinBulkMsg += ` (${result.failed} failed)`;
-            }
-            return pinBulkMsg;
-
-        case 'unpin_messages_bulk':
-            let unpinBulkMsg = `📍 **${result.message}**`;
-            if (result.failed > 0) {
-                unpinBulkMsg += ` (${result.failed} failed)`;
-            }
-            return unpinBulkMsg;
-
-        case 'list_messages':
-            // reconnaissance tool
-            return null;
-
+        // All other tools are SILENT - AI responds naturally
         default:
-            return `✅ Completed ${toolName}`;
+            return null;
     }
 }
 
@@ -869,8 +738,8 @@ async function handleAIResponse(message, userMessage, bot, requestId, images = [
 
                 let finalText = fullText || "Let me help you with that!";
 
-                // Strip any trailing streaming cursor characters
-                const cursorPattern = /\s*[▌▍▎▏▐▕]+\s*$/;
+                // Strip any trailing streaming cursor characters (including regular pipe |)
+                const cursorPattern = /\s*[▌▍▎▏▐▕|]+\s*$/;
                 finalText = finalText.replace(cursorPattern, '').trim();
 
                 // Split message into chunks if it exceeds the limit
@@ -1114,6 +983,17 @@ You have completed the above action(s). Based on the results and the user's orig
                             await message.channel.send(summary);
                         }
                     }
+
+                    // IMPORTANT: Save the AI response with tool results to context for cross-message memory
+                    // This allows the AI to reference previous actions in follow-up messages
+                    const actionsContextForStorage = buildActionsContext(completedActions);
+                    const assistantResponse = `${finalText || ''}\n\n[Tool Actions Completed]\n${actionsContextForStorage}`.trim();
+                    await contextStore.addAssistantMessage(message.channel.id, assistantResponse);
+                    logger.debug('CONTEXT', `Saved assistant response with ${completedActions.length} tool action(s) to context`);
+                } else {
+                    // No tool calls - save regular AI response to context
+                    await contextStore.addAssistantMessage(message.channel.id, finalText);
+                    logger.debug('CONTEXT', `Saved assistant response to context`);
                 }
             },
             // onError

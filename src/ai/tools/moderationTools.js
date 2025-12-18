@@ -528,6 +528,16 @@ export async function handleManageMessages(guild, args, context = {}) {
             return { success: true, deleted: 0, message: 'No messages found to delete' };
         }
 
+        // Check if there are ANY non-bot messages
+        // If ONLY bot messages remain, stop to prevent infinite loop
+        const botId = guild.client.user.id;
+        const nonBotMessages = messages.filter(m => m.author.id !== botId);
+
+        if (nonBotMessages.size === 0) {
+            // Only bot messages left - stop to prevent infinite loop
+            return { success: true, deleted: 0, message: 'No more user messages to delete (only bot messages remain)' };
+        }
+
         // Bulk delete
         const deleted = await targetChannel.bulkDelete(messages, true);
 

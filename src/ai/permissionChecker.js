@@ -59,6 +59,33 @@ const TOOL_PERMISSIONS = {
     'list_stickers': [PermissionFlagsBits.ManageGuildExpressions],
     'create_stickers_bulk': [PermissionFlagsBits.ManageGuildExpressions],
     'delete_stickers_bulk': [PermissionFlagsBits.ManageGuildExpressions],
+    // Emoji Management - requires ManageGuildExpressions
+    'create_emoji': [PermissionFlagsBits.ManageGuildExpressions],
+    'delete_emoji': [PermissionFlagsBits.ManageGuildExpressions],
+    'list_emojis': [], // Everyone can see emojis
+    'create_emojis_bulk': [PermissionFlagsBits.ManageGuildExpressions],
+    'delete_emojis_bulk': [PermissionFlagsBits.ManageGuildExpressions],
+    // Invite Management - requires CreateInstantInvite or ManageGuild
+    'create_invite': [PermissionFlagsBits.CreateInstantInvite],
+    'list_invites': [PermissionFlagsBits.ManageGuild],
+    // Webhook Management - requires ManageWebhooks
+    'create_webhook': [PermissionFlagsBits.ManageWebhooks],
+    'delete_webhook': [PermissionFlagsBits.ManageWebhooks],
+    'list_webhooks': [PermissionFlagsBits.ManageWebhooks],
+    'create_webhooks_bulk': [PermissionFlagsBits.ManageWebhooks],
+    'delete_webhooks_bulk': [PermissionFlagsBits.ManageWebhooks],
+    // Thread Management - requires ManageThreads or CreatePublicThreads
+    'create_thread': [PermissionFlagsBits.CreatePublicThreads],
+    'archive_thread': [PermissionFlagsBits.ManageThreads],
+    'list_threads': [], // Everyone can see active threads
+    'create_threads_bulk': [PermissionFlagsBits.CreatePublicThreads],
+    'archive_threads_bulk': [PermissionFlagsBits.ManageThreads],
+    // Scheduled Events - requires ManageEvents
+    'create_event': [PermissionFlagsBits.ManageEvents],
+    'delete_event': [PermissionFlagsBits.ManageEvents],
+    'list_events': [], // Everyone can see events
+    'create_events_bulk': [PermissionFlagsBits.ManageEvents],
+    'delete_events_bulk': [PermissionFlagsBits.ManageEvents],
     // These don't need special permissions
     'generate_image': [],
     'join_voice': [],
@@ -288,6 +315,33 @@ function getToolActionName(toolName) {
         'list_stickers': 'list stickers',
         'create_stickers_bulk': 'create multiple stickers',
         'delete_stickers_bulk': 'delete multiple stickers',
+        // Emoji management
+        'create_emoji': 'create emojis',
+        'delete_emoji': 'delete emojis',
+        'list_emojis': 'list emojis',
+        'create_emojis_bulk': 'create multiple emojis',
+        'delete_emojis_bulk': 'delete multiple emojis',
+        // Invite management
+        'create_invite': 'create invites',
+        'list_invites': 'list invites',
+        // Webhook management
+        'create_webhook': 'create webhooks',
+        'delete_webhook': 'delete webhooks',
+        'list_webhooks': 'list webhooks',
+        'create_webhooks_bulk': 'create multiple webhooks',
+        'delete_webhooks_bulk': 'delete multiple webhooks',
+        // Thread management
+        'create_thread': 'create threads',
+        'archive_thread': 'archive threads',
+        'list_threads': 'list threads',
+        'create_threads_bulk': 'create multiple threads',
+        'archive_threads_bulk': 'archive multiple threads',
+        // Event management
+        'create_event': 'create events',
+        'delete_event': 'delete events',
+        'list_events': 'list events',
+        'create_events_bulk': 'create multiple events',
+        'delete_events_bulk': 'delete multiple events',
     };
 
     return actionNames[toolName] || toolName.replace(/_/g, ' ');

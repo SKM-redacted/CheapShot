@@ -77,6 +77,32 @@ export async function handleArchiveThread(guild, args) {
     }
 }
 
+/**
+ * Handler for listing active threads
+ */
+export async function handleListThreads(guild, args) {
+    try {
+        const activeThreads = await guild.channels.fetchActiveThreads();
+
+        const threadList = activeThreads.threads.map(t => ({
+            id: t.id,
+            name: t.name,
+            parent: t.parent?.name || 'Unknown',
+            archived: t.archived,
+            locked: t.locked,
+            memberCount: t.memberCount
+        }));
+
+        const summary = `🧵 **${threadList.length} active threads**`;
+        logger.info('TOOL', `Listed ${threadList.length} threads`);
+
+        return { success: true, threads: threadList, count: threadList.length, summary };
+    } catch (error) {
+        logger.error('TOOL', `Failed to list threads: ${error.message}`);
+        return { success: false, error: error.message };
+    }
+}
+
 // ============================================================
 // BULK THREAD HANDLERS
 // ============================================================

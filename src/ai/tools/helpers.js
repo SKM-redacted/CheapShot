@@ -571,7 +571,13 @@ export function parseDuration(duration) {
 
 /**
  * Parse an event time string into a Date object
- * @param {string} timeString - Time string (ISO 8601 or relative like "tomorrow at 3pm")
+ * Supports:
+ * - ISO 8601 format
+ * - "tomorrow at 3pm"
+ * - "Saturday at 9pm"
+ * - "next Friday at 2:30pm"
+ * - "in 2 hours"
+ * @param {string} timeString - Time string to parse
  * @returns {Date} Parsed date object
  */
 export function parseEventTime(timeString) {
@@ -579,24 +585,92 @@ export function parseEventTime(timeString) {
     let date = new Date(timeString);
     if (!isNaN(date.getTime())) return date;
 
-    // Simple relative time parsing
     const now = new Date();
-    const lower = timeString.toLowerCase();
+    const lower = timeString.toLowerCase().trim();
 
+    // Day name mapping
+    const dayNames = {
+        'sunday': 0, 'sun': 0,
+        'monday': 1, 'mon': 1,
+        'tuesday': 2, 'tue': 2, 'tues': 2,
+        'wednesday': 3, 'wed': 3,
+        'thursday': 4, 'thu': 4, 'thur': 4, 'thurs': 4,
+        'friday': 5, 'fri': 5,
+        'saturday': 6, 'sat': 6
+    };
+
+    // Helper to parse time from string (returns {hour, minute})
+    const parseTime = (str) => {
+        const match = str.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+        if (!match) return { hour: 12, minute: 0 }; // Default to noon
+
+        let hour = parseInt(match[1]);
+        const minute = match[2] ? parseInt(match[2]) : 0;
+        const ampm = match[3]?.toLowerCase();
+
+        if (ampm === 'pm' && hour !== 12) hour += 12;
+        if (ampm === 'am' && hour === 12) hour = 0;
+
+        return { hour, minute };
+    };
+
+    // Handle "tomorrow"
     if (lower.includes('tomorrow')) {
         date = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-        const match = lower.match(/(\d+)(?::(\d+))?\s*(am|pm)?/);
-        if (match) {
-            let hour = parseInt(match[1]);
-            const minute = match[2] ? parseInt(match[2]) : 0;
-            if (match[3] === 'pm' && hour !== 12) hour += 12;
-            if (match[3] === 'am' && hour === 12) hour = 0;
-            date.setHours(hour, minute, 0, 0);
+        const { hour, minute } = parseTime(lower);
+        date.setHours(hour, minute, 0, 0);
+        return date;
+    }
+
+    // Handle "today"
+    if (lower.includes('today')) {
+        date = new Date(now);
+        const { hour, minute } = parseTime(lower);
+        date.setHours(hour, minute, 0, 0);
+        return date;
+    }
+
+    // Handle "in X hours/minutes/days"
+    const relativeMatch = lower.match(/in\s+(\d+)\s*(hour|hr|minute|min|day|week)s?/i);
+    if (relativeMatch) {
+        const value = parseInt(relativeMatch[1]);
+        const unit = relativeMatch[2].toLowerCase();
+        date = new Date(now);
+
+        if (unit.startsWith('hour') || unit.startsWith('hr')) {
+            date.setTime(date.getTime() + value * 60 * 60 * 1000);
+        } else if (unit.startsWith('min')) {
+            date.setTime(date.getTime() + value * 60 * 1000);
+        } else if (unit.startsWith('day')) {
+            date.setTime(date.getTime() + value * 24 * 60 * 60 * 1000);
+        } else if (unit.startsWith('week')) {
+            date.setTime(date.getTime() + value * 7 * 24 * 60 * 60 * 1000);
         }
         return date;
     }
 
-    return new Date(timeString); // Fallback
+    // Handle day names (e.g., "Saturday at 9pm", "next Friday at 2pm")
+    const isNext = lower.includes('next');
+    for (const [dayName, dayNum] of Object.entries(dayNames)) {
+        if (lower.includes(dayName)) {
+            date = new Date(now);
+            const currentDay = date.getDay();
+            let daysToAdd = dayNum - currentDay;
+
+            // If the day has passed this week (or is today), go to next week
+            if (daysToAdd <= 0 || isNext) {
+                daysToAdd += 7;
+            }
+
+            date.setDate(date.getDate() + daysToAdd);
+            const { hour, minute } = parseTime(lower);
+            date.setHours(hour, minute, 0, 0);
+            return date;
+        }
+    }
+
+    // Fallback: try direct Date parsing
+    return new Date(timeString);
 }
 
 // Re-export logger for convenience

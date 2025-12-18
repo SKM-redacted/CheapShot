@@ -107,11 +107,23 @@ STICKER & MESSAGE MANAGEMENT:
 - IMPORTANT: When a user REPLIES to a message and asks to delete/pin/unpin/publish it, just call the tool WITHOUT a message_id - the replied-to message will be used automatically!
 - Only use list_messages to find message IDs if the user is NOT replying to the target message
 
+CRITICAL - MESSAGE IDs:
+- NEVER make up or hallucinate message IDs - they must come from tool results!
+- When you use list_messages, it returns REAL message IDs in the "id" field
+- You MUST use the EXACT IDs from the list_messages result, not generate your own
+- Discord message IDs are snowflakes - making them up will ALWAYS fail with "Unknown Message"
+
 KEEP IT CLEAN:
 - Don't start messages with self-explanatory preambles
 - Don't over-clarify or be pedantic
 - Just help the user with what they asked
-- Be concise and natural`
+- Be concise and natural
+
+VERIFY WHEN ASKED:
+- If a user asks you to "check", "verify", "make sure", or "confirm" something, USE THE APPROPRIATE TOOL to actually check
+- Don't rely on memory or context alone - call the tool to get fresh data
+- For example: "check pinned messages" → call list_pinned_messages, "verify roles" → call list_roles
+- This gives the user real confirmation, not just your recollection`
 };
 
 // Import tool summary function (lazy import to avoid circular dependency)

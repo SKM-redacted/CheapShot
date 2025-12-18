@@ -64,8 +64,20 @@ export async function executeToolLoop(options) {
                 break;
             }
 
-            // Execute each tool call
-            for (const toolCall of result.toolCalls) {
+            // Deduplicate tool calls (sometimes AI sends the same call twice)
+            const seenCalls = new Set();
+            const uniqueToolCalls = result.toolCalls.filter(tc => {
+                const key = `${tc.name}:${JSON.stringify(tc.arguments)}`;
+                if (seenCalls.has(key)) {
+                    logger.debug('TOOL_LOOP', `Skipping duplicate tool call: ${tc.name}`);
+                    return false;
+                }
+                seenCalls.add(key);
+                return true;
+            });
+
+            // Execute each unique tool call
+            for (const toolCall of uniqueToolCalls) {
                 logger.debug('TOOL_LOOP', `Executing tool: ${toolCall.name}`);
 
                 const toolResult = await executeToolCall(toolCall);
@@ -394,6 +406,198 @@ function buildActionsContext(actions) {
                 break;
             case 'voice_conversation':
                 description = action.result?.message || `Conversation mode ${action.result?.enabled ? 'enabled' : 'disabled'}`;
+                break;
+
+            // Message management tools - include message_id for follow-up actions
+            case 'pin_message':
+                description = `Pinned message in #${action.result?.channel || 'channel'}`;
+                if (action.result?.message_id) {
+                    description += ` (message_id: ${action.result.message_id})`;
+                }
+                break;
+            case 'unpin_message':
+                description = `Unpinned message in #${action.result?.channel || 'channel'}`;
+                if (action.result?.message_id) {
+                    description += ` (message_id: ${action.result.message_id})`;
+                }
+                break;
+            case 'delete_message':
+                description = `Deleted message in #${action.result?.channel || 'channel'}`;
+                if (action.result?.message_id) {
+                    description += ` (message_id: ${action.result.message_id})`;
+                }
+                break;
+            case 'publish_message':
+                description = `Published message to followers`;
+                if (action.result?.message_id) {
+                    description += ` (message_id: ${action.result.message_id})`;
+                }
+                break;
+            case 'list_pinned_messages':
+                description = `Listed pinned messages in #${action.result?.channel || 'channel'}`;
+                if (action.result?.pinnedMessages?.length > 0) {
+                    description += ':';
+                    for (const msg of action.result.pinnedMessages.slice(0, 5)) {
+                        description += `\n    - "${msg.content.substring(0, 50)}..." by ${msg.author} (message_id: ${msg.id})`;
+                    }
+                    if (action.result.pinnedMessages.length > 5) {
+                        description += `\n    ... and ${action.result.pinnedMessages.length - 5} more`;
+                    }
+                }
+                break;
+
+            // Webhook tools - always include full results so AI doesn't need to re-call
+            case 'list_webhooks':
+                description = `Listed webhooks (${action.result?.count || 0} found)`;
+                if (action.result?.webhooks?.length > 0) {
+                    description += ':';
+                    for (const wh of action.result.webhooks) {
+                        description += `\n    - "${wh.name}" in #${wh.channel}`;
+                    }
+                }
+                description += `\n  DONE: No need to call list_webhooks again.`;
+                break;
+            case 'create_webhook':
+                description = `Created webhook "${action.result?.webhook?.name || action.args.name}"`;
+                if (action.result?.webhook?.url) {
+                    description += ` - URL available`;
+                }
+                description += `\n  DONE: Webhook created successfully.`;
+                break;
+            case 'delete_webhook':
+                description = `Deleted webhook "${action.args.webhook_name}"`;
+                description += `\n  DONE: Webhook deleted successfully.`;
+                break;
+            case 'create_webhooks_bulk':
+                description = `Bulk created ${action.result?.created?.length || 0} webhook(s)`;
+                if (action.result?.failed > 0) {
+                    description += `, ${action.result.failed} failed`;
+                }
+                break;
+            case 'delete_webhooks_bulk':
+                description = `Bulk deleted ${action.result?.deleted || 0} webhook(s)`;
+                if (action.result?.failed > 0) {
+                    description += `, ${action.result.failed} failed`;
+                }
+                break;
+
+            // Thread tools - always include full results so AI doesn't need to re-call
+            case 'list_threads':
+                description = `Listed active threads (${action.result?.count || 0} found)`;
+                if (action.result?.threads?.length > 0) {
+                    description += ':';
+                    for (const th of action.result.threads) {
+                        description += `\n    - "${th.name}" in #${th.parent} (${th.memberCount || 0} members)`;
+                    }
+                } else {
+                    description += ' - No active threads in this server.';
+                }
+                description += `\n  DONE: No need to call list_threads again.`;
+                break;
+            case 'create_thread':
+                description = `Created thread "${action.result?.thread?.name || action.args.name}"`;
+                description += `\n  DONE: Thread created successfully.`;
+                break;
+            case 'archive_thread':
+                description = `Archived thread "${action.args.thread_name}"`;
+                description += `\n  DONE: Thread archived successfully.`;
+                break;
+            case 'create_threads_bulk':
+                description = `Bulk created ${action.result?.created || 0} thread(s)`;
+                if (action.result?.failed > 0) {
+                    description += `, ${action.result.failed} failed`;
+                }
+                break;
+            case 'archive_threads_bulk':
+                description = `Bulk archived ${action.result?.archived || 0} thread(s)`;
+                if (action.result?.failed > 0) {
+                    description += `, ${action.result.failed} failed`;
+                }
+                break;
+
+            // Scheduled Event tools - always include full results so AI doesn't need to re-call
+            case 'list_events':
+                description = `Listed scheduled events (${action.result?.count || 0} found)`;
+                if (action.result?.events?.length > 0) {
+                    description += ':';
+                    for (const ev of action.result.events) {
+                        description += `\n    - "${ev.name}" at ${ev.location} (starts: ${ev.start})`;
+                    }
+                } else {
+                    description += ' - No scheduled events in this server.';
+                }
+                description += `\n  DONE: No need to call list_events again. Use these results to respond to the user.`;
+                break;
+            case 'create_event':
+                description = `Created event "${action.result?.event?.name || action.args.name}"`;
+                if (action.result?.event?.start) {
+                    description += ` starting ${action.result.event.start}`;
+                }
+                description += `\n  DONE: Event created successfully.`;
+                break;
+            case 'delete_event':
+                description = `Deleted event "${action.args.event_name}"`;
+                description += `\n  DONE: Event deleted successfully.`;
+                break;
+            case 'create_events_bulk':
+                description = `Bulk created ${action.result?.created || 0} event(s)`;
+                if (action.result?.failed > 0) {
+                    description += `, ${action.result.failed} failed`;
+                }
+                break;
+            case 'delete_events_bulk':
+                description = `Bulk deleted ${action.result?.deleted || 0} event(s)`;
+                if (action.result?.failed > 0) {
+                    description += `, ${action.result.failed} failed`;
+                }
+                break;
+
+            // Emoji tools
+            case 'list_emojis':
+                description = `Listed emojis (${action.result?.count || 0} found)`;
+                if (action.result?.emojis?.length > 0) {
+                    description += `: ${action.result.emojis.slice(0, 10).map(e => e.name).join(', ')}`;
+                    if (action.result.emojis.length > 10) {
+                        description += `... and ${action.result.emojis.length - 10} more`;
+                    }
+                }
+                description += `\n  DONE: No need to call list_emojis again.`;
+                break;
+            case 'create_emoji':
+                description = `Created emoji :${action.result?.emoji?.name || action.args.name}:`;
+                break;
+            case 'delete_emoji':
+                description = `Deleted emoji "${action.args.emoji_name}"`;
+                break;
+
+            // Invite tools
+            case 'list_invites':
+                description = `Listed invites (${action.result?.count || 0} found)`;
+                if (action.result?.invites?.length > 0) {
+                    description += ':';
+                    for (const inv of action.result.invites.slice(0, 5)) {
+                        description += `\n    - ${inv.code} (${inv.uses || 0} uses)`;
+                    }
+                }
+                description += `\n  DONE: No need to call list_invites again.`;
+                break;
+            case 'create_invite':
+                description = `Created invite: ${action.result?.invite?.url || action.result?.url || 'created'}`;
+                break;
+
+            // Sticker tools
+            case 'list_stickers':
+                description = `Listed stickers (${action.result?.count || 0} found)`;
+                if (action.result?.stickers?.length > 0) {
+                    description += `: ${action.result.stickers.map(s => s.name).join(', ')}`;
+                }
+                description += `\n  DONE: No need to call list_stickers again.`;
+                break;
+            case 'create_sticker':
+                description = `Created sticker "${action.result?.sticker?.name || action.args.name}"`;
+                break;
+            case 'delete_sticker':
+                description = `Deleted sticker "${action.args.sticker_name}"`;
                 break;
 
             default:

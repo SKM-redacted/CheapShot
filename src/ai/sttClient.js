@@ -64,6 +64,8 @@ export class STTClient {
                 channels: 2,                // Stereo - Discord audio format
                 // Audio Intelligence features for emotional context
                 sentiment: true,            // Analyze emotional tone (-1 to +1 score)
+                // Privacy - opt out of model improvement program
+                mip_opt_out: true,
             });
 
             // Store callback

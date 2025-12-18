@@ -250,6 +250,8 @@ export class TTSClient {
                     model: model,
                     encoding: 'linear16',
                     sample_rate: 24000,
+                    // Privacy - opt out of model improvement program
+                    mip_opt_out: true,
                 });
 
                 dgConnection.on(LiveTTSEvents.Open, () => {

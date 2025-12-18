@@ -1547,13 +1547,17 @@ export const PIN_MESSAGES_BULK_TOOL = {
     type: "function",
     function: {
         name: "pin_messages_bulk",
-        description: "Pin multiple messages at once.",
+        description: "Pin multiple recent messages at once. PREFERRED: Use 'count' to pin the N most recent messages (no need to list IDs). Alternatively, provide message_ids if you have specific IDs.",
         parameters: {
             type: "object",
             properties: {
+                count: {
+                    type: "integer",
+                    description: "RECOMMENDED: Number of recent messages to pin (1-50). The tool will fetch and pin the N most recent messages automatically."
+                },
                 message_ids: {
                     type: "array",
-                    description: "Array of message IDs to pin.",
+                    description: "Alternative: Array of specific message IDs to pin. Only use if you have exact IDs.",
                     items: { type: "string" }
                 },
                 channel: {
@@ -1561,7 +1565,7 @@ export const PIN_MESSAGES_BULK_TOOL = {
                     description: "Optional: The name of the channel the messages are in. Defaults to current channel."
                 }
             },
-            required: ["message_ids"]
+            required: []
         }
     }
 };
@@ -1573,13 +1577,17 @@ export const UNPIN_MESSAGES_BULK_TOOL = {
     type: "function",
     function: {
         name: "unpin_messages_bulk",
-        description: "Unpin multiple messages at once.",
+        description: "Unpin multiple messages at once. PREFERRED: Use 'all: true' to unpin ALL pinned messages (no need to list IDs). Alternatively, provide message_ids if you have specific IDs.",
         parameters: {
             type: "object",
             properties: {
+                all: {
+                    type: "boolean",
+                    description: "RECOMMENDED: Set to true to unpin ALL pinned messages in the channel. No need to specify IDs."
+                },
                 message_ids: {
                     type: "array",
-                    description: "Array of message IDs to unpin.",
+                    description: "Alternative: Array of specific message IDs to unpin. Only use if you have exact IDs.",
                     items: { type: "string" }
                 },
                 channel: {
@@ -1587,7 +1595,509 @@ export const UNPIN_MESSAGES_BULK_TOOL = {
                     description: "Optional: The name of the channel the messages are in. Defaults to current channel."
                 }
             },
-            required: ["message_ids"]
+            required: []
+        }
+    }
+};
+
+// ============================================================
+// EMOJI MANAGEMENT TOOLS
+// ============================================================
+
+export const CREATE_EMOJI_TOOL = {
+    type: "function",
+    function: {
+        name: "create_emoji",
+        description: "Create a custom emoji from an image URL. The image should be under 256KB and will be resized to 128x128.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: {
+                    type: "string",
+                    description: "The name for the emoji (2-32 characters, alphanumeric and underscores only)."
+                },
+                image_url: {
+                    type: "string",
+                    description: "URL to the image file (PNG, JPG, or GIF for animated)."
+                }
+            },
+            required: ["name", "image_url"]
+        }
+    }
+};
+
+export const DELETE_EMOJI_TOOL = {
+    type: "function",
+    function: {
+        name: "delete_emoji",
+        description: "Delete a custom emoji from the server.",
+        parameters: {
+            type: "object",
+            properties: {
+                emoji_name: {
+                    type: "string",
+                    description: "The name of the emoji to delete."
+                }
+            },
+            required: ["emoji_name"]
+        }
+    }
+};
+
+export const LIST_EMOJIS_TOOL = {
+    type: "function",
+    function: {
+        name: "list_emojis",
+        description: "List all custom emojis in the server. Use this to see what emojis exist before creating or deleting.",
+        parameters: {
+            type: "object",
+            properties: {},
+            required: []
+        }
+    }
+};
+
+export const CREATE_EMOJIS_BULK_TOOL = {
+    type: "function",
+    function: {
+        name: "create_emojis_bulk",
+        description: "Create multiple custom emojis at once.",
+        parameters: {
+            type: "object",
+            properties: {
+                emojis: {
+                    type: "array",
+                    description: "Array of emojis to create.",
+                    items: {
+                        type: "object",
+                        properties: {
+                            name: { type: "string", description: "Emoji name" },
+                            image_url: { type: "string", description: "URL to image" }
+                        },
+                        required: ["name", "image_url"]
+                    }
+                }
+            },
+            required: ["emojis"]
+        }
+    }
+};
+
+export const DELETE_EMOJIS_BULK_TOOL = {
+    type: "function",
+    function: {
+        name: "delete_emojis_bulk",
+        description: "Delete multiple custom emojis at once.",
+        parameters: {
+            type: "object",
+            properties: {
+                emoji_names: {
+                    type: "array",
+                    description: "Array of emoji names to delete.",
+                    items: { type: "string" }
+                }
+            },
+            required: ["emoji_names"]
+        }
+    }
+};
+
+// ============================================================
+// INVITE MANAGEMENT TOOLS
+// ============================================================
+
+export const CREATE_INVITE_TOOL = {
+    type: "function",
+    function: {
+        name: "create_invite",
+        description: "Create a server invite link. Can specify expiration and max uses.",
+        parameters: {
+            type: "object",
+            properties: {
+                channel: {
+                    type: "string",
+                    description: "Optional: Channel to create invite for. Defaults to first text channel."
+                },
+                max_age: {
+                    type: "integer",
+                    description: "Optional: Invite expiry in seconds. 0 = never expire. Default is 86400 (24 hours)."
+                },
+                max_uses: {
+                    type: "integer",
+                    description: "Optional: Max number of uses. 0 = unlimited. Default is 0."
+                },
+                temporary: {
+                    type: "boolean",
+                    description: "Optional: If true, members are kicked when they disconnect unless assigned a role. Default is false."
+                }
+            },
+            required: []
+        }
+    }
+};
+
+export const LIST_INVITES_TOOL = {
+    type: "function",
+    function: {
+        name: "list_invites",
+        description: "List all active invites for the server with usage statistics.",
+        parameters: {
+            type: "object",
+            properties: {},
+            required: []
+        }
+    }
+};
+
+// ============================================================
+// WEBHOOK MANAGEMENT TOOLS
+// ============================================================
+
+export const CREATE_WEBHOOK_TOOL = {
+    type: "function",
+    function: {
+        name: "create_webhook",
+        description: "Create a webhook for a channel. Webhooks let you send messages with custom names and avatars.",
+        parameters: {
+            type: "object",
+            properties: {
+                channel: {
+                    type: "string",
+                    description: "The channel to create the webhook in."
+                },
+                name: {
+                    type: "string",
+                    description: "The name for the webhook."
+                },
+                avatar_url: {
+                    type: "string",
+                    description: "Optional: URL to an image for the webhook avatar."
+                }
+            },
+            required: ["channel", "name"]
+        }
+    }
+};
+
+export const DELETE_WEBHOOK_TOOL = {
+    type: "function",
+    function: {
+        name: "delete_webhook",
+        description: "Delete a webhook from the server.",
+        parameters: {
+            type: "object",
+            properties: {
+                webhook_name: {
+                    type: "string",
+                    description: "The name of the webhook to delete."
+                },
+                channel: {
+                    type: "string",
+                    description: "Optional: Channel to search in. If not specified, searches all channels."
+                }
+            },
+            required: ["webhook_name"]
+        }
+    }
+};
+
+export const LIST_WEBHOOKS_TOOL = {
+    type: "function",
+    function: {
+        name: "list_webhooks",
+        description: "List all webhooks in the server or a specific channel. Call this ONCE to get the list, then respond to the user with what you found. Do NOT call this multiple times - the results won't change.",
+        parameters: {
+            type: "object",
+            properties: {
+                channel: {
+                    type: "string",
+                    description: "Optional: Channel to list webhooks from. If not specified, lists all server webhooks."
+                }
+            },
+            required: []
+        }
+    }
+};
+
+export const CREATE_WEBHOOKS_BULK_TOOL = {
+    type: "function",
+    function: {
+        name: "create_webhooks_bulk",
+        description: "Create multiple webhooks at once.",
+        parameters: {
+            type: "object",
+            properties: {
+                webhooks: {
+                    type: "array",
+                    description: "Array of webhooks to create.",
+                    items: {
+                        type: "object",
+                        properties: {
+                            channel: { type: "string", description: "Channel name" },
+                            name: { type: "string", description: "Webhook name" },
+                            avatar_url: { type: "string", description: "Optional avatar URL" }
+                        },
+                        required: ["channel", "name"]
+                    }
+                }
+            },
+            required: ["webhooks"]
+        }
+    }
+};
+
+export const DELETE_WEBHOOKS_BULK_TOOL = {
+    type: "function",
+    function: {
+        name: "delete_webhooks_bulk",
+        description: "Delete multiple webhooks at once.",
+        parameters: {
+            type: "object",
+            properties: {
+                webhook_names: {
+                    type: "array",
+                    description: "Array of webhook names to delete.",
+                    items: { type: "string" }
+                }
+            },
+            required: ["webhook_names"]
+        }
+    }
+};
+
+// ============================================================
+// THREAD MANAGEMENT TOOLS
+// ============================================================
+
+export const CREATE_THREAD_TOOL = {
+    type: "function",
+    function: {
+        name: "create_thread",
+        description: "Create a new thread in a channel. Can create from a message or as a standalone thread.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: {
+                    type: "string",
+                    description: "The name for the thread."
+                },
+                channel: {
+                    type: "string",
+                    description: "Optional: Channel to create thread in. Defaults to current channel."
+                },
+                message_id: {
+                    type: "string",
+                    description: "Optional: Message ID to start thread from. If not provided, creates standalone thread."
+                },
+                auto_archive: {
+                    type: "integer",
+                    description: "Optional: Auto-archive duration in minutes (60, 1440, 4320, 10080). Default is 1440 (24 hours)."
+                },
+                private: {
+                    type: "boolean",
+                    description: "Optional: If true, creates a private thread. Default is false (public thread)."
+                }
+            },
+            required: ["name"]
+        }
+    }
+};
+
+export const ARCHIVE_THREAD_TOOL = {
+    type: "function",
+    function: {
+        name: "archive_thread",
+        description: "Archive an active thread.",
+        parameters: {
+            type: "object",
+            properties: {
+                thread_name: {
+                    type: "string",
+                    description: "The name of the thread to archive."
+                }
+            },
+            required: ["thread_name"]
+        }
+    }
+};
+
+export const LIST_THREADS_TOOL = {
+    type: "function",
+    function: {
+        name: "list_threads",
+        description: "List all active threads in the server. Call this ONCE to get the list, then respond to the user with what you found. Do NOT call this multiple times - the results won't change.",
+        parameters: {
+            type: "object",
+            properties: {},
+            required: []
+        }
+    }
+};
+
+export const CREATE_THREADS_BULK_TOOL = {
+    type: "function",
+    function: {
+        name: "create_threads_bulk",
+        description: "Create multiple threads at once.",
+        parameters: {
+            type: "object",
+            properties: {
+                threads: {
+                    type: "array",
+                    description: "Array of threads to create.",
+                    items: {
+                        type: "object",
+                        properties: {
+                            name: { type: "string", description: "Thread name" },
+                            channel: { type: "string", description: "Optional channel name" },
+                            private: { type: "boolean", description: "Optional: private thread" }
+                        },
+                        required: ["name"]
+                    }
+                }
+            },
+            required: ["threads"]
+        }
+    }
+};
+
+export const ARCHIVE_THREADS_BULK_TOOL = {
+    type: "function",
+    function: {
+        name: "archive_threads_bulk",
+        description: "Archive multiple threads at once.",
+        parameters: {
+            type: "object",
+            properties: {
+                thread_names: {
+                    type: "array",
+                    description: "Array of thread names to archive.",
+                    items: { type: "string" }
+                }
+            },
+            required: ["thread_names"]
+        }
+    }
+};
+
+// ============================================================
+// SCHEDULED EVENT TOOLS
+// ============================================================
+
+export const CREATE_EVENT_TOOL = {
+    type: "function",
+    function: {
+        name: "create_event",
+        description: "Create a scheduled event. Can be voice channel, stage channel, or external location. Call this ONCE to create the event.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: {
+                    type: "string",
+                    description: "The name of the event."
+                },
+                description: {
+                    type: "string",
+                    description: "Optional: Description of the event."
+                },
+                start_time: {
+                    type: "string",
+                    description: "When the event starts. Supports: ISO 8601 (2024-01-15T14:00:00), day names (Saturday at 9pm, next Friday at 2pm), relative (tomorrow at 3pm, in 2 hours)."
+                },
+                end_time: {
+                    type: "string",
+                    description: "Optional: When the event ends. Defaults to 2 hours after start."
+                },
+                location_type: {
+                    type: "string",
+                    enum: ["voice", "stage", "external"],
+                    description: "Type of location: 'voice' for voice channel, 'stage' for stage channel, 'external' for outside Discord."
+                },
+                location: {
+                    type: "string",
+                    description: "For voice/stage: channel name. For external: location text (e.g., 'Zoom Meeting', 'https://meet.google.com/xyz')."
+                }
+            },
+            required: ["name", "start_time", "location_type", "location"]
+        }
+    }
+};
+
+export const DELETE_EVENT_TOOL = {
+    type: "function",
+    function: {
+        name: "delete_event",
+        description: "Delete a scheduled event. First call list_events to find the exact event name, then call this ONCE to delete it.",
+        parameters: {
+            type: "object",
+            properties: {
+                event_name: {
+                    type: "string",
+                    description: "The name of the event to delete. Must match an existing event from list_events."
+                }
+            },
+            required: ["event_name"]
+        }
+    }
+};
+
+export const LIST_EVENTS_TOOL = {
+    type: "function",
+    function: {
+        name: "list_events",
+        description: "List all scheduled events in the server. Call this ONCE to get the list, then respond to the user with what you found. Do NOT call this multiple times - the results won't change.",
+        parameters: {
+            type: "object",
+            properties: {},
+            required: []
+        }
+    }
+};
+
+export const CREATE_EVENTS_BULK_TOOL = {
+    type: "function",
+    function: {
+        name: "create_events_bulk",
+        description: "Create multiple scheduled events at once.",
+        parameters: {
+            type: "object",
+            properties: {
+                events: {
+                    type: "array",
+                    description: "Array of events to create.",
+                    items: {
+                        type: "object",
+                        properties: {
+                            name: { type: "string", description: "Event name" },
+                            start_time: { type: "string", description: "Start time" },
+                            location_type: { type: "string", description: "voice, stage, or external" },
+                            location: { type: "string", description: "Channel name or external location" },
+                            description: { type: "string", description: "Optional description" }
+                        },
+                        required: ["name", "start_time", "location_type", "location"]
+                    }
+                }
+            },
+            required: ["events"]
+        }
+    }
+};
+
+export const DELETE_EVENTS_BULK_TOOL = {
+    type: "function",
+    function: {
+        name: "delete_events_bulk",
+        description: "Delete multiple scheduled events at once.",
+        parameters: {
+            type: "object",
+            properties: {
+                event_names: {
+                    type: "array",
+                    description: "Array of event names to delete.",
+                    items: { type: "string" }
+                }
+            },
+            required: ["event_names"]
         }
     }
 };
@@ -1651,6 +2161,33 @@ export const DISCORD_TOOLS = [
     LIST_STICKERS_TOOL,
     CREATE_STICKERS_BULK_TOOL,
     DELETE_STICKERS_BULK_TOOL,
+    // Emoji Management
+    CREATE_EMOJI_TOOL,
+    DELETE_EMOJI_TOOL,
+    LIST_EMOJIS_TOOL,
+    CREATE_EMOJIS_BULK_TOOL,
+    DELETE_EMOJIS_BULK_TOOL,
+    // Invite Management
+    CREATE_INVITE_TOOL,
+    LIST_INVITES_TOOL,
+    // Webhook Management
+    CREATE_WEBHOOK_TOOL,
+    DELETE_WEBHOOK_TOOL,
+    LIST_WEBHOOKS_TOOL,
+    CREATE_WEBHOOKS_BULK_TOOL,
+    DELETE_WEBHOOKS_BULK_TOOL,
+    // Thread Management
+    CREATE_THREAD_TOOL,
+    ARCHIVE_THREAD_TOOL,
+    LIST_THREADS_TOOL,
+    CREATE_THREADS_BULK_TOOL,
+    ARCHIVE_THREADS_BULK_TOOL,
+    // Scheduled Events
+    CREATE_EVENT_TOOL,
+    DELETE_EVENT_TOOL,
+    LIST_EVENTS_TOOL,
+    CREATE_EVENTS_BULK_TOOL,
+    DELETE_EVENTS_BULK_TOOL,
     // Utility
     CHECK_PERMS_TOOL,
     LIST_ROLE_PERMISSIONS_TOOL,

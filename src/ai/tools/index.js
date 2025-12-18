@@ -150,6 +150,7 @@ export {
 export {
     handleCreateThread,
     handleArchiveThread,
+    handleListThreads,
     handleCreateThreadsBulk,
     handleArchiveThreadsBulk
 } from './threadTools.js';
