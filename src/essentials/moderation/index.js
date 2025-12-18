@@ -44,6 +44,8 @@ export {
 // Warnings
 export {
     addWarning,
+    removeWarning,
+    getWarning,
     getWarningCount,
     clearWarnings,
     getUserWarnings,
@@ -64,6 +66,7 @@ export {
 
 // Mod Log
 export {
+    sendModLogViolation,
     sendModLogTimeout,
     handleModActionButton
 } from './modLog.js';

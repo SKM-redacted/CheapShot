@@ -9,7 +9,7 @@ import { EmbedBuilder } from 'discord.js';
 import { logger } from '../../ai/logger.js';
 import { addWarning, getWarningCount, clearWarnings } from './warningTracker.js';
 import { ACTION_TYPES, getTimeoutDuration, getTimeoutDurationString, MODERATION_CONFIG } from './constants.js';
-import { sendModLogTimeout } from './modLog.js';
+import { sendModLogViolation } from './modLog.js';
 
 /**
  * Execute moderation actions based on analysis result
@@ -38,12 +38,16 @@ export async function executeActions(message, result) {
         }
 
         // Add warning and send DM
+        let warningId = null;
         if (result.actions.includes(ACTION_TYPES.WARN)) {
             const warningResult = addWarning(
                 message.guild.id,
                 message.author.id,
-                result.reason
+                result.reason,
+                message.id,
+                message.channel.id
             );
+            warningId = warningResult.id;
             warningCount = warningResult.count;
             actionsExecuted.push('warned');
 
@@ -63,9 +67,6 @@ export async function executeActions(message, result) {
                     // Clear warnings after timeout
                     clearWarnings(message.guild.id, message.author.id);
 
-                    // Send to mod log
-                    await sendModLogTimeout(message, result, 'timeout_auto', warningCount);
-
                     logger.info('MODERATION', `Auto-timed out ${message.author.tag} after ${warningCount} warnings`);
                 } catch (err) {
                     logger.error('MODERATION', `Failed to auto-timeout: ${err.message}`);
@@ -84,20 +85,23 @@ export async function executeActions(message, result) {
                 await member.timeout(duration, result.reason);
                 actionsExecuted.push(timeoutAction);
 
-                // Send to mod log
-                await sendModLogTimeout(message, result, timeoutAction, warningCount);
-
                 logger.info('MODERATION', `Timed out ${message.author.tag} for ${getTimeoutDurationString(timeoutAction)}`);
             } catch (err) {
                 logger.error('MODERATION', `Failed to timeout: ${err.message}`);
             }
         }
 
+        // Send mod log for ALL violations (regardless of which actions succeeded)
+        // This ensures moderators always see violations in the mod channel
+        if (actionsExecuted.length > 0) {
+            await sendModLogViolation(message, result, actionsExecuted, warningCount, warningId);
+        }
+
     } catch (error) {
         logger.error('MODERATION', `Action execution failed: ${error.message}`);
     }
 
-    return { actionsExecuted, warningCount };
+    return { actionsExecuted, warningCount, warningId };
 }
 
 /**

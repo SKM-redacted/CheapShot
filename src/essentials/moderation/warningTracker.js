@@ -1,15 +1,30 @@
 /**
  * Warning Tracker
  * 
- * Tracks warnings per user per guild.
+ * Tracks warnings per user per guild with unique IDs.
+ * Each warning has a unique ID so it can be pardoned individually.
  * Auto-escalates to timeout after threshold.
  */
 
 import { logger } from '../../ai/logger.js';
 import { MODERATION_CONFIG } from './constants.js';
 
-// Warning storage: Map<guildId, Map<userId, {count, timestamps[], reasons[]}>>
+// Warning storage: Map<guildId, Map<warningId, WarningData>>
+// WarningData: { id, guildId visually, userId, reason, timestamp, messageId, channelId }
 const warningStore = new Map();
+
+// Counter for generating unique warning IDs per guild
+const warningIdCounter = new Map();
+
+/**
+ * Generate a unique warning ID for a guild
+ * Format: WRN-{timestamp}-{counter}
+ */
+function generateWarningId(guildId) {
+    const counter = (warningIdCounter.get(guildId) || 0) + 1;
+    warningIdCounter.set(guildId, counter);
+    return `WRN-${Date.now().toString(36)}-${counter}`;
+}
 
 /**
  * Get or create guild warning map
@@ -22,83 +37,156 @@ function getGuildWarnings(guildId) {
 }
 
 /**
- * Clean up expired warnings
+ * Get all active (non-expired) warnings for a user in a guild
  */
-function cleanOldWarnings(userData) {
+function getActiveWarningsForUser(guildId, userId) {
+    const guildWarnings = getGuildWarnings(guildId);
     const cutoff = Date.now() - (MODERATION_CONFIG.WARNING_DECAY_HOURS * 60 * 60 * 1000);
-    userData.timestamps = userData.timestamps.filter(t => t > cutoff);
-    userData.count = userData.timestamps.length;
-    return userData;
+
+    const activeWarnings = [];
+    for (const [id, warning] of guildWarnings) {
+        if (warning.userId === userId && warning.timestamp > cutoff) {
+            activeWarnings.push(warning);
+        }
+    }
+
+    return activeWarnings;
+}
+
+/**
+ * Clean up expired warnings for all users in a guild
+ */
+function cleanOldWarnings(guildId) {
+    const guildWarnings = getGuildWarnings(guildId);
+    const cutoff = Date.now() - (MODERATION_CONFIG.WARNING_DECAY_HOURS * 60 * 60 * 1000);
+
+    for (const [id, warning] of guildWarnings) {
+        if (warning.timestamp < cutoff) {
+            guildWarnings.delete(id);
+        }
+    }
 }
 
 /**
  * Add a warning for a user
- * @returns {{count, shouldTimeout, isFirst, threshold}}
+ * @param {string} guildId - Guild ID
+ * @param {string} userId - User ID
+ * @param {string} reason - Reason for the warning
+ * @param {string} messageId - Optional: ID of the offending message
+ * @param {string} channelId - Optional: ID of the channel
+ * @returns {{id, count, shouldTimeout, isFirst, threshold}}
  */
-export function addWarning(guildId, userId, reason = '') {
+export function addWarning(guildId, userId, reason = '', messageId = null, channelId = null) {
     const guildWarnings = getGuildWarnings(guildId);
 
-    let userData = guildWarnings.get(userId) || { count: 0, timestamps: [], reasons: [] };
-    userData = cleanOldWarnings(userData);
+    // Clean old warnings first
+    cleanOldWarnings(guildId);
 
-    userData.timestamps.push(Date.now());
-    userData.reasons.push(reason);
-    userData.count = userData.timestamps.length;
+    // Generate unique ID for this warning
+    const warningId = generateWarningId(guildId);
 
-    guildWarnings.set(userId, userData);
+    // Create warning record
+    const warning = {
+        id: warningId,
+        guildId,
+        userId,
+        reason,
+        timestamp: Date.now(),
+        messageId,
+        channelId
+    };
 
-    logger.debug('MODERATION', `Warning: user ${userId}, count: ${userData.count}/${MODERATION_CONFIG.WARNING_THRESHOLD}`);
+    // Store the warning
+    guildWarnings.set(warningId, warning);
+
+    // Get current count for user
+    const activeWarnings = getActiveWarningsForUser(guildId, userId);
+    const count = activeWarnings.length;
+
+    logger.debug('MODERATION', `Warning ${warningId}: user ${userId}, count: ${count}/${MODERATION_CONFIG.WARNING_THRESHOLD}`);
 
     return {
-        count: userData.count,
-        shouldTimeout: userData.count >= MODERATION_CONFIG.WARNING_THRESHOLD,
-        isFirst: userData.count === 1,
+        id: warningId,
+        count,
+        shouldTimeout: count >= MODERATION_CONFIG.WARNING_THRESHOLD,
+        isFirst: count === 1,
         threshold: MODERATION_CONFIG.WARNING_THRESHOLD
     };
+}
+
+/**
+ * Remove a specific warning by ID
+ * @param {string} guildId - Guild ID
+ * @param {string} warningId - Warning ID to remove
+ * @returns {boolean} True if warning was found and removed
+ */
+export function removeWarning(guildId, warningId) {
+    const guildWarnings = getGuildWarnings(guildId);
+
+    if (guildWarnings.has(warningId)) {
+        const warning = guildWarnings.get(warningId);
+        guildWarnings.delete(warningId);
+        logger.debug('MODERATION', `Warning ${warningId} removed for user ${warning.userId}`);
+        return true;
+    }
+
+    logger.debug('MODERATION', `Warning ${warningId} not found in guild ${guildId}`);
+    return false;
+}
+
+/**
+ * Get a specific warning by ID
+ * @param {string} guildId - Guild ID
+ * @param {string} warningId - Warning ID
+ * @returns {Object|null} Warning data or null if not found
+ */
+export function getWarning(guildId, warningId) {
+    const guildWarnings = getGuildWarnings(guildId);
+    return guildWarnings.get(warningId) || null;
 }
 
 /**
  * Get warning count for a user
  */
 export function getWarningCount(guildId, userId) {
-    const guildWarnings = getGuildWarnings(guildId);
-    let userData = guildWarnings.get(userId);
-
-    if (!userData) return 0;
-
-    userData = cleanOldWarnings(userData);
-    guildWarnings.set(userId, userData);
-
-    return userData.count;
+    cleanOldWarnings(guildId);
+    const activeWarnings = getActiveWarningsForUser(guildId, userId);
+    return activeWarnings.length;
 }
 
 /**
- * Clear warnings for a user
+ * Clear ALL warnings for a user (use sparingly)
  */
 export function clearWarnings(guildId, userId) {
     const guildWarnings = getGuildWarnings(guildId);
-    guildWarnings.delete(userId);
-    logger.debug('MODERATION', `Warnings cleared: user ${userId}`);
+
+    let cleared = 0;
+    for (const [id, warning] of guildWarnings) {
+        if (warning.userId === userId) {
+            guildWarnings.delete(id);
+            cleared++;
+        }
+    }
+
+    logger.debug('MODERATION', `Cleared ${cleared} warnings for user ${userId}`);
+    return cleared;
 }
 
 /**
  * Get all warning info for a user
  */
 export function getUserWarnings(guildId, userId) {
-    const guildWarnings = getGuildWarnings(guildId);
-    let userData = guildWarnings.get(userId);
+    cleanOldWarnings(guildId);
+    const activeWarnings = getActiveWarningsForUser(guildId, userId);
 
-    if (!userData) {
-        return { count: 0, reasons: [], timestamps: [] };
-    }
-
-    userData = cleanOldWarnings(userData);
-    guildWarnings.set(userId, userData);
+    // Sort by timestamp (newest first)
+    activeWarnings.sort((a, b) => b.timestamp - a.timestamp);
 
     return {
-        count: userData.count,
-        reasons: userData.reasons.slice(-MODERATION_CONFIG.WARNING_THRESHOLD),
-        timestamps: userData.timestamps
+        count: activeWarnings.length,
+        warnings: activeWarnings,
+        reasons: activeWarnings.map(w => w.reason),
+        timestamps: activeWarnings.map(w => w.timestamp)
     };
 }
 
