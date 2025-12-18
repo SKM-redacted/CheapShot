@@ -529,6 +529,7 @@ You're chatting with ${username}. Keep it casual!`;
         }
 
         try {
+            const apiStartTime = Date.now();
             const response = await fetch(url, {
                 method: 'POST',
                 headers: {
@@ -537,6 +538,7 @@ You're chatting with ${username}. Keep it casual!`;
                 },
                 body: JSON.stringify(body)
             });
+            console.log(`[TIMING] Voice API first byte: ${Date.now() - apiStartTime}ms (model: ${config.voiceModel || this.model})`);
 
             if (!response.ok) {
                 throw new Error(`API request failed: ${response.status}`);
@@ -552,6 +554,8 @@ You're chatting with ${username}. Keep it casual!`;
 
             // Smarter chunking settings - only split on punctuation
             const MIN_WORDS_CLAUSE = 6;     // Min words to send on comma/colon
+            let firstSentenceSent = false;
+            const streamStartTime = Date.now();
 
             // Patterns that indicate an INCOMPLETE chunk - don't send these alone
             const incompleteEndings = [
@@ -667,6 +671,10 @@ You're chatting with ${username}. Keep it casual!`;
                                 // Skip pure emoji sentences - they don't speak well
                                 const hasWords = sentence.replace(/[\p{Emoji}\s.,!?]/gu, '').length > 0;
                                 if (sentence && hasWords) {
+                                    if (!firstSentenceSent) {
+                                        console.log(`[TIMING] First sentence ready: ${Date.now() - streamStartTime}ms`);
+                                        firstSentenceSent = true;
+                                    }
                                     await onSentence(sentence);
                                 }
                                 chunkBuffer = sentenceMatch[2];

@@ -401,13 +401,9 @@ class VoiceClient {
 
             logger.debug('VOICE', `[SPECULATIVE] Cancelled response ${messageId ? messageId.slice(-12) : 'all'} for guild ${guildId}`);
 
-            // CRITICAL: Also cancel any TTS audio that was already generated/queued for THIS message
-            // This prevents the race condition where audio plays after cancel
-            if (messageId) {
-                ttsClient.cancelMessage(guildId, messageId);
-            } else {
-                ttsClient.stop(guildId);
-            }
+            // AGGRESSIVE FIX: Clear ALL pending audio when cancelling
+            // This prevents race conditions where old speculative audio plays on new messages
+            ttsClient.stop(guildId);
         }
     }
 

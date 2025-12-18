@@ -13,7 +13,51 @@ export class TTSClient {
     constructor() {
         this.deepgram = null;
         this.activeSpeakers = new Map(); // guildId -> { connection, player, audioQueue, isPlaying, pendingGenerations }
-        this.speedFactor = 0.28; // 0.7 = 70% speed (30% slower), 1.0 = normal speed
+        this.speedFactor = 0.28; // 0.28 = slower for clarity, 1.0 = normal speed
+
+        // Multilingual voice mapping (Deepgram Aura-2 voices)
+        // https://developers.deepgram.com/docs/tts-models
+        this.voiceMap = {
+            'en': 'aura-2-thalia-en',      // English (default)
+            'en-US': 'aura-2-thalia-en',
+            'en-GB': 'aura-2-thalia-en',
+            'es': 'aura-2-lucia-es',       // Spanish
+            'es-ES': 'aura-2-lucia-es',
+            'es-MX': 'aura-2-lucia-es',
+            'fr': 'aura-2-marie-fr',       // French
+            'fr-FR': 'aura-2-marie-fr',
+            'de': 'aura-2-helena-de',      // German
+            'de-DE': 'aura-2-helena-de',
+            'it': 'aura-2-giulia-it',      // Italian
+            'it-IT': 'aura-2-giulia-it',
+            'pt': 'aura-2-lucia-es',       // Portuguese (fallback to Spanish)
+            'pt-BR': 'aura-2-lucia-es',
+            'nl': 'aura-2-thalia-en',      // Dutch (fallback to English)
+            'ja': 'aura-2-thalia-en',      // Japanese (fallback to English for now)
+        };
+        this.defaultVoice = 'aura-2-thalia-en';
+    }
+
+    /**
+     * Get the appropriate voice for a language
+     * @param {string} language - Language code (e.g., 'en', 'es', 'fr')
+     * @returns {string} Voice model name
+     */
+    getVoiceForLanguage(language) {
+        if (!language) return this.defaultVoice;
+
+        // Try exact match first
+        if (this.voiceMap[language]) {
+            return this.voiceMap[language];
+        }
+
+        // Try base language (e.g., 'en' from 'en-US')
+        const baseLanguage = language.split('-')[0];
+        if (this.voiceMap[baseLanguage]) {
+            return this.voiceMap[baseLanguage];
+        }
+
+        return this.defaultVoice;
     }
 
     /**
@@ -156,9 +200,11 @@ export class TTSClient {
         if (!speaker) return;
 
         try {
+            const ttsStartTime = Date.now();
             logger.debug('TTS', `Starting parallel generation #${generationId}: "${text.substring(0, 30)}..."`);
 
             const audioBuffer = await this.generateTTSBuffer(text, options);
+            console.log(`[TIMING] TTS generation #${generationId}: ${Date.now() - ttsStartTime}ms`);
 
             if (audioBuffer && speaker) {
                 // Store the completed audio with its messageId
@@ -237,12 +283,13 @@ export class TTSClient {
     /**
      * Generate TTS audio buffer (doesn't play - just generates)
      * @param {string} text - Text to speak
-     * @param {Object} options - TTS options
+     * @param {Object} options - TTS options (voice, language)
      * @returns {Promise<Buffer>} Audio buffer
      */
     async generateTTSBuffer(text, options = {}) {
         return new Promise((resolve, reject) => {
-            const model = options.voice || 'aura-2-thalia-en';
+            // Use explicit voice, or get voice for language, or default
+            const model = options.voice || this.getVoiceForLanguage(options.language);
             const audioChunks = [];
 
             try {

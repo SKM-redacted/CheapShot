@@ -1159,9 +1159,9 @@ async function start() {
                 const executeVoiceTool = async (toolCall) => {
                     logger.toolCall(toolCall.name, toolCall.arguments);
 
-                    // Check permissions before executing any tool
-                    const member = guild?.members?.cache?.get(userId)
-                        || await guild?.members?.fetch(userId).catch(() => null);
+                    // ALWAYS fetch fresh member data for permission checks (don't use cache)
+                    // This ensures permission changes take effect immediately
+                    const member = await guild?.members?.fetch(userId).catch(() => null);
 
                     const permCheck = checkToolPermission(member, toolCall.name, guild);
                     if (!permCheck.allowed) {
@@ -1282,12 +1282,20 @@ async function start() {
                 );
 
                 // Multi-step tool execution loop
-                for (let iteration = 0; iteration < MAX_VOICE_ITERATIONS && currentToolCalls.length > 0; iteration++) {
+                let permissionDenied = false;
+                for (let iteration = 0; iteration < MAX_VOICE_ITERATIONS && currentToolCalls.length > 0 && !permissionDenied; iteration++) {
                     logger.info('VOICE', `Tool iteration ${iteration + 1}: ${currentToolCalls.length} tool(s) to execute`);
 
                     // Execute all pending tool calls
                     for (const toolCall of currentToolCalls) {
                         const toolResult = await executeVoiceTool(toolCall);
+
+                        // Check for permission error - if so, break out of loop
+                        if (!toolResult.success && toolResult.error?.includes('permission')) {
+                            logger.info('VOICE', `Permission denied, stopping tool loop`);
+                            permissionDenied = true;
+                            break;
+                        }
 
                         // Speak confirmation for important actions (but not list_channels)
                         if (onSentence && toolResult.success && toolCall.name !== 'list_channels') {
@@ -1304,6 +1312,9 @@ async function start() {
                             }
                         }
                     }
+
+                    // If permission was denied, don't continue the loop
+                    if (permissionDenied) break;
 
                     // Build context of what we've done
                     const actionsContext = buildActionsContext(voiceToolActions);

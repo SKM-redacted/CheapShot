@@ -14,6 +14,7 @@ import { logger } from './logger.js';
  */
 const TOOL_PERMISSIONS = {
     'create_voice_channel': [PermissionFlagsBits.ManageChannels],
+    'list_voice_channels': [PermissionFlagsBits.ManageChannels],
     'create_text_channel': [PermissionFlagsBits.ManageChannels],
     'create_category': [PermissionFlagsBits.ManageChannels],
     'delete_channel': [PermissionFlagsBits.ManageChannels],
@@ -90,8 +91,7 @@ const TOOL_PERMISSIONS = {
     'generate_image': [],
     'join_voice': [],
     'leave_voice': [],
-    'voice_conversation': [],
-    'list_voice_channels': []
+    'voice_conversation': []
 };
 
 /**

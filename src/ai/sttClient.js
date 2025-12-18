@@ -53,7 +53,7 @@ export class STTClient {
         try {
             const connection = this.deepgram.listen.live({
                 model: 'nova-3',           // Deepgram's latest & most accurate model
-                language: 'en-US',
+                // language removed - Nova 3 will auto-detect language (multilingual mode)
                 smart_format: false,        // OFF - gives verbatim transcription, no AI rephrasing
                 interim_results: true,      // Get partial results for real-time feel
                 utterance_end_ms: 1000,     // Detect end of utterance
