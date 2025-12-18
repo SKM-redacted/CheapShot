@@ -6,7 +6,8 @@
     "type": "module",
     "scripts": {
         "start": "node src/ai/index.js",
-        "dev": "node --watch src/ai/index.js"
+        "dev": "node --watch src/ai/index.js",
+        "dashboard": "node dashboard/api/server.js"
     },
     "keywords": [
         "discord",
@@ -25,9 +26,14 @@
         "@stablelib/xchacha20poly1305": "^2.0.1",
         "blessed": "^0.1.81",
         "blessed-contrib": "^4.11.0",
+        "connect-redis": "^7.1.1",
+        "cors": "^2.8.5",
         "discord.js": "^14.14.1",
         "dotenv": "^16.3.1",
+        "express": "^4.18.2",
+        "express-session": "^1.17.3",
         "prism-media": "^1.3.5",
+        "redis": "^4.6.13",
         "sodium-native": "^5.0.10"
     }
 }

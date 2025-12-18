@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authenticating... - CheapShot</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body class="callback-page">
+    <div class="callback-container">
+        <div class="callback-card">
+            <div class="spinner"></div>
+            <h2 id="status-text">Authenticating...</h2>
+            <p id="status-detail">Please wait while we complete the login process</p>
+        </div>
+    </div>
+
+    <script>
+        async function handleCallback() {
+            const statusText = document.getElementById('status-text');
+            const statusDetail = document.getElementById('status-detail');
+
+            // Get the authorization code from URL
+            const params = new URLSearchParams(window.location.search);
+            const code = params.get('code');
+            const error = params.get('error');
+
+            if (error) {
+                statusText.textContent = 'Authorization Failed';
+                statusDetail.textContent = error === 'access_denied'
+                    ? 'You cancelled the authorization'
+                    : `Error: ${error}`;
+                setTimeout(() => window.location.href = '/', 3000);
+                return;
+            }
+
+            if (!code) {
+                statusText.textContent = 'Invalid Request';
+                statusDetail.textContent = 'No authorization code received';
+                setTimeout(() => window.location.href = '/', 3000);
+                return;
+            }
+
+            try {
+                // Exchange code for session
+                const response = await fetch('/api/auth/callback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ code })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Authentication failed');
+                }
+
+                const data = await response.json();
+
+                statusText.textContent = `Welcome, ${data.user.globalName || data.user.username}!`;
+                statusDetail.textContent = 'Redirecting to dashboard...';
+
+                setTimeout(() => {
+                    window.location.href = '/dashboard.html';
+                }, 1000);
+
+            } catch (err) {
+                console.error('Callback error:', err);
+                statusText.textContent = 'Login Failed';
+                statusDetail.textContent = 'Something went wrong. Please try again.';
+                setTimeout(() => window.location.href = '/', 3000);
+            }
+        }
+
+        handleCallback();
+    </script>
+</body>
+
+</html>
