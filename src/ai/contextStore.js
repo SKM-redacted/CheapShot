@@ -1,15 +1,15 @@
 import { logger } from './logger.js';
 
 /**
- * Context Store - Manages conversation history per channel
+ * Context Store - Manages conversation history per person (per channel-user pair)
  * Features: Token counting, FIFO trimming, mutex locks, pending request tracking
  */
 class ContextStore {
     constructor() {
-        // Channel contexts: channelId -> { messages, tokenCount, pendingRequests }
-        this.channelContexts = new Map();
+        // Person contexts: contextKey (channelId-userId) -> { messages, tokenCount, pendingRequests }
+        this.personContexts = new Map();
 
-        // Mutex locks per channel
+        // Mutex locks per context key
         this.locks = new Map();
 
         // Max tokens before trimming (20k - keeps context focused)
@@ -23,26 +23,36 @@ class ContextStore {
     }
 
     /**
-     * Acquire mutex lock for a channel
+     * Generate a unique context key for a channel-user pair
      * @param {string} channelId 
+     * @param {string} userId 
+     * @returns {string}
+     */
+    getContextKey(channelId, userId) {
+        return `${channelId}-${userId}`;
+    }
+
+    /**
+     * Acquire mutex lock for a context
+     * @param {string} contextKey 
      * @returns {Promise<Function>} Release function
      */
-    async acquireLock(channelId) {
-        while (this.locks.get(channelId)) {
+    async acquireLock(contextKey) {
+        while (this.locks.get(contextKey)) {
             await new Promise(resolve => setTimeout(resolve, 10));
 
             // Timeout check
-            const lockInfo = this.locks.get(channelId);
+            const lockInfo = this.locks.get(contextKey);
             if (lockInfo && Date.now() - lockInfo.timestamp > this.lockTimeout) {
-                logger.warn('CONTEXT', `Lock timeout for channel ${channelId}, forcing release`);
-                this.locks.delete(channelId);
+                logger.warn('CONTEXT', `Lock timeout for context ${contextKey}, forcing release`);
+                this.locks.delete(contextKey);
             }
         }
 
-        this.locks.set(channelId, { timestamp: Date.now() });
+        this.locks.set(contextKey, { timestamp: Date.now() });
 
         return () => {
-            this.locks.delete(channelId);
+            this.locks.delete(contextKey);
         };
     }
 
@@ -56,23 +66,23 @@ class ContextStore {
     }
 
     /**
-     * Get or create channel context
-     * @param {string} channelId 
+     * Get or create person context
+     * @param {string} contextKey - The composite channelId-userId key
      * @returns {Object}
      */
-    getContext(channelId) {
-        if (!this.channelContexts.has(channelId)) {
-            this.channelContexts.set(channelId, {
+    getContext(contextKey) {
+        if (!this.personContexts.has(contextKey)) {
+            this.personContexts.set(contextKey, {
                 messages: [],
                 tokenCount: 0,
                 pendingRequests: []
             });
         }
-        return this.channelContexts.get(channelId);
+        return this.personContexts.get(contextKey);
     }
 
     /**
-     * Add a user message to channel context
+     * Add a user message to person context
      * @param {string} channelId 
      * @param {string} userId 
      * @param {string} username 
@@ -81,10 +91,11 @@ class ContextStore {
      * @returns {Promise<Object>} The added message
      */
     async addUserMessage(channelId, userId, username, content, images = null) {
-        const release = await this.acquireLock(channelId);
+        const contextKey = this.getContextKey(channelId, userId);
+        const release = await this.acquireLock(contextKey);
 
         try {
-            const context = this.getContext(channelId);
+            const context = this.getContext(contextKey);
 
             const message = {
                 timestamp: Date.now(),
@@ -117,16 +128,18 @@ class ContextStore {
     }
 
     /**
-     * Add an assistant response to channel context
+     * Add an assistant response to person context
      * @param {string} channelId 
+     * @param {string} userId 
      * @param {string} content 
      * @returns {Promise<Object>} The added message
      */
-    async addAssistantMessage(channelId, content) {
-        const release = await this.acquireLock(channelId);
+    async addAssistantMessage(channelId, userId, content) {
+        const contextKey = this.getContextKey(channelId, userId);
+        const release = await this.acquireLock(contextKey);
 
         try {
-            const context = this.getContext(channelId);
+            const context = this.getContext(contextKey);
 
             const message = {
                 timestamp: Date.now(),
@@ -155,10 +168,11 @@ class ContextStore {
      * @returns {Promise<string>} Request ID
      */
     async addPendingRequest(channelId, userId, username, content) {
-        const release = await this.acquireLock(channelId);
+        const contextKey = this.getContextKey(channelId, userId);
+        const release = await this.acquireLock(contextKey);
 
         try {
-            const context = this.getContext(channelId);
+            const context = this.getContext(contextKey);
             const requestId = `${userId}-${Date.now()}`;
 
             context.pendingRequests.push({
@@ -178,13 +192,15 @@ class ContextStore {
     /**
      * Remove a pending request
      * @param {string} channelId 
+     * @param {string} userId 
      * @param {string} requestId 
      */
-    async removePendingRequest(channelId, requestId) {
-        const release = await this.acquireLock(channelId);
+    async removePendingRequest(channelId, userId, requestId) {
+        const contextKey = this.getContextKey(channelId, userId);
+        const release = await this.acquireLock(contextKey);
 
         try {
-            const context = this.getContext(channelId);
+            const context = this.getContext(contextKey);
             context.pendingRequests = context.pendingRequests.filter(
                 req => req.requestId !== requestId
             );
@@ -194,14 +210,16 @@ class ContextStore {
     }
 
     /**
-     * Get a snapshot of channel context for AI request
+     * Get a snapshot of person context for AI request
      * @param {string} channelId 
+     * @param {string} userId 
      * @param {string} systemPrompt 
      * @param {Object} currentRequest - { userId, username, content, images? }
      * @returns {Promise<Array>} Messages array for AI
      */
-    async getContextSnapshot(channelId, systemPrompt, currentRequest) {
-        const context = this.getContext(channelId);
+    async getContextSnapshot(channelId, userId, systemPrompt, currentRequest) {
+        const contextKey = this.getContextKey(channelId, userId);
+        const context = this.getContext(contextKey);
         const messages = [];
 
         // System prompt
@@ -320,12 +338,14 @@ class ContextStore {
     }
 
     /**
-     * Get context stats for a channel
+     * Get context stats for a person
      * @param {string} channelId 
+     * @param {string} userId 
      * @returns {Object}
      */
-    getStats(channelId) {
-        const context = this.getContext(channelId);
+    getStats(channelId, userId) {
+        const contextKey = this.getContextKey(channelId, userId);
+        const context = this.getContext(contextKey);
         return {
             messageCount: context.messages.length,
             tokenCount: context.tokenCount,
@@ -334,15 +354,17 @@ class ContextStore {
     }
 
     /**
-     * Clear context for a channel
+     * Clear context for a person
      * @param {string} channelId 
+     * @param {string} userId 
      */
-    async clearContext(channelId) {
-        const release = await this.acquireLock(channelId);
+    async clearContext(channelId, userId) {
+        const contextKey = this.getContextKey(channelId, userId);
+        const release = await this.acquireLock(contextKey);
 
         try {
-            this.channelContexts.delete(channelId);
-            logger.info('CONTEXT', `Cleared context for channel ${channelId}`);
+            this.personContexts.delete(contextKey);
+            logger.info('CONTEXT', `Cleared context for ${contextKey}`);
         } finally {
             release();
         }

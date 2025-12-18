@@ -552,7 +552,7 @@ async function handleMessage(message, bot) {
         await message.reply('❌ Sorry, I encountered an error. Please try again later.');
     } finally {
         // Remove pending request and end generation tracking
-        await contextStore.removePendingRequest(message.channel.id, requestId);
+        await contextStore.removePendingRequest(message.channel.id, message.author.id, requestId);
         generationTracker.endGeneration(message.author.id, requestId);
     }
 }
@@ -690,6 +690,7 @@ async function handleAIResponse(message, userMessage, bot, requestId, images = [
         // Get context-aware messages for AI (includes images if present)
         const contextMessages = await contextStore.getContextSnapshot(
             message.channel.id,
+            message.author.id,
             systemPromptWithRules,
             {
                 userId: message.author.id,
@@ -995,11 +996,11 @@ You have completed the above action(s). Based on the results and the user's orig
                     // This allows the AI to reference previous actions in follow-up messages
                     const actionsContextForStorage = buildActionsContext(completedActions);
                     const assistantResponse = `${finalText || ''}\n\n[Tool Actions Completed]\n${actionsContextForStorage}`.trim();
-                    await contextStore.addAssistantMessage(message.channel.id, assistantResponse);
+                    await contextStore.addAssistantMessage(message.channel.id, message.author.id, assistantResponse);
                     logger.debug('CONTEXT', `Saved assistant response with ${completedActions.length} tool action(s) to context`);
                 } else {
                     // No tool calls - save regular AI response to context
-                    await contextStore.addAssistantMessage(message.channel.id, finalText);
+                    await contextStore.addAssistantMessage(message.channel.id, message.author.id, finalText);
                     logger.debug('CONTEXT', `Saved assistant response to context`);
                 }
             },
