@@ -967,20 +967,72 @@ export async function handleEditChannelsBulk(guild, args) {
 
 /**
  * Handler for renaming any channel (convenience wrapper)
+ * PRE-FLIGHT: Lists available channels when search fails to prevent AI guessing.
+ * Supports use_current_channel flag to rename the channel where the command was issued.
+ * 
  * @param {Object} guild - Discord guild object
- * @param {Object} args - Tool arguments { name, new_name }
- * @returns {Promise<{success: boolean, channel?: Object, error?: string}>}
+ * @param {Object} args - Tool arguments { name, new_name, use_current_channel }
+ * @param {Object} context - Optional context { message } for current channel access
+ * @returns {Promise<{success: boolean, channel?: Object, available_channels?: Object, error?: string}>}
  */
-export async function handleRenameChannel(guild, args) {
-    const { name, new_name } = args;
+export async function handleRenameChannel(guild, args, context = {}) {
+    const { name, new_name, use_current_channel } = args;
+    const { message } = context;
 
     if (!guild) {
         logger.error('TOOL', 'Cannot rename channel: No guild context');
         return { success: false, error: 'No server context available' };
     }
 
-    if (!name) {
-        return { success: false, error: 'Must specify the channel name to rename' };
+    // Helper to get list of available channels for error context
+    const getAvailableChannels = () => ({
+        text_channels: guild.channels.cache
+            .filter(ch => ch.type === ChannelType.GuildText)
+            .map(ch => ch.name),
+        voice_channels: guild.channels.cache
+            .filter(ch => ch.type === ChannelType.GuildVoice)
+            .map(ch => ch.name),
+        categories: guild.channels.cache
+            .filter(ch => ch.type === ChannelType.GuildCategory)
+            .map(ch => ch.name)
+    });
+
+    // Determine which channel to rename
+    let channel = null;
+
+    // If use_current_channel is true, use the channel from the message context
+    if (use_current_channel) {
+        if (!message?.channel) {
+            return {
+                success: false,
+                error: 'Cannot use current channel: No message context available. Please specify the channel name instead.',
+                available_channels: getAvailableChannels()
+            };
+        }
+        channel = message.channel;
+        logger.info('TOOL', `Using current channel "${channel.name}" for rename operation`);
+    } else if (!name) {
+        // No name provided and not using current channel
+        const available = getAvailableChannels();
+        return {
+            success: false,
+            error: 'Must specify the channel name to rename, or set use_current_channel to true to rename the channel where the command was issued.',
+            available_channels: available,
+            hint: `Available channels: ${[...available.text_channels, ...available.voice_channels].slice(0, 10).join(', ')}${available.text_channels.length + available.voice_channels.length > 10 ? '...' : ''}`
+        };
+    } else {
+        // Find the channel by name
+        channel = findChannel(guild, name, 'any');
+        if (!channel) {
+            const available = getAvailableChannels();
+            const allNames = [...available.text_channels, ...available.voice_channels, ...available.categories];
+            return {
+                success: false,
+                error: `Could not find channel "${name}"`,
+                available_channels: available,
+                hint: `Available channels: ${allNames.slice(0, 15).join(', ')}${allNames.length > 15 ? ` ...and ${allNames.length - 15} more` : ''}`
+            };
+        }
     }
 
     if (!new_name) {
@@ -988,12 +1040,6 @@ export async function handleRenameChannel(guild, args) {
     }
 
     try {
-        // Find the channel (any type)
-        const channel = findChannel(guild, name, 'any');
-        if (!channel) {
-            return { success: false, error: `Could not find channel "${name}"` };
-        }
-
         const oldName = channel.name;
         const channelType = channel.type === ChannelType.GuildCategory ? 'category' :
             channel.type === ChannelType.GuildVoice ? 'voice' :

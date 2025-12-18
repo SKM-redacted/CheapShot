@@ -9,6 +9,7 @@ import { getGuildRules } from './rulesManager.js';
 import { sendModerationRequest } from './aiClient.js';
 import { parseResponse } from './responseParser.js';
 import { executeActions } from './actionExecutor.js';
+import { getModerationChannelId } from '../channelConfig.js';
 
 /**
  * Build message context for AI
@@ -32,6 +33,12 @@ export async function analyzeMessage(message) {
     if (!message.content?.trim()) return null;
     if (!message.guild) return null;
 
+    // Skip moderation channel - don't moderate the mod log!
+    const modChannelId = getModerationChannelId(message.guild.id);
+    if (modChannelId && message.channel.id === modChannelId) {
+        return null;
+    }
+
     try {
         const { rules, isCustom } = await getGuildRules(message.guild);
         const context = buildMessageContext(message);
@@ -54,9 +61,10 @@ export async function analyzeMessage(message) {
 
         // Execute actions if severity >= 2
         if (result.severity >= 2) {
-            const { actionsExecuted, warningCount } = await executeActions(message, result);
+            const { actionsExecuted, warningCount, warningId } = await executeActions(message, result);
             result.actionsExecuted = actionsExecuted;
             result.warningCount = warningCount;
+            result.warningId = warningId;
 
             logger.info('MODERATION',
                 `⚡ Executed: [${actionsExecuted.join(', ')}] for ${message.author.tag} (warnings: ${warningCount})`

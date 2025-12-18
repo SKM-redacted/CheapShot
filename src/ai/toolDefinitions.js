@@ -1152,20 +1152,24 @@ export const RENAME_CHANNEL_TOOL = {
     type: "function",
     function: {
         name: "rename_channel",
-        description: "Rename a channel (text, voice, or category). This is a quick way to rename without specifying channel type.",
+        description: "Rename a channel (text, voice, or category). IMPORTANT: When the user says 'this channel' or 'the current channel', set use_current_channel to true instead of guessing the channel name. If you specify a channel by name and it's not found, the tool will return a list of available channels so you can try again with the correct name.",
         parameters: {
             type: "object",
             properties: {
                 name: {
                     type: "string",
-                    description: "The current name of the channel to rename."
+                    description: "The current name of the channel to rename. Not required if use_current_channel is true."
                 },
                 new_name: {
                     type: "string",
-                    description: "The new name for the channel."
+                    description: "The new name for the channel (including any emoji if desired)."
+                },
+                use_current_channel: {
+                    type: "boolean",
+                    description: "If true, rename the channel where the command was issued (the 'current' or 'this' channel). Preferred when user refers to 'this channel' or 'current channel'."
                 }
             },
-            required: ["name", "new_name"]
+            required: ["new_name"]
         }
     }
 };

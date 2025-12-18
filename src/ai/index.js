@@ -166,7 +166,7 @@ async function executeSingleTool(toolCall, context) {
             return await handleDeleteMessagesBulk(guild, toolCall.arguments, { message: context.message });
 
         case 'rename_channel':
-            return await handleRenameChannel(guild, toolCall.arguments);
+            return await handleRenameChannel(guild, toolCall.arguments, { message: context.message });
 
         case 'move_channel':
             return await handleMoveChannel(guild, toolCall.arguments);
