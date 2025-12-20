@@ -1,123 +1,129 @@
 /**
  * CheapShot Dashboard - State Management
- * Central state store with event-based updates
+ * Simple reactive state store
  */
 
-class StateManager {
+class StateStore {
     constructor() {
         this.state = {
             user: null,
             guilds: [],
-            selectedGuildId: null,
             selectedGuild: null,
-            channels: [],
-            roles: [],
-            moduleSettings: {},
+            guildData: {}, // Cache guild details by ID
+            currentView: 'overview',
             panelOpen: false,
-            activeModule: null,
+            panelContent: null,
             loading: {
+                global: false,
                 guilds: false,
-                guild: false,
-                module: false
-            },
-            unsavedChanges: false
+                guildData: false
+            }
         };
 
         this.listeners = new Map();
+        this.listenerIdCounter = 0;
     }
 
     /**
      * Get current state
      */
-    get(key) {
-        if (key) {
-            return key.split('.').reduce((obj, k) => obj?.[k], this.state);
-        }
+    get() {
         return this.state;
+    }
+
+    /**
+     * Get a specific key from state
+     */
+    getKey(key) {
+        return this.state[key];
     }
 
     /**
      * Update state and notify listeners
      */
-    set(key, value) {
-        const keys = key.split('.');
-        let obj = this.state;
+    set(updates) {
+        const prevState = { ...this.state };
+        this.state = { ...this.state, ...updates };
+        this.notify(prevState);
+    }
 
-        for (let i = 0; i < keys.length - 1; i++) {
-            if (!obj[keys[i]]) obj[keys[i]] = {};
-            obj = obj[keys[i]];
-        }
-
-        const lastKey = keys[keys.length - 1];
-        const oldValue = obj[lastKey];
-        obj[lastKey] = value;
-
-        // Notify listeners
-        this.emit(key, value, oldValue);
+    /**
+     * Update nested state
+     */
+    setNested(key, updates) {
+        const prevState = { ...this.state };
+        this.state[key] = { ...this.state[key], ...updates };
+        this.notify(prevState);
     }
 
     /**
      * Subscribe to state changes
+     * @returns {function} Unsubscribe function
      */
-    on(key, callback) {
-        if (!this.listeners.has(key)) {
-            this.listeners.set(key, new Set());
-        }
-        this.listeners.get(key).add(callback);
+    subscribe(callback, keys = null) {
+        const id = ++this.listenerIdCounter;
+        this.listeners.set(id, { callback, keys });
 
-        // Return unsubscribe function
-        return () => this.listeners.get(key).delete(callback);
+        return () => {
+            this.listeners.delete(id);
+        };
     }
 
     /**
-     * Emit state change event
+     * Notify all listeners of state change
      */
-    emit(key, value, oldValue) {
-        // Notify exact key listeners
-        if (this.listeners.has(key)) {
-            this.listeners.get(key).forEach(cb => cb(value, oldValue));
-        }
+    notify(prevState) {
+        for (const [id, { callback, keys }] of this.listeners) {
+            // If specific keys were specified, only notify if those keys changed
+            if (keys) {
+                const hasChange = keys.some(key => prevState[key] !== this.state[key]);
+                if (!hasChange) continue;
+            }
 
-        // Notify wildcard listeners
-        if (this.listeners.has('*')) {
-            this.listeners.get('*').forEach(cb => cb(key, value, oldValue));
-        }
-
-        // Notify parent path listeners (e.g., 'loading' when 'loading.guilds' changes)
-        const parts = key.split('.');
-        for (let i = parts.length - 1; i > 0; i--) {
-            const parentKey = parts.slice(0, i).join('.');
-            if (this.listeners.has(parentKey)) {
-                this.listeners.get(parentKey).forEach(cb => cb(this.get(parentKey)));
+            try {
+                callback(this.state, prevState);
+            } catch (error) {
+                console.error('State listener error:', error);
             }
         }
     }
 
     /**
-     * Reset state to defaults
+     * Set loading state for a specific key
+     */
+    setLoading(key, value) {
+        this.setNested('loading', { [key]: value });
+    }
+
+    /**
+     * Check if anything is loading
+     */
+    isLoading() {
+        return Object.values(this.state.loading).some(Boolean);
+    }
+
+    /**
+     * Reset state (e.g., on logout)
      */
     reset() {
         this.state = {
             user: null,
             guilds: [],
-            selectedGuildId: null,
             selectedGuild: null,
-            channels: [],
-            roles: [],
-            moduleSettings: {},
+            guildData: {},
+            currentView: 'overview',
             panelOpen: false,
-            activeModule: null,
+            panelContent: null,
             loading: {
+                global: false,
                 guilds: false,
-                guild: false,
-                module: false
-            },
-            unsavedChanges: false
+                guildData: false
+            }
         };
-        this.emit('reset', this.state);
+        this.notify({});
     }
 }
 
-// Singleton instance
-export const state = new StateManager();
+// Export singleton
+export const state = new StateStore();
 export default state;

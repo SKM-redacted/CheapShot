@@ -20,7 +20,7 @@ import { voiceMemory } from './voiceMemory.js';
 import { extractImagesFromMessage, hasImages } from './imageUtils.js';
 import { generationTracker } from './generationTracker.js';
 import { setupModeration } from '../essentials/moderation/index.js';
-import { setupServerEvents, applyAllBotNicknames } from '../essentials/serverSetup.js';
+import { setupServerEvents } from '../essentials/serverSetup.js';
 import { isChannelAllowedAsync } from '../essentials/channelConfig.js';
 
 // Initialize clients and queues
@@ -1137,9 +1137,6 @@ async function start() {
 
         // Setup server join/leave handlers (welcome messages, etc.)
         setupServerEvents(botManager);
-
-        // Apply any saved custom nicknames from dashboard
-        await applyAllBotNicknames(botManager);
 
         // Setup AI response callback for voice conversations - now with streaming and memory!
         // Also includes sentiment analysis for tone-aware responses!

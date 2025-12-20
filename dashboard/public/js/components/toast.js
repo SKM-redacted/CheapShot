@@ -1,164 +1,144 @@
 /**
  * CheapShot Dashboard - Toast Notifications
+ * Beautiful notification system
  */
 
 class ToastManager {
     constructor() {
         this.container = null;
+        this.toasts = [];
+        this.counter = 0;
     }
 
+    /**
+     * Initialize toast container
+     */
     init() {
+        // Create container if it doesn't exist
         this.container = document.getElementById('toast-container');
+
         if (!this.container) {
             this.container = document.createElement('div');
             this.container.id = 'toast-container';
+            this.container.className = 'toast-container';
             document.body.appendChild(this.container);
-        }
-
-        // Add styles if not already present
-        if (!document.getElementById('toast-styles')) {
-            const style = document.createElement('style');
-            style.id = 'toast-styles';
-            style.textContent = `
-                #toast-container {
-                    position: fixed;
-                    top: 1rem;
-                    right: 1rem;
-                    z-index: 9999;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 0.5rem;
-                    pointer-events: none;
-                }
-
-                .toast {
-                    background: var(--bg-card);
-                    border: 1px solid var(--border-color);
-                    border-radius: var(--radius-md);
-                    padding: 0.875rem 1rem;
-                    display: flex;
-                    align-items: center;
-                    gap: 0.75rem;
-                    min-width: 280px;
-                    max-width: 400px;
-                    box-shadow: var(--shadow-lg);
-                    pointer-events: auto;
-                    transform: translateX(120%);
-                    opacity: 0;
-                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                }
-
-                .toast.show {
-                    transform: translateX(0);
-                    opacity: 1;
-                }
-
-                .toast-icon {
-                    font-size: 1.25rem;
-                    flex-shrink: 0;
-                }
-
-                .toast-content {
-                    flex: 1;
-                    min-width: 0;
-                }
-
-                .toast-message {
-                    font-size: 0.9rem;
-                    line-height: 1.4;
-                }
-
-                .toast-close {
-                    background: none;
-                    border: none;
-                    color: var(--text-muted);
-                    cursor: pointer;
-                    padding: 0.25rem;
-                    font-size: 1rem;
-                    line-height: 1;
-                    transition: color 0.15s;
-                }
-
-                .toast-close:hover {
-                    color: var(--text-primary);
-                }
-
-                .toast.success {
-                    border-color: var(--success);
-                    background: linear-gradient(135deg, rgba(59, 165, 93, 0.1) 0%, var(--bg-card) 100%);
-                }
-
-                .toast.error {
-                    border-color: var(--danger);
-                    background: linear-gradient(135deg, rgba(237, 66, 69, 0.1) 0%, var(--bg-card) 100%);
-                }
-
-                .toast.warning {
-                    border-color: var(--warning);
-                    background: linear-gradient(135deg, rgba(250, 166, 26, 0.1) 0%, var(--bg-card) 100%);
-                }
-
-                .toast.info {
-                    border-color: var(--accent-primary);
-                    background: linear-gradient(135deg, rgba(88, 101, 242, 0.1) 0%, var(--bg-card) 100%);
-                }
-            `;
-            document.head.appendChild(style);
         }
     }
 
     /**
      * Show a toast notification
+     * @param {Object} options - { message, type, duration, icon }
      */
-    show(message, type = 'info', duration = 4000) {
-        const icons = {
-            success: '✅',
-            error: '❌',
-            warning: '⚠️',
-            info: 'ℹ️'
+    show(options = {}) {
+        const {
+            message = '',
+            type = 'info', // success, error, warning, info
+            duration = 5000,
+            icon = null
+        } = options;
+
+        const id = ++this.counter;
+
+        // Default icons by type
+        const defaultIcons = {
+            success: '✓',
+            error: '✕',
+            warning: '⚠',
+            info: 'ℹ'
         };
 
+        // Create toast element
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
+        toast.dataset.toastId = id;
         toast.innerHTML = `
-            <span class="toast-icon">${icons[type] || icons.info}</span>
+            <span class="toast-icon">${icon || defaultIcons[type] || ''}</span>
             <div class="toast-content">
-                <div class="toast-message">${message}</div>
+                <span class="toast-message">${message}</span>
             </div>
-            <button class="toast-close">×</button>
+            <button class="toast-close" aria-label="Close">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 6L6 18M6 6l12 12"/>
+                </svg>
+            </button>
         `;
 
-        // Close button
+        // Add close handler
         toast.querySelector('.toast-close').addEventListener('click', () => {
-            this.hide(toast);
+            this.dismiss(id);
         });
 
+        // Add to container
         this.container.appendChild(toast);
+        this.toasts.push({ id, element: toast, timeout: null });
 
         // Trigger animation
         requestAnimationFrame(() => {
             toast.classList.add('show');
         });
 
-        // Auto-hide
+        // Auto dismiss after duration
         if (duration > 0) {
-            setTimeout(() => this.hide(toast), duration);
+            const toastData = this.toasts.find(t => t.id === id);
+            if (toastData) {
+                toastData.timeout = setTimeout(() => {
+                    this.dismiss(id);
+                }, duration);
+            }
         }
 
-        return toast;
+        return id;
     }
 
-    hide(toast) {
-        toast.classList.remove('show');
-        setTimeout(() => toast.remove(), 300);
+    /**
+     * Dismiss a toast by ID
+     */
+    dismiss(id) {
+        const index = this.toasts.findIndex(t => t.id === id);
+        if (index === -1) return;
+
+        const toastData = this.toasts[index];
+
+        // Clear timeout if exists
+        if (toastData.timeout) {
+            clearTimeout(toastData.timeout);
+        }
+
+        // Animate out
+        toastData.element.classList.remove('show');
+
+        // Remove from DOM after animation
+        setTimeout(() => {
+            toastData.element.remove();
+            this.toasts.splice(index, 1);
+        }, 400);
+    }
+
+    /**
+     * Dismiss all toasts
+     */
+    dismissAll() {
+        [...this.toasts].forEach(t => this.dismiss(t.id));
     }
 
     // Convenience methods
-    success(message, duration) { return this.show(message, 'success', duration); }
-    error(message, duration) { return this.show(message, 'error', duration); }
-    warning(message, duration) { return this.show(message, 'warning', duration); }
-    info(message, duration) { return this.show(message, 'info', duration); }
+    success(message, duration) {
+        return this.show({ message, type: 'success', duration });
+    }
+
+    error(message, duration) {
+        return this.show({ message, type: 'error', duration });
+    }
+
+    warning(message, duration) {
+        return this.show({ message, type: 'warning', duration });
+    }
+
+    info(message, duration) {
+        return this.show({ message, type: 'info', duration });
+    }
 }
 
+// Export singleton
 export const toast = new ToastManager();
 export default toast;

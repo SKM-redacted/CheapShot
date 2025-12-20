@@ -1,180 +1,205 @@
 /**
  * CheapShot Dashboard - Panel Component
- * Slide-out configuration panel manager
+ * Handles the slide-out configuration panel
  */
-
-import state from '../state.js';
 
 class PanelManager {
     constructor() {
-        this.panel = null;
         this.overlay = null;
-        this.content = null;
+        this.panel = null;
         this.currentModule = null;
-        this.onSave = null;
-        this.onCancel = null;
+        this.isOpen = false;
+        this.onCloseCallback = null;
     }
 
     /**
      * Initialize panel elements
      */
     init() {
-        this.panel = document.getElementById('config-panel');
         this.overlay = document.getElementById('panel-overlay');
-        this.content = document.getElementById('panel-content');
-        this.mainWrapper = document.getElementById('main-wrapper');
+        this.panel = document.getElementById('slide-panel');
 
-        // Close button
-        document.getElementById('panel-close').addEventListener('click', () => this.close());
-        document.getElementById('panel-cancel').addEventListener('click', () => this.close());
+        if (!this.overlay || !this.panel) {
+            console.error('Panel elements not found');
+            return;
+        }
 
-        // Overlay click closes panel
+        // Close on overlay click
         this.overlay.addEventListener('click', () => this.close());
 
-        // Save button
-        document.getElementById('panel-save').addEventListener('click', () => this.save());
-
-        // Keyboard shortcut
+        // Close on escape key
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && state.get('panelOpen')) {
+            if (e.key === 'Escape' && this.isOpen) {
                 this.close();
             }
         });
-    }
 
-    /**
-     * Open panel with module content
-     */
-    async open(moduleId, title, icon, contentHtml, options = {}) {
-        this.currentModule = moduleId;
-        this.onSave = options.onSave || null;
-        this.onCancel = options.onCancel || null;
-
-        // Update header
-        document.getElementById('panel-icon').textContent = icon;
-        document.getElementById('panel-title').textContent = title;
-
-        // Load content
-        if (typeof contentHtml === 'string') {
-            this.content.innerHTML = contentHtml;
-        } else if (contentHtml instanceof HTMLElement) {
-            this.content.innerHTML = '';
-            this.content.appendChild(contentHtml);
-        }
-
-        // Show/hide footer based on options
-        const footer = document.getElementById('panel-footer');
-        footer.classList.toggle('hidden', options.hideFooter === true);
-
-        // Update save button text
-        const saveBtn = document.getElementById('panel-save');
-        saveBtn.textContent = options.saveText || 'Save Changes';
-        saveBtn.disabled = false;
-
-        // Show panel
-        this.panel.classList.add('open');
-        this.overlay.classList.add('visible');
-        this.mainWrapper.classList.add('panel-open');
-        state.set('panelOpen', true);
-        state.set('activeModule', moduleId);
-
-        // Run init callback if provided
-        if (options.onInit) {
-            await options.onInit(this.content);
+        // Close button
+        const closeBtn = this.panel.querySelector('.panel-close');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => this.close());
         }
     }
 
     /**
-     * Close panel
+     * Open the panel with specific content
+     * @param {Object} options - { title, icon, content, wide, onClose }
      */
-    close() {
-        // Check for unsaved changes
-        if (state.get('unsavedChanges')) {
-            if (!confirm('You have unsaved changes. Discard them?')) {
-                return;
+    async open(options = {}) {
+        const { title = 'Configuration', icon = '⚙️', content = '', wide = false, onClose = null } = options;
+
+        this.onCloseCallback = onClose;
+
+        // Set panel width
+        this.panel.classList.toggle('wide', wide);
+
+        // Set header
+        const titleEl = this.panel.querySelector('.panel-title');
+        if (titleEl) {
+            titleEl.innerHTML = `
+                <span class="panel-title-icon">${icon}</span>
+                ${title}
+            `;
+        }
+
+        // Set body content
+        const bodyEl = this.panel.querySelector('.panel-body');
+        if (bodyEl) {
+            if (typeof content === 'string') {
+                bodyEl.innerHTML = content;
+            } else if (content instanceof HTMLElement) {
+                bodyEl.innerHTML = '';
+                bodyEl.appendChild(content);
             }
         }
 
-        this.panel.classList.remove('open');
-        this.overlay.classList.remove('visible');
-        this.mainWrapper.classList.remove('panel-open');
-        state.set('panelOpen', false);
-        state.set('activeModule', null);
-        state.set('unsavedChanges', false);
+        // Show panel
+        this.overlay.classList.add('active');
+        this.panel.classList.add('active');
+        this.isOpen = true;
 
-        if (this.onCancel) {
-            this.onCancel();
-        }
+        // Prevent body scroll
+        document.body.style.overflow = 'hidden';
 
-        // Clear content after animation
+        // Focus first input if any
         setTimeout(() => {
-            this.content.innerHTML = '';
-            this.currentModule = null;
+            const firstInput = bodyEl.querySelector('input, select, textarea');
+            if (firstInput) firstInput.focus();
         }, 300);
     }
 
     /**
-     * Save panel changes
+     * Load module content into panel
+     * @param {string} moduleName - Name of the module to load
+     * @param {Object} moduleConfig - Configuration for the module
      */
-    async save() {
-        const saveBtn = document.getElementById('panel-save');
-        const originalText = saveBtn.textContent;
+    async openModule(moduleName, moduleConfig = {}) {
+        this.currentModule = moduleName;
+
+        // Show loading state
+        await this.open({
+            title: moduleConfig.title || moduleName,
+            icon: moduleConfig.icon || '📦',
+            content: `
+                <div class="flex items-center justify-center p-xl">
+                    <div class="spinner"></div>
+                </div>
+            `,
+            wide: moduleConfig.wide || false
+        });
 
         try {
-            saveBtn.disabled = true;
-            saveBtn.textContent = 'Saving...';
+            // Dynamically import the module
+            const module = await import(`./modules/${moduleName}.js`);
 
-            if (this.onSave) {
-                await this.onSave(this.content);
+            if (module.render) {
+                const content = await module.render(moduleConfig.guildId, moduleConfig.data);
+                const bodyEl = this.panel.querySelector('.panel-body');
+
+                if (typeof content === 'string') {
+                    bodyEl.innerHTML = content;
+                } else {
+                    bodyEl.innerHTML = '';
+                    bodyEl.appendChild(content);
+                }
+
+                // Initialize module if it has an init function
+                if (module.init) {
+                    await module.init(bodyEl, moduleConfig);
+                }
             }
-
-            state.set('unsavedChanges', false);
-
-            // Show success state briefly
-            saveBtn.textContent = '✓ Saved!';
-            setTimeout(() => {
-                saveBtn.textContent = originalText;
-                saveBtn.disabled = false;
-            }, 1500);
-
         } catch (error) {
-            console.error('Save failed:', error);
-            saveBtn.textContent = 'Save Failed';
-            saveBtn.disabled = false;
-            setTimeout(() => {
-                saveBtn.textContent = originalText;
-            }, 2000);
-            throw error;
+            console.error(`Failed to load module ${moduleName}:`, error);
+            this.setContent(`
+                <div class="empty-state">
+                    <div class="empty-state-icon">❌</div>
+                    <h3 class="empty-state-title">Failed to load</h3>
+                    <p class="empty-state-text">Could not load the ${moduleName} module.</p>
+                </div>
+            `);
         }
     }
 
     /**
-     * Update panel content without reopening
+     * Update panel body content
      */
-    updateContent(html) {
-        if (typeof html === 'string') {
-            this.content.innerHTML = html;
-        } else if (html instanceof HTMLElement) {
-            this.content.innerHTML = '';
-            this.content.appendChild(html);
+    setContent(content) {
+        const bodyEl = this.panel?.querySelector('.panel-body');
+        if (bodyEl) {
+            if (typeof content === 'string') {
+                bodyEl.innerHTML = content;
+            } else {
+                bodyEl.innerHTML = '';
+                bodyEl.appendChild(content);
+            }
         }
     }
 
     /**
-     * Check if panel is open
+     * Update panel footer
      */
-    isOpen() {
-        return state.get('panelOpen');
+    setFooter(content) {
+        const footerEl = this.panel?.querySelector('.panel-footer');
+        if (footerEl) {
+            if (typeof content === 'string') {
+                footerEl.innerHTML = content;
+            } else {
+                footerEl.innerHTML = '';
+                footerEl.appendChild(content);
+            }
+            footerEl.classList.toggle('hidden', !content);
+        }
     }
 
     /**
-     * Get current module
+     * Close the panel
      */
-    getCurrentModule() {
-        return this.currentModule;
+    close() {
+        if (!this.isOpen) return;
+
+        this.overlay.classList.remove('active');
+        this.panel.classList.remove('active');
+        this.isOpen = false;
+        this.currentModule = null;
+
+        // Restore body scroll
+        document.body.style.overflow = '';
+
+        // Call close callback if set
+        if (this.onCloseCallback) {
+            this.onCloseCallback();
+            this.onCloseCallback = null;
+        }
+    }
+
+    /**
+     * Check if panel is currently open
+     */
+    getIsOpen() {
+        return this.isOpen;
     }
 }
 
-// Singleton instance
+// Export singleton
 export const panel = new PanelManager();
 export default panel;

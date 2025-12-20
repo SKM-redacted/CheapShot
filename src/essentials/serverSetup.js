@@ -114,9 +114,6 @@ export async function handleGuildCreate(guild, bot) {
         // Create CheapShot channels first (so we have IDs for the welcome message)
         const channelIds = await createCheapShotChannels(guild, bot);
 
-        // Apply any saved custom nickname for this guild
-        await applyBotNickname(guild, bot);
-
         // Send a welcome message to whoever invited the bot (via audit logs)
         await sendInviterWelcome(guild, channelIds, bot);
 
@@ -127,92 +124,6 @@ export async function handleGuildCreate(guild, bot) {
         logger.error('SERVER_SETUP', `Error during server setup for ${guild.name}`, error);
     }
 }
-
-/**
- * Apply a custom nickname to the bot in a specific guild
- * Reads from the database appearance settings
- * @param {Object} guild - Discord.js Guild object
- * @param {Object} bot - The bot object
- */
-export async function applyBotNickname(guild, bot) {
-    try {
-        // Get guild settings from database
-        const settings = await db.getGuildSettings(guild.id);
-        const customName = settings?.modules?.appearance?.customName;
-
-        if (!customName) {
-            // No custom name set, skip
-            return;
-        }
-
-        // Get the bot's member object
-        const botMember = guild.members.cache.get(bot.client.user.id)
-            || await guild.members.fetch(bot.client.user.id);
-
-        if (!botMember) {
-            logger.warn('SERVER_SETUP', `Could not find bot member in ${guild.name}`);
-            return;
-        }
-
-        // Set the nickname
-        await botMember.setNickname(customName);
-        logger.info('SERVER_SETUP', `Applied custom nickname "${customName}" in ${guild.name}`);
-
-    } catch (error) {
-        if (error.code === 50013) {
-            logger.warn('SERVER_SETUP', `Missing permission to set nickname in ${guild.name}`);
-        } else {
-            logger.error('SERVER_SETUP', `Failed to apply nickname in ${guild.name}: ${error.message}`);
-        }
-    }
-}
-
-/**
- * Apply saved nicknames to all guilds on bot startup
- * Call this after the bot is ready
- * @param {Object} botManager - The bot manager instance
- */
-export async function applyAllBotNicknames(botManager) {
-    logger.info('SERVER_SETUP', 'Applying saved bot nicknames...');
-
-    let applied = 0;
-    let skipped = 0;
-    let failed = 0;
-
-    for (const bot of botManager.bots) {
-        for (const [guildId, guild] of bot.client.guilds.cache) {
-            try {
-                const settings = await db.getGuildSettings(guildId);
-                const customName = settings?.modules?.appearance?.customName;
-
-                if (!customName) {
-                    skipped++;
-                    continue;
-                }
-
-                const botMember = guild.members.cache.get(bot.client.user.id)
-                    || await guild.members.fetch(bot.client.user.id);
-
-                if (botMember) {
-                    // Only update if different
-                    if (botMember.nickname !== customName) {
-                        await botMember.setNickname(customName);
-                        applied++;
-                        logger.debug('SERVER_SETUP', `Applied nickname "${customName}" in ${guild.name}`);
-                    } else {
-                        skipped++;
-                    }
-                }
-            } catch (error) {
-                failed++;
-                logger.warn('SERVER_SETUP', `Failed to apply nickname in guild ${guildId}: ${error.message}`);
-            }
-        }
-    }
-
-    logger.info('SERVER_SETUP', `Nickname sync complete: ${applied} applied, ${skipped} skipped, ${failed} failed`);
-}
-
 
 /**
  * Send a welcome DM to whoever invited the bot (via audit logs)
