@@ -1,276 +1,11 @@
 /**
  * CheapShot Landing Page
- * Custom circuit board background animation + handlers
- * No libraries - pure math and canvas
+ * Custom mathematical background - no libraries
+ * 
+ * Creates a flowing neural network visualization representing AI intelligence
  */
 
-// ============================================================
-// CIRCUIT BOARD BACKGROUND - Pure Math Animation
-// ============================================================
-
-class CircuitBoard {
-    constructor(canvas) {
-        this.canvas = canvas;
-        this.ctx = canvas.getContext('2d');
-        this.nodes = [];
-        this.traces = [];
-        this.pulses = [];
-        this.time = 0;
-
-        this.resize();
-        window.addEventListener('resize', () => this.resize());
-    }
-
-    resize() {
-        this.width = this.canvas.width = window.innerWidth;
-        this.height = this.canvas.height = window.innerHeight;
-        this.generateCircuit();
-    }
-
-    generateCircuit() {
-        this.nodes = [];
-        this.traces = [];
-
-        // Create grid of potential node positions
-        const gridSize = 80;
-        const cols = Math.ceil(this.width / gridSize) + 1;
-        const rows = Math.ceil(this.height / gridSize) + 1;
-
-        // Generate nodes with some randomness
-        for (let i = 0; i < cols; i++) {
-            for (let j = 0; j < rows; j++) {
-                if (Math.random() > 0.7) { // 30% chance of node
-                    const node = {
-                        x: i * gridSize + (Math.random() - 0.5) * 30,
-                        y: j * gridSize + (Math.random() - 0.5) * 30,
-                        size: 2 + Math.random() * 3,
-                        type: Math.random() > 0.8 ? 'hub' : 'point', // 20% are hubs
-                        pulse: Math.random() * Math.PI * 2,
-                        connections: []
-                    };
-                    this.nodes.push(node);
-                }
-            }
-        }
-
-        // Connect nearby nodes with traces
-        for (let i = 0; i < this.nodes.length; i++) {
-            const node = this.nodes[i];
-            const maxConnections = node.type === 'hub' ? 5 : 2;
-
-            for (let j = i + 1; j < this.nodes.length; j++) {
-                if (node.connections.length >= maxConnections) break;
-
-                const other = this.nodes[j];
-                const dx = other.x - node.x;
-                const dy = other.y - node.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-
-                // Connect if within range and not too many connections
-                if (dist < 150 && dist > 30 && other.connections.length < maxConnections) {
-                    // Only connect horizontally or vertically (circuit style)
-                    if (Math.random() > 0.3) {
-                        const trace = {
-                            start: node,
-                            end: other,
-                            path: this.generateTracePath(node, other),
-                            alpha: 0.1 + Math.random() * 0.2
-                        };
-                        this.traces.push(trace);
-                        node.connections.push(trace);
-                        other.connections.push(trace);
-                    }
-                }
-            }
-        }
-    }
-
-    generateTracePath(start, end) {
-        // Create an L-shaped or straight path (like PCB traces)
-        const path = [{ x: start.x, y: start.y }];
-
-        if (Math.random() > 0.5) {
-            // Horizontal then vertical
-            path.push({ x: end.x, y: start.y });
-        } else {
-            // Vertical then horizontal
-            path.push({ x: start.x, y: end.y });
-        }
-
-        path.push({ x: end.x, y: end.y });
-        return path;
-    }
-
-    spawnPulse() {
-        if (this.traces.length === 0) return;
-
-        const trace = this.traces[Math.floor(Math.random() * this.traces.length)];
-        this.pulses.push({
-            trace: trace,
-            progress: 0,
-            speed: 0.01 + Math.random() * 0.02,
-            size: 3 + Math.random() * 4,
-            reverse: Math.random() > 0.5
-        });
-    }
-
-    update() {
-        this.time += 0.016; // ~60fps
-
-        // Spawn new pulses occasionally
-        if (Math.random() < 0.05) {
-            this.spawnPulse();
-        }
-
-        // Update pulses
-        for (let i = this.pulses.length - 1; i >= 0; i--) {
-            const pulse = this.pulses[i];
-            pulse.progress += pulse.speed;
-
-            if (pulse.progress >= 1) {
-                this.pulses.splice(i, 1);
-            }
-        }
-    }
-
-    draw() {
-        const ctx = this.ctx;
-
-        // Clear with fade effect
-        ctx.fillStyle = 'rgba(2, 4, 8, 0.3)';
-        ctx.fillRect(0, 0, this.width, this.height);
-
-        // Draw traces
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-
-        for (const trace of this.traces) {
-            ctx.beginPath();
-            ctx.moveTo(trace.path[0].x, trace.path[0].y);
-
-            for (let i = 1; i < trace.path.length; i++) {
-                ctx.lineTo(trace.path[i].x, trace.path[i].y);
-            }
-
-            ctx.strokeStyle = `rgba(0, 212, 255, ${trace.alpha})`;
-            ctx.lineWidth = 1;
-            ctx.stroke();
-        }
-
-        // Draw pulses
-        for (const pulse of this.pulses) {
-            const path = pulse.trace.path;
-            const totalLength = this.getPathLength(path);
-            const currentDist = (pulse.reverse ? 1 - pulse.progress : pulse.progress) * totalLength;
-            const pos = this.getPointAlongPath(path, currentDist);
-
-            // Glow
-            const gradient = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, pulse.size * 3);
-            gradient.addColorStop(0, 'rgba(0, 255, 136, 0.8)');
-            gradient.addColorStop(0.5, 'rgba(0, 212, 255, 0.3)');
-            gradient.addColorStop(1, 'rgba(0, 212, 255, 0)');
-
-            ctx.beginPath();
-            ctx.arc(pos.x, pos.y, pulse.size * 3, 0, Math.PI * 2);
-            ctx.fillStyle = gradient;
-            ctx.fill();
-
-            // Core
-            ctx.beginPath();
-            ctx.arc(pos.x, pos.y, pulse.size, 0, Math.PI * 2);
-            ctx.fillStyle = '#00ff88';
-            ctx.fill();
-        }
-
-        // Draw nodes
-        for (const node of this.nodes) {
-            const pulseAmount = Math.sin(this.time * 2 + node.pulse) * 0.3 + 0.7;
-
-            if (node.type === 'hub') {
-                // Hub nodes - larger with glow
-                const size = node.size * 1.5;
-
-                // Outer glow
-                const gradient = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, size * 4);
-                gradient.addColorStop(0, `rgba(0, 212, 255, ${0.3 * pulseAmount})`);
-                gradient.addColorStop(1, 'rgba(0, 212, 255, 0)');
-
-                ctx.beginPath();
-                ctx.arc(node.x, node.y, size * 4, 0, Math.PI * 2);
-                ctx.fillStyle = gradient;
-                ctx.fill();
-
-                // Inner square (circuit junction style)
-                ctx.fillStyle = `rgba(0, 212, 255, ${0.8 * pulseAmount})`;
-                ctx.fillRect(node.x - size, node.y - size, size * 2, size * 2);
-
-                // Center dot
-                ctx.fillStyle = '#00ff88';
-                ctx.fillRect(node.x - size / 2, node.y - size / 2, size, size);
-            } else {
-                // Regular nodes - small circles
-                ctx.beginPath();
-                ctx.arc(node.x, node.y, node.size * pulseAmount, 0, Math.PI * 2);
-                ctx.fillStyle = `rgba(0, 212, 255, ${0.5 * pulseAmount})`;
-                ctx.fill();
-            }
-        }
-
-        // Draw scan line effect
-        const scanY = (this.time * 50) % (this.height + 100) - 50;
-        const scanGradient = ctx.createLinearGradient(0, scanY - 50, 0, scanY + 50);
-        scanGradient.addColorStop(0, 'rgba(0, 212, 255, 0)');
-        scanGradient.addColorStop(0.5, 'rgba(0, 212, 255, 0.03)');
-        scanGradient.addColorStop(1, 'rgba(0, 212, 255, 0)');
-
-        ctx.fillStyle = scanGradient;
-        ctx.fillRect(0, scanY - 50, this.width, 100);
-    }
-
-    getPathLength(path) {
-        let length = 0;
-        for (let i = 1; i < path.length; i++) {
-            const dx = path[i].x - path[i - 1].x;
-            const dy = path[i].y - path[i - 1].y;
-            length += Math.sqrt(dx * dx + dy * dy);
-        }
-        return length;
-    }
-
-    getPointAlongPath(path, distance) {
-        let traveled = 0;
-
-        for (let i = 1; i < path.length; i++) {
-            const dx = path[i].x - path[i - 1].x;
-            const dy = path[i].y - path[i - 1].y;
-            const segmentLength = Math.sqrt(dx * dx + dy * dy);
-
-            if (traveled + segmentLength >= distance) {
-                const t = (distance - traveled) / segmentLength;
-                return {
-                    x: path[i - 1].x + dx * t,
-                    y: path[i - 1].y + dy * t
-                };
-            }
-
-            traveled += segmentLength;
-        }
-
-        return path[path.length - 1];
-    }
-
-    animate() {
-        this.update();
-        this.draw();
-        requestAnimationFrame(() => this.animate());
-    }
-}
-
-// ============================================================
-// INITIALIZATION
-// ============================================================
-
-// Discord OAuth configuration
+// === CONFIGURATION ===
 const CONFIG = {
     clientId: '1447587559604486417',
     get redirectUri() {
@@ -284,72 +19,340 @@ const CONFIG = {
     }
 };
 
-// Initialize circuit board background
-const canvas = document.getElementById('circuit-bg');
-if (canvas) {
-    const circuit = new CircuitBoard(canvas);
-    circuit.animate();
+// === CANVAS SETUP ===
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let width, height;
+let mouse = { x: null, y: null };
+let time = 0;
+
+function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
 }
 
-// Button handlers
-document.getElementById('add-btn')?.addEventListener('click', () => {
+// === SIMPLEX NOISE (Custom Implementation) ===
+// Mathematical noise for organic flow
+class SimplexNoise {
+    constructor() {
+        this.p = new Uint8Array(256);
+        for (let i = 0; i < 256; i++) this.p[i] = i;
+        for (let i = 255; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [this.p[i], this.p[j]] = [this.p[j], this.p[i]];
+        }
+        this.perm = new Uint8Array(512);
+        for (let i = 0; i < 512; i++) this.perm[i] = this.p[i & 255];
+    }
+
+    dot2(g, x, y) {
+        return g[0] * x + g[1] * y;
+    }
+
+    noise2D(x, y) {
+        const G2 = (3 - Math.sqrt(3)) / 6;
+        const F2 = (Math.sqrt(3) - 1) / 2;
+
+        const s = (x + y) * F2;
+        const i = Math.floor(x + s);
+        const j = Math.floor(y + s);
+        const t = (i + j) * G2;
+
+        const X0 = i - t;
+        const Y0 = j - t;
+        const x0 = x - X0;
+        const y0 = y - Y0;
+
+        const i1 = x0 > y0 ? 1 : 0;
+        const j1 = x0 > y0 ? 0 : 1;
+
+        const x1 = x0 - i1 + G2;
+        const y1 = y0 - j1 + G2;
+        const x2 = x0 - 1 + 2 * G2;
+        const y2 = y0 - 1 + 2 * G2;
+
+        const ii = i & 255;
+        const jj = j & 255;
+
+        const grad3 = [
+            [1, 1], [-1, 1], [1, -1], [-1, -1],
+            [1, 0], [-1, 0], [0, 1], [0, -1]
+        ];
+
+        const gi0 = this.perm[ii + this.perm[jj]] % 8;
+        const gi1 = this.perm[ii + i1 + this.perm[jj + j1]] % 8;
+        const gi2 = this.perm[ii + 1 + this.perm[jj + 1]] % 8;
+
+        let n0 = 0, n1 = 0, n2 = 0;
+
+        let t0 = 0.5 - x0 * x0 - y0 * y0;
+        if (t0 >= 0) {
+            t0 *= t0;
+            n0 = t0 * t0 * this.dot2(grad3[gi0], x0, y0);
+        }
+
+        let t1 = 0.5 - x1 * x1 - y1 * y1;
+        if (t1 >= 0) {
+            t1 *= t1;
+            n1 = t1 * t1 * this.dot2(grad3[gi1], x1, y1);
+        }
+
+        let t2 = 0.5 - x2 * x2 - y2 * y2;
+        if (t2 >= 0) {
+            t2 *= t2;
+            n2 = t2 * t2 * this.dot2(grad3[gi2], x2, y2);
+        }
+
+        return 70 * (n0 + n1 + n2);
+    }
+}
+
+const noise = new SimplexNoise();
+
+// === NEURAL NODES ===
+class Node {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.baseX = x;
+        this.baseY = y;
+        this.vx = 0;
+        this.vy = 0;
+        this.radius = 1.5 + Math.random() * 2;
+        this.pulsePhase = Math.random() * Math.PI * 2;
+        this.pulseSpeed = 0.02 + Math.random() * 0.02;
+        this.connections = [];
+        this.energy = 0;
+        this.targetEnergy = 0;
+    }
+
+    update(t) {
+        // Noise-based organic movement
+        const noiseScale = 0.002;
+        const noiseStrength = 30;
+
+        const nx = noise.noise2D(this.baseX * noiseScale + t * 0.0003, this.baseY * noiseScale);
+        const ny = noise.noise2D(this.baseX * noiseScale, this.baseY * noiseScale + t * 0.0003);
+
+        const targetX = this.baseX + nx * noiseStrength;
+        const targetY = this.baseY + ny * noiseStrength;
+
+        // Mouse interaction
+        if (mouse.x !== null) {
+            const dx = this.x - mouse.x;
+            const dy = this.y - mouse.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const maxDist = 200;
+
+            if (dist < maxDist) {
+                const force = (1 - dist / maxDist) * 50;
+                this.vx += (dx / dist) * force * 0.05;
+                this.vy += (dy / dist) * force * 0.05;
+                this.targetEnergy = 1;
+            }
+        }
+
+        // Apply forces
+        this.vx += (targetX - this.x) * 0.02;
+        this.vy += (targetY - this.y) * 0.02;
+        this.vx *= 0.92;
+        this.vy *= 0.92;
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // Energy decay
+        this.energy += (this.targetEnergy - this.energy) * 0.1;
+        this.targetEnergy *= 0.95;
+
+        // Pulse
+        this.pulsePhase += this.pulseSpeed;
+    }
+
+    draw() {
+        const pulse = Math.sin(this.pulsePhase) * 0.3 + 1;
+        const r = this.radius * pulse;
+        const alpha = 0.3 + this.energy * 0.7;
+
+        // Glow
+        const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r * 4);
+        gradient.addColorStop(0, `rgba(255, 45, 45, ${0.3 * alpha})`);
+        gradient.addColorStop(1, 'rgba(255, 45, 45, 0)');
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, r * 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Core
+        ctx.fillStyle = `rgba(255, ${100 + this.energy * 100}, ${100 + this.energy * 100}, ${alpha})`;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+// === CONNECTION LINES ===
+function drawConnections(nodes) {
+    const maxDist = 150;
+
+    for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+            const a = nodes[i];
+            const b = nodes[j];
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist < maxDist) {
+                const alpha = (1 - dist / maxDist) * 0.15;
+                const energy = (a.energy + b.energy) / 2;
+
+                ctx.strokeStyle = `rgba(255, ${50 + energy * 50}, ${50 + energy * 50}, ${alpha + energy * 0.2})`;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(a.x, a.y);
+                ctx.lineTo(b.x, b.y);
+                ctx.stroke();
+            }
+        }
+    }
+}
+
+// === FLOW FIELD ===
+function drawFlowField(t) {
+    const cellSize = 50;
+    const cols = Math.ceil(width / cellSize);
+    const rows = Math.ceil(height / cellSize);
+
+    ctx.strokeStyle = 'rgba(255, 45, 45, 0.03)';
+    ctx.lineWidth = 1;
+
+    for (let i = 0; i < cols; i++) {
+        for (let j = 0; j < rows; j++) {
+            const x = i * cellSize + cellSize / 2;
+            const y = j * cellSize + cellSize / 2;
+
+            const angle = noise.noise2D(x * 0.005 + t * 0.0002, y * 0.005) * Math.PI * 2;
+            const length = 20;
+
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + Math.cos(angle) * length, y + Math.sin(angle) * length);
+            ctx.stroke();
+        }
+    }
+}
+
+// === WAVE INTERFERENCE ===
+function drawWaves(t) {
+    const centerX = width / 2;
+    const centerY = height / 2;
+
+    ctx.strokeStyle = 'rgba(255, 45, 45, 0.02)';
+    ctx.lineWidth = 1;
+
+    for (let r = 50; r < Math.max(width, height); r += 80) {
+        ctx.beginPath();
+        for (let a = 0; a < Math.PI * 2; a += 0.02) {
+            const wave = Math.sin(r * 0.01 + t * 0.001 + a * 3) * 20;
+            const px = centerX + Math.cos(a) * (r + wave);
+            const py = centerY + Math.sin(a) * (r + wave);
+
+            if (a === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.stroke();
+    }
+}
+
+// === INITIALIZE ===
+let nodes = [];
+
+function init() {
+    resize();
+    nodes = [];
+
+    // Create grid of nodes
+    const spacing = 80;
+    const cols = Math.ceil(width / spacing) + 1;
+    const rows = Math.ceil(height / spacing) + 1;
+
+    for (let i = 0; i < cols; i++) {
+        for (let j = 0; j < rows; j++) {
+            const x = i * spacing + (Math.random() - 0.5) * spacing * 0.5;
+            const y = j * spacing + (Math.random() - 0.5) * spacing * 0.5;
+            nodes.push(new Node(x, y));
+        }
+    }
+}
+
+// === ANIMATION LOOP ===
+function animate() {
+    time++;
+
+    // Fade effect
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+    ctx.fillRect(0, 0, width, height);
+
+    // Draw layers
+    drawWaves(time);
+    drawFlowField(time);
+    drawConnections(nodes);
+
+    // Update and draw nodes
+    nodes.forEach(node => {
+        node.update(time);
+        node.draw();
+    });
+
+    requestAnimationFrame(animate);
+}
+
+// === EVENT LISTENERS ===
+window.addEventListener('resize', () => {
+    resize();
+    init();
+});
+
+canvas.addEventListener('mousemove', e => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+});
+
+canvas.addEventListener('mouseleave', () => {
+    mouse.x = null;
+    mouse.y = null;
+});
+
+canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    mouse.x = e.touches[0].clientX;
+    mouse.y = e.touches[0].clientY;
+}, { passive: false });
+
+canvas.addEventListener('touchend', () => {
+    mouse.x = null;
+    mouse.y = null;
+});
+
+// === BUTTON HANDLERS ===
+document.getElementById('add')?.addEventListener('click', () => {
     window.open(CONFIG.botInviteUrl, '_blank');
 });
 
-document.getElementById('dashboard-btn')?.addEventListener('click', () => {
+document.getElementById('dashboard')?.addEventListener('click', () => {
     window.location.href = CONFIG.oauthUrl;
 });
 
-document.getElementById('nav-login')?.addEventListener('click', () => {
+document.getElementById('signin')?.addEventListener('click', () => {
     window.location.href = CONFIG.oauthUrl;
 });
 
-// Check if already logged in
+// === AUTH CHECK ===
 fetch('/api/auth/user', { credentials: 'include' })
     .then(r => r.ok && (window.location.href = '/dashboard.html'))
     .catch(() => { });
 
-// Typing animation for the "new way" text
-const phrases = [
-    '"Ban that spammer for a week"',
-    '"Create a voice channel for gaming"',
-    '"Set up roles for my server"',
-    '"Make an announcement channel"',
-    '"Generate an image of a sunset"'
-];
-
-let phraseIndex = 0;
-let charIndex = 0;
-let isDeleting = false;
-let typeSpeed = 50;
-
-function typeEffect() {
-    const element = document.querySelector('.new-way span:first-child');
-    if (!element) return;
-
-    const currentPhrase = phrases[phraseIndex];
-
-    if (isDeleting) {
-        element.textContent = currentPhrase.substring(0, charIndex - 1);
-        charIndex--;
-        typeSpeed = 30;
-    } else {
-        element.textContent = currentPhrase.substring(0, charIndex + 1);
-        charIndex++;
-        typeSpeed = 50 + Math.random() * 50;
-    }
-
-    if (!isDeleting && charIndex === currentPhrase.length) {
-        isDeleting = true;
-        typeSpeed = 2000; // Pause at end
-    } else if (isDeleting && charIndex === 0) {
-        isDeleting = false;
-        phraseIndex = (phraseIndex + 1) % phrases.length;
-        typeSpeed = 500; // Pause before next phrase
-    }
-
-    setTimeout(typeEffect, typeSpeed);
-}
-
-// Start typing animation after a delay
-setTimeout(typeEffect, 1500);
+// === START ===
+init();
+animate();
