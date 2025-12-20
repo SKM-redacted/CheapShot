@@ -950,7 +950,8 @@ app.get('/api/guilds/:guildId/audit-logs', requireGuildAuth(), async (req, res) 
 // =============================================================
 // Start Server
 // =============================================================
-app.listen(config.port, () => {
+// Bind to 0.0.0.0 so Docker containers (nginx) can reach us
+app.listen(config.port, '0.0.0.0', () => {
     console.log(`🚀 Dashboard API running on port ${config.port}`);
     console.log(`   Client ID: ${config.clientId}`);
     console.log(`   Redirect URI: ${config.redirectUri}`);
