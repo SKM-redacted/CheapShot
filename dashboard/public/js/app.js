@@ -328,7 +328,9 @@ class App {
             // Get channels for this guild (for channel count)
             let channels = [];
             try {
-                channels = await api.getChannels(guildId);
+                const channelsResult = await api.getChannels(guildId);
+                channels = channelsResult || [];
+                console.log('[App] Loaded channels:', channels.length, 'channels for guild', guildId);
             } catch (e) {
                 console.warn('Could not load channels:', e);
             }
@@ -340,7 +342,7 @@ class App {
                 ...guildInfo,
                 roles,
                 channels,
-                channelCount: channels.length,
+                channelCount: Array.isArray(channels) ? channels.length : 0,
                 settings,
                 timestamp: Date.now()
             };
@@ -371,13 +373,17 @@ class App {
         const currentData = guildData[guildId] || {};
         const settings = currentData.settings || {};
         const roles = currentData.roles || [];
+        const channels = currentData.channels || [];
 
         // Count active modules
         const moduleSettings = settings?.modules || {};
         const activeCount = Object.values(moduleSettings).filter(m => m?.enabled).length;
 
+        // Use channels array length for actual server channel count
+        const channelCount = Array.isArray(channels) ? channels.length : (currentData.channelCount || 0);
+
         document.getElementById('stat-modules').textContent = activeCount;
-        document.getElementById('stat-channels').textContent = currentData.channelCount || 0;
+        document.getElementById('stat-channels').textContent = channelCount;
         document.getElementById('stat-members').textContent = currentData.memberCount || '-';
         document.getElementById('stat-roles').textContent = roles.length || '-';
     }

@@ -210,24 +210,38 @@ export function init(container, options = {}) {
 
                 // Update local state so main UI reflects the change
                 // Import state dynamically to avoid circular deps
+                // IMPORTANT: Create new object references for proper state change detection
                 const { state } = await import('../state.js');
                 const guildData = state.getKey('guildData');
-                if (guildData[guildId]) {
-                    if (!guildData[guildId].settings) {
-                        guildData[guildId].settings = {};
-                    }
-                    if (!guildData[guildId].settings.modules) {
-                        guildData[guildId].settings.modules = {};
-                    }
-                    guildData[guildId].settings.modules.moderation = config;
-                    state.set({ guildData });
+                if (guildData && guildData[guildId]) {
+                    const updatedGuildData = {
+                        ...guildData,
+                        [guildId]: {
+                            ...guildData[guildId],
+                            settings: {
+                                ...(guildData[guildId].settings || {}),
+                                modules: {
+                                    ...(guildData[guildId].settings?.modules || {}),
+                                    moderation: config
+                                }
+                            }
+                        }
+                    };
+                    state.set({ guildData: updatedGuildData });
+                    console.log('[Moderation] Updated local state, enabled:', config.enabled);
                 }
 
                 // Update the main dashboard UI (module cards and stats)
-                if (window.app) {
-                    window.app.renderModuleGrid();
-                    window.app.updateStats(guildId);
-                }
+                // Use setTimeout to ensure state has propagated
+                setTimeout(() => {
+                    if (window.app && typeof window.app.renderModuleGrid === 'function') {
+                        window.app.renderModuleGrid();
+                        window.app.updateStats(guildId);
+                        console.log('[Moderation] UI updated after save');
+                    } else {
+                        console.warn('[Moderation] window.app not available for UI update');
+                    }
+                }, 0);
 
                 toast.success('Moderation settings saved!');
             } catch (error) {

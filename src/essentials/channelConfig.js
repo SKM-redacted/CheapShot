@@ -120,18 +120,33 @@ export async function getAllowedChannelIdsAsync(guildId) {
 
 /**
  * Check if a channel is allowed for bot responses in a specific guild (async)
+ * If no channels are configured, auto-detect channels named "cheapshot"
  * @param {string} guildId - Discord guild ID
  * @param {string} channelId - Discord channel ID to check
+ * @param {Object} channel - Optional Discord channel object (for auto-detection)
  * @returns {Promise<boolean>} True if the bot should respond in this channel
  */
-export async function isChannelAllowedAsync(guildId, channelId) {
+export async function isChannelAllowedAsync(guildId, channelId, channel = null) {
     const allowedIds = await getAllowedChannelIdsAsync(guildId);
 
-    if (allowedIds.length === 0) {
-        return false;
+    // If channels are configured, check against the list
+    if (allowedIds.length > 0) {
+        return allowedIds.includes(channelId);
     }
 
-    return allowedIds.includes(channelId);
+    // No channels configured - fallback to auto-detect "cheapshot" channels
+    // This is the default behavior for new servers with AI enabled
+    if (channel && channel.name) {
+        const channelName = channel.name.toLowerCase();
+        // Match channels named cheapshot, cheapshot-private, etc.
+        if (channelName.includes('cheapshot')) {
+            logger.debug('CHANNEL_CONFIG', `Guild ${guildId}: No config, auto-detected channel "${channel.name}" as CheapShot channel`);
+            return true;
+        }
+    }
+
+    logger.debug('CHANNEL_CONFIG', `Guild ${guildId}: No channels configured and channel not named cheapshot, skipping`);
+    return false;
 }
 
 /**

@@ -320,28 +320,42 @@ export function init(container, options = {}) {
                 await api.updateChannelConfig(guildId, channels);
 
                 // Update local state so main UI reflects the change
+                // IMPORTANT: Create new object references for proper state change detection
                 const guildData = state.getKey('guildData');
-                if (guildData[guildId]) {
-                    if (!guildData[guildId].settings) {
-                        guildData[guildId].settings = {};
-                    }
-                    if (!guildData[guildId].settings.modules) {
-                        guildData[guildId].settings.modules = {};
-                    }
-                    guildData[guildId].settings.modules.ai = {
-                        enabled,
-                        channels,
-                        mentionRespond,
-                        typingIndicator
+                if (guildData && guildData[guildId]) {
+                    const updatedGuildData = {
+                        ...guildData,
+                        [guildId]: {
+                            ...guildData[guildId],
+                            settings: {
+                                ...(guildData[guildId].settings || {}),
+                                modules: {
+                                    ...(guildData[guildId].settings?.modules || {}),
+                                    ai: {
+                                        enabled,
+                                        channels,
+                                        mentionRespond,
+                                        typingIndicator
+                                    }
+                                }
+                            }
+                        }
                     };
-                    state.set({ guildData });
+                    state.set({ guildData: updatedGuildData });
+                    console.log('[AI] Updated local state, AI enabled:', enabled);
                 }
 
                 // Update the main dashboard UI (module cards and stats)
-                if (window.app) {
-                    window.app.renderModuleGrid();
-                    window.app.updateStats(guildId);
-                }
+                // Use setTimeout to ensure state has propagated
+                setTimeout(() => {
+                    if (window.app && typeof window.app.renderModuleGrid === 'function') {
+                        window.app.renderModuleGrid();
+                        window.app.updateStats(guildId);
+                        console.log('[AI] UI updated after save');
+                    } else {
+                        console.warn('[AI] window.app not available for UI update');
+                    }
+                }, 0);
 
                 toast.success('AI configuration saved!');
             } catch (error) {

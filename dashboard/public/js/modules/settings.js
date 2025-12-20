@@ -147,6 +147,35 @@ export function init(container, options = {}) {
                 };
 
                 await api.updateSettings(guildId, settings);
+
+                // Update local state so UI reflects the change
+                // IMPORTANT: Create new object references for proper state change detection
+                const { state } = await import('../state.js');
+                const guildData = state.getKey('guildData');
+                if (guildData && guildData[guildId]) {
+                    const updatedGuildData = {
+                        ...guildData,
+                        [guildId]: {
+                            ...guildData[guildId],
+                            settings: {
+                                ...(guildData[guildId].settings || {}),
+                                ...settings
+                            }
+                        }
+                    };
+                    state.set({ guildData: updatedGuildData });
+                    console.log('[Settings] Updated local state');
+                }
+
+                // Update the main dashboard UI
+                setTimeout(() => {
+                    if (window.app && typeof window.app.renderModuleGrid === 'function') {
+                        window.app.renderModuleGrid();
+                        window.app.updateStats(guildId);
+                        console.log('[Settings] UI updated after save');
+                    }
+                }, 0);
+
                 toast.success('Settings saved!');
             } catch (error) {
                 console.error('Failed to save settings:', error);

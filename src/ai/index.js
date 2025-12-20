@@ -485,8 +485,8 @@ async function handleMessage(message, bot) {
         }
 
         // Check if this channel is allowed based on guild directory config
-        // If no channels configured, bot won't auto-respond (mention-only mode)
-        const channelAllowed = await isChannelAllowedAsync(guildId, message.channel.id);
+        // If no channels configured, auto-detect channels named "cheapshot"
+        const channelAllowed = await isChannelAllowedAsync(guildId, message.channel.id, message.channel);
         if (!channelAllowed) {
             return; // Not an allowed channel for this guild
         }
