@@ -8,7 +8,7 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@700;800;900&display=swap" rel="stylesheet">
 
     <style>
         * {
@@ -18,393 +18,459 @@
         }
 
         body {
-            font-family: 'Inter', -apple-system, sans-serif;
             background: #000;
-            color: #fff;
-            min-height: 100vh;
             overflow: hidden;
+            font-family: 'Inter', sans-serif;
         }
 
-        /* Particles container */
-        #particles {
+        canvas {
+            display: block;
+            cursor: pointer;
+        }
+
+        /* UI Overlay - buttons */
+        .ui-overlay {
             position: fixed;
-            inset: 0;
-            z-index: 1;
-        }
-
-        /* Main content */
-        .content {
-            position: relative;
-            z-index: 10;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 40px;
-            opacity: 0;
-            transform: translateY(20px);
-        }
-
-        .content.visible {
-            animation: materialize 1.5s ease-out forwards;
-        }
-
-        @keyframes materialize {
-            0% {
-                opacity: 0;
-                transform: translateY(30px) scale(0.95);
-                filter: blur(10px);
-            }
-
-            100% {
-                opacity: 1;
-                transform: translateY(0) scale(1);
-                filter: blur(0);
-            }
-        }
-
-        /* Logo */
-        .logo {
-            width: 100px;
-            height: 100px;
-            background: linear-gradient(135deg, #ff2d2d 0%, #ff0000 100%);
-            border-radius: 28px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 32px;
-            box-shadow:
-                0 0 60px rgba(255, 45, 45, 0.5),
-                0 0 120px rgba(255, 45, 45, 0.3),
-                0 20px 60px rgba(0, 0, 0, 0.5);
-            opacity: 0;
-            animation: logoAppear 1s ease-out 0.5s forwards;
-        }
-
-        @keyframes logoAppear {
-            0% {
-                opacity: 0;
-                transform: scale(0.5) rotate(-10deg);
-                filter: blur(20px);
-            }
-
-            50% {
-                transform: scale(1.1) rotate(2deg);
-            }
-
-            100% {
-                opacity: 1;
-                transform: scale(1) rotate(0deg);
-                filter: blur(0);
-            }
-        }
-
-        .logo svg {
-            width: 50px;
-            height: 50px;
-            color: white;
-        }
-
-        /* Title */
-        .title {
-            font-size: clamp(36px, 8vw, 72px);
-            font-weight: 800;
-            letter-spacing: -0.04em;
-            margin-bottom: 16px;
-            text-align: center;
-            background: linear-gradient(180deg, #fff 0%, #999 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            opacity: 0;
-            animation: textAppear 1s ease-out 0.8s forwards;
-        }
-
-        .tagline {
-            font-size: 18px;
-            color: #666;
-            margin-bottom: 48px;
-            text-align: center;
-            opacity: 0;
-            animation: textAppear 1s ease-out 1s forwards;
-        }
-
-        @keyframes textAppear {
-            0% {
-                opacity: 0;
-                transform: translateY(20px);
-                filter: blur(10px);
-            }
-
-            100% {
-                opacity: 1;
-                transform: translateY(0);
-                filter: blur(0);
-            }
-        }
-
-        /* Buttons */
-        .buttons {
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
             display: flex;
             gap: 16px;
+            z-index: 100;
             opacity: 0;
-            animation: textAppear 1s ease-out 1.2s forwards;
+            transition: opacity 1s ease-out 2s;
+        }
+
+        .ui-overlay.visible {
+            opacity: 1;
         }
 
         .btn {
             display: flex;
             align-items: center;
             gap: 10px;
-            padding: 16px 32px;
-            border-radius: 12px;
-            font-size: 15px;
+            padding: 14px 28px;
+            border-radius: 10px;
+            font-size: 14px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.3s;
             border: none;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .btn::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, transparent 100%);
-            opacity: 0;
-            transition: opacity 0.3s;
-        }
-
-        .btn:hover::before {
-            opacity: 1;
+            font-family: 'Inter', sans-serif;
         }
 
         .btn svg {
-            width: 20px;
-            height: 20px;
+            width: 18px;
+            height: 18px;
         }
 
         .btn-primary {
-            background: linear-gradient(135deg, #ff2d2d 0%, #cc0000 100%);
+            background: #ff2d2d;
             color: white;
-            box-shadow: 0 4px 30px rgba(255, 45, 45, 0.4);
         }
 
         .btn-primary:hover {
-            transform: translateY(-3px) scale(1.02);
-            box-shadow: 0 8px 40px rgba(255, 45, 45, 0.6);
+            background: #e02525;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(255, 45, 45, 0.4);
         }
 
         .btn-secondary {
-            background: rgba(255, 255, 255, 0.05);
-            color: #fff;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
         }
 
         .btn-secondary:hover {
-            background: rgba(255, 255, 255, 0.1);
-            border-color: rgba(255, 255, 255, 0.2);
-            transform: translateY(-3px);
+            background: rgba(255, 255, 255, 0.15);
         }
 
-        /* Footer */
         .footer {
             position: fixed;
-            bottom: 24px;
+            bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
-            font-size: 12px;
+            font-size: 11px;
             color: #333;
-            z-index: 10;
-            opacity: 0;
-            animation: textAppear 1s ease-out 1.5s forwards;
-        }
-
-        /* Loading screen */
-        .loader {
-            position: fixed;
-            inset: 0;
-            background: #000;
             z-index: 100;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: opacity 0.8s ease-out;
         }
 
-        .loader.fade {
-            opacity: 0;
-            pointer-events: none;
-        }
-
-        .loader-text {
-            font-size: 14px;
-            color: #333;
-            letter-spacing: 0.2em;
-            text-transform: uppercase;
-        }
-
-        /* Mobile */
         @media (max-width: 600px) {
-            .buttons {
+            .ui-overlay {
                 flex-direction: column;
-                width: 100%;
+                width: calc(100% - 40px);
+                bottom: 40px;
             }
 
             .btn {
                 justify-content: center;
-            }
-
-            .logo {
-                width: 80px;
-                height: 80px;
-                border-radius: 20px;
-            }
-
-            .logo svg {
-                width: 40px;
-                height: 40px;
             }
         }
     </style>
 </head>
 
 <body>
-    <!-- Loading -->
-    <div class="loader" id="loader">
-        <div class="loader-text">Loading</div>
-    </div>
+    <canvas id="canvas"></canvas>
 
-    <!-- Particles -->
-    <div id="particles"></div>
-
-    <!-- Content -->
-    <div class="content" id="content">
-        <div class="logo">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+    <div class="ui-overlay" id="ui">
+        <button class="btn btn-primary" id="add-btn">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+                <path
+                    d="M20.317 4.492c-1.53-.69-3.17-1.2-4.885-1.49a.075.075 0 0 0-.079.036c-.21.369-.444.85-.608 1.23a18.566 18.566 0 0 0-5.487 0 12.36 12.36 0 0 0-.617-1.23A.077.077 0 0 0 8.562 3c-1.714.29-3.354.8-4.885 1.491a.07.07 0 0 0-.032.027C.533 9.093-.32 13.555.099 17.961a.08.08 0 0 0 .031.055 20.03 20.03 0 0 0 5.993 2.98.078.078 0 0 0 .084-.026c.462-.62.874-1.275 1.226-1.963.021-.04.001-.088-.041-.104a13.201 13.201 0 0 1-1.872-.878.075.075 0 0 1-.008-.125c.126-.093.252-.19.372-.287a.075.075 0 0 1 .078-.01c3.927 1.764 8.18 1.764 12.061 0a.075.075 0 0 1 .079.009c.12.098.245.195.372.288a.075.075 0 0 1-.006.125c-.598.344-1.22.635-1.873.877a.075.075 0 0 0-.041.105c.36.687.772 1.341 1.225 1.962a.077.077 0 0 0 .084.028 19.963 19.963 0 0 0 6.002-2.981.076.076 0 0 0 .032-.054c.5-5.094-.838-9.52-3.549-13.442a.06.06 0 0 0-.031-.028zM8.02 15.278c-1.182 0-2.157-1.069-2.157-2.38 0-1.312.956-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.956 2.38-2.157 2.38zm7.975 0c-1.183 0-2.157-1.069-2.157-2.38 0-1.312.955-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.946 2.38-2.157 2.38z" />
             </svg>
-        </div>
-
-        <h1 class="title">CheapShot</h1>
-        <p class="tagline">AI-powered Discord bot for the modern server</p>
-
-        <div class="buttons">
-            <button class="btn btn-primary" id="add-btn">
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                    <path
-                        d="M20.317 4.492c-1.53-.69-3.17-1.2-4.885-1.49a.075.075 0 0 0-.079.036c-.21.369-.444.85-.608 1.23a18.566 18.566 0 0 0-5.487 0 12.36 12.36 0 0 0-.617-1.23A.077.077 0 0 0 8.562 3c-1.714.29-3.354.8-4.885 1.491a.07.07 0 0 0-.032.027C.533 9.093-.32 13.555.099 17.961a.08.08 0 0 0 .031.055 20.03 20.03 0 0 0 5.993 2.98.078.078 0 0 0 .084-.026c.462-.62.874-1.275 1.226-1.963.021-.04.001-.088-.041-.104a13.201 13.201 0 0 1-1.872-.878.075.075 0 0 1-.008-.125c.126-.093.252-.19.372-.287a.075.075 0 0 1 .078-.01c3.927 1.764 8.18 1.764 12.061 0a.075.075 0 0 1 .079.009c.12.098.245.195.372.288a.075.075 0 0 1-.006.125c-.598.344-1.22.635-1.873.877a.075.075 0 0 0-.041.105c.36.687.772 1.341 1.225 1.962a.077.077 0 0 0 .084.028 19.963 19.963 0 0 0 6.002-2.981.076.076 0 0 0 .032-.054c.5-5.094-.838-9.52-3.549-13.442a.06.06 0 0 0-.031-.028zM8.02 15.278c-1.182 0-2.157-1.069-2.157-2.38 0-1.312.956-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.956 2.38-2.157 2.38zm7.975 0c-1.183 0-2.157-1.069-2.157-2.38 0-1.312.955-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.946 2.38-2.157 2.38z" />
-                </svg>
-                Add to Discord
-            </button>
-            <button class="btn btn-secondary" id="login-btn">
-                Dashboard →
-            </button>
-        </div>
+            Add to Discord
+        </button>
+        <button class="btn btn-secondary" id="login-btn">Dashboard →</button>
     </div>
 
     <div class="footer">© 2025 skmredacted</div>
 
-    <!-- tsParticles -->
-    <script src="https://cdn.jsdelivr.net/npm/tsparticles@2/tsparticles.bundle.min.js"></script>
-
     <script>
-        // Initialize particles
-        tsParticles.load("particles", {
-            fullScreen: false,
-            background: {
-                color: "#000"
-            },
-            particles: {
-                number: {
-                    value: 150,
-                    density: {
-                        enable: true,
-                        area: 800
-                    }
-                },
-                color: {
-                    value: ["#ff2d2d", "#ff6b6b", "#ffffff", "#666666"]
-                },
-                shape: {
-                    type: "circle"
-                },
-                opacity: {
-                    value: { min: 0.1, max: 0.8 },
-                    animation: {
-                        enable: true,
-                        speed: 1,
-                        minimumValue: 0.1,
-                        sync: false
-                    }
-                },
-                size: {
-                    value: { min: 1, max: 4 },
-                    animation: {
-                        enable: true,
-                        speed: 3,
-                        minimumValue: 0.5,
-                        sync: false
-                    }
-                },
-                links: {
-                    enable: true,
-                    distance: 150,
-                    color: "#ff2d2d",
-                    opacity: 0.1,
-                    width: 1
-                },
-                move: {
-                    enable: true,
-                    speed: 1,
-                    direction: "none",
-                    random: true,
-                    straight: false,
-                    outModes: {
-                        default: "out"
-                    },
-                    attract: {
-                        enable: true,
-                        rotateX: 600,
-                        rotateY: 1200
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let width, height;
+        let particles = [];
+        let mouse = { x: null, y: null, radius: 150 };
+        let animationPhase = 0;
+        let startTime = Date.now();
+
+        // Resize handler
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initParticles();
+        }
+
+        // Particle class
+        class Particle {
+            constructor(x, y, color, size = 2) {
+                // Target position (where it should form)
+                this.targetX = x;
+                this.targetY = y;
+
+                // Current position (start scattered)
+                this.x = Math.random() * width;
+                this.y = Math.random() * height;
+
+                // Velocity
+                this.vx = 0;
+                this.vy = 0;
+
+                // Properties
+                this.color = color;
+                this.baseSize = size;
+                this.size = size;
+                this.alpha = 0;
+                this.targetAlpha = 1;
+
+                // Physics
+                this.friction = 0.95;
+                this.ease = 0.08 + Math.random() * 0.04;
+
+                // Floating offset
+                this.floatPhase = Math.random() * Math.PI * 2;
+                this.floatSpeed = 0.5 + Math.random() * 0.5;
+                this.floatRadius = 1 + Math.random() * 2;
+            }
+
+            update(time) {
+                // Move towards target
+                const dx = this.targetX - this.x;
+                const dy = this.targetY - this.y;
+
+                this.vx += dx * this.ease;
+                this.vy += dy * this.ease;
+
+                this.vx *= this.friction;
+                this.vy *= this.friction;
+
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // Add floating motion once formed
+                if (animationPhase >= 1) {
+                    const float = Math.sin(time * 0.001 * this.floatSpeed + this.floatPhase);
+                    this.x += Math.cos(this.floatPhase) * float * 0.3;
+                    this.y += Math.sin(this.floatPhase) * float * 0.3;
+                }
+
+                // Mouse interaction
+                if (mouse.x !== null) {
+                    const mdx = this.x - mouse.x;
+                    const mdy = this.y - mouse.y;
+                    const dist = Math.sqrt(mdx * mdx + mdy * mdy);
+
+                    if (dist < mouse.radius) {
+                        const force = (mouse.radius - dist) / mouse.radius;
+                        const angle = Math.atan2(mdy, mdx);
+                        this.vx += Math.cos(angle) * force * 3;
+                        this.vy += Math.sin(angle) * force * 3;
                     }
                 }
-            },
-            interactivity: {
-                detectsOn: "window",
-                events: {
-                    onHover: {
-                        enable: true,
-                        mode: "grab"
-                    },
-                    onClick: {
-                        enable: true,
-                        mode: "push"
+
+                // Fade in
+                this.alpha += (this.targetAlpha - this.alpha) * 0.02;
+
+                // Pulse size slightly
+                this.size = this.baseSize + Math.sin(time * 0.003 + this.floatPhase) * 0.3;
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = this.color.replace('1)', `${this.alpha})`);
+                ctx.fill();
+            }
+        }
+
+        // Sample pixels from text/shape
+        function getTextPixels(text, fontSize, fontWeight, offsetY = 0) {
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+
+            tempCanvas.width = width;
+            tempCanvas.height = height;
+
+            tempCtx.fillStyle = '#fff';
+            tempCtx.font = `${fontWeight} ${fontSize}px Inter, sans-serif`;
+            tempCtx.textAlign = 'center';
+            tempCtx.textBaseline = 'middle';
+            tempCtx.fillText(text, width / 2, height / 2 + offsetY);
+
+            const imageData = tempCtx.getImageData(0, 0, width, height);
+            const pixels = [];
+            const gap = 4; // Sample every N pixels
+
+            for (let y = 0; y < height; y += gap) {
+                for (let x = 0; x < width; x += gap) {
+                    const i = (y * width + x) * 4;
+                    if (imageData.data[i + 3] > 128) {
+                        pixels.push({ x, y });
                     }
-                },
-                modes: {
-                    grab: {
-                        distance: 200,
-                        links: {
-                            opacity: 0.3,
-                            color: "#ff2d2d"
+                }
+            }
+
+            return pixels;
+        }
+
+        // Get pixels for a rectangle (card outline)
+        function getRectPixels(rx, ry, rw, rh, gap = 6) {
+            const pixels = [];
+
+            // Top and bottom edges
+            for (let x = rx; x < rx + rw; x += gap) {
+                pixels.push({ x, y: ry });
+                pixels.push({ x, y: ry + rh });
+            }
+
+            // Left and right edges
+            for (let y = ry; y < ry + rh; y += gap) {
+                pixels.push({ x: rx, y });
+                pixels.push({ x: rx + rw, y });
+            }
+
+            return pixels;
+        }
+
+        // Get pixels for a circle (icon)
+        function getCirclePixels(cx, cy, radius, gap = 5) {
+            const pixels = [];
+
+            for (let angle = 0; angle < Math.PI * 2; angle += gap / radius) {
+                pixels.push({
+                    x: cx + Math.cos(angle) * radius,
+                    y: cy + Math.sin(angle) * radius
+                });
+            }
+
+            // Fill center with some particles
+            for (let r = gap; r < radius; r += gap * 1.5) {
+                for (let angle = 0; angle < Math.PI * 2; angle += gap / r) {
+                    if (Math.random() > 0.5) {
+                        pixels.push({
+                            x: cx + Math.cos(angle) * r,
+                            y: cy + Math.sin(angle) * r
+                        });
+                    }
+                }
+            }
+
+            return pixels;
+        }
+
+        // Get pixels for lightning bolt icon
+        function getLightningPixels(cx, cy, size) {
+            const pixels = [];
+            const points = [
+                { x: 0, y: -1 },
+                { x: -0.5, y: 0.1 },
+                { x: 0.1, y: 0.1 },
+                { x: -0.2, y: 1 },
+                { x: 0.5, y: -0.1 },
+                { x: -0.1, y: -0.1 },
+                { x: 0, y: -1 }
+            ];
+
+            const gap = 3;
+            for (let i = 0; i < points.length - 1; i++) {
+                const p1 = points[i];
+                const p2 = points[i + 1];
+                const steps = 20;
+
+                for (let t = 0; t < 1; t += 1 / steps) {
+                    pixels.push({
+                        x: cx + (p1.x + (p2.x - p1.x) * t) * size,
+                        y: cy + (p1.y + (p2.y - p1.y) * t) * size
+                    });
+                }
+            }
+
+            return pixels;
+        }
+
+        // Initialize all particles
+        function initParticles() {
+            particles = [];
+
+            const isMobile = width < 600;
+            const titleSize = isMobile ? 48 : Math.min(120, width * 0.1);
+            const taglineSize = isMobile ? 14 : 18;
+
+            // Main title: "CheapShot"
+            const titlePixels = getTextPixels('CheapShot', titleSize, 800, -60);
+            titlePixels.forEach(p => {
+                particles.push(new Particle(p.x, p.y, 'rgba(255, 255, 255, 1)', 2));
+            });
+
+            // Tagline
+            const taglinePixels = getTextPixels('AI-powered Discord bot', taglineSize, 700, titleSize * 0.4);
+            taglinePixels.forEach(p => {
+                particles.push(new Particle(p.x, p.y, 'rgba(100, 100, 100, 1)', 1.5));
+            });
+
+            // Lightning bolt icon above title
+            const iconY = height / 2 - 60 - titleSize * 0.6 - 50;
+            const boltPixels = getLightningPixels(width / 2, iconY, 30);
+            boltPixels.forEach(p => {
+                particles.push(new Particle(p.x, p.y, 'rgba(255, 45, 45, 1)', 2.5));
+            });
+
+            // Circle around icon
+            const circlePixels = getCirclePixels(width / 2, iconY, 45, 4);
+            circlePixels.forEach(p => {
+                particles.push(new Particle(p.x, p.y, 'rgba(255, 45, 45, 1)', 2));
+            });
+
+            // Feature cards (only on desktop)
+            if (!isMobile) {
+                const cardWidth = 200;
+                const cardHeight = 80;
+                const cardY = height / 2 + titleSize * 0.6 + 80;
+                const cardGap = 30;
+                const totalWidth = cardWidth * 4 + cardGap * 3;
+                const startX = (width - totalWidth) / 2;
+
+                const features = ['🤖 AI Chat', '🛡️ Moderation', '🎨 Images', '⚡ Management'];
+
+                features.forEach((text, i) => {
+                    const cardX = startX + i * (cardWidth + cardGap);
+
+                    // Card outline
+                    const rectPixels = getRectPixels(cardX, cardY, cardWidth, cardHeight, 8);
+                    rectPixels.forEach(p => {
+                        particles.push(new Particle(p.x, p.y, 'rgba(255, 45, 45, 0.3)', 1.5));
+                    });
+
+                    // Card text
+                    const textCanvas = document.createElement('canvas');
+                    const textCtx = textCanvas.getContext('2d');
+                    textCanvas.width = width;
+                    textCanvas.height = height;
+                    textCtx.font = '600 14px Inter';
+                    textCtx.textAlign = 'center';
+                    textCtx.fillStyle = '#fff';
+                    textCtx.fillText(text, cardX + cardWidth / 2, cardY + cardHeight / 2 + 5);
+
+                    const imgData = textCtx.getImageData(0, 0, width, height);
+                    for (let y = 0; y < height; y += 3) {
+                        for (let x = 0; x < width; x += 3) {
+                            const idx = (y * width + x) * 4;
+                            if (imgData.data[idx + 3] > 128) {
+                                particles.push(new Particle(x, y, 'rgba(200, 200, 200, 1)', 1.2));
+                            }
                         }
-                    },
-                    push: {
-                        quantity: 4
                     }
-                }
-            },
-            detectRetina: true
-        }).then(() => {
-            // Particles loaded, start the entrance animation
-            setTimeout(() => {
-                document.getElementById('loader').classList.add('fade');
-                document.getElementById('content').classList.add('visible');
-            }, 500);
+                });
+            }
+
+            // Add ambient floating particles
+            for (let i = 0; i < 100; i++) {
+                const p = new Particle(
+                    Math.random() * width,
+                    Math.random() * height,
+                    'rgba(255, 45, 45, 0.5)',
+                    1 + Math.random() * 2
+                );
+                p.targetAlpha = 0.3 + Math.random() * 0.3;
+                p.floatRadius = 5 + Math.random() * 10;
+                particles.push(p);
+            }
+        }
+
+        // Animation loop
+        function animate() {
+            const time = Date.now();
+            const elapsed = time - startTime;
+
+            // Update animation phase
+            animationPhase = Math.min(1, elapsed / 3000);
+
+            // Clear with fade effect
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+            ctx.fillRect(0, 0, width, height);
+
+            // Update and draw particles
+            particles.forEach(p => {
+                p.update(time);
+                p.draw();
+            });
+
+            // Show buttons after animation
+            if (elapsed > 2000) {
+                document.getElementById('ui').classList.add('visible');
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // Mouse events
+        canvas.addEventListener('mousemove', e => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
         });
+
+        canvas.addEventListener('mouseleave', () => {
+            mouse.x = null;
+            mouse.y = null;
+        });
+
+        // Touch support
+        canvas.addEventListener('touchmove', e => {
+            e.preventDefault();
+            mouse.x = e.touches[0].clientX;
+            mouse.y = e.touches[0].clientY;
+        });
+
+        canvas.addEventListener('touchend', () => {
+            mouse.x = null;
+            mouse.y = null;
+        });
+
+        // Init
+        window.addEventListener('resize', resize);
+        resize();
+        animate();
 
         // Button handlers
         const CLIENT_ID = '1447587559604486417';
