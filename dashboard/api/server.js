@@ -10,6 +10,7 @@ import pgSession from 'connect-pg-simple';
 import pg from 'pg';
 import cors from 'cors';
 import { config } from './config.js';
+import db from './db.js';
 
 const app = express();
 
@@ -176,14 +177,163 @@ function hasManageGuild(permissions) {
     return (BigInt(permissions) & BigInt(MANAGE_GUILD)) === BigInt(MANAGE_GUILD);
 }
 
+/**
+ * Check if user has ADMINISTRATOR permission (full access)
+ */
+function hasAdministrator(permissions) {
+    const ADMINISTRATOR = 0x8; // 8
+    return (BigInt(permissions) & BigInt(ADMINISTRATOR)) === BigInt(ADMINISTRATOR);
+}
+
+/**
+ * Required permission level for dashboard access
+ * Options: 'MANAGE_GUILD' (moderate) or 'ADMINISTRATOR' (strict)
+ */
+const REQUIRED_PERMISSION = 'MANAGE_GUILD';
+
+/**
+ * Check if user meets the required permission level
+ */
+function hasRequiredPermission(permissions) {
+    if (REQUIRED_PERMISSION === 'ADMINISTRATOR') {
+        return hasAdministrator(permissions);
+    }
+    // MANAGE_GUILD OR ADMINISTRATOR both grant access
+    return hasManageGuild(permissions) || hasAdministrator(permissions);
+}
+
+// =============================================================
+// Permission Cache (reduces Discord API calls)
+// =============================================================
+const permissionCache = new Map();
+const PERMISSION_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function getCachedPermission(userId, guildId) {
+    const key = `${userId}-${guildId}`;
+    const cached = permissionCache.get(key);
+    if (cached && (Date.now() - cached.timestamp) < PERMISSION_CACHE_TTL) {
+        return cached.hasPermission;
+    }
+    return null;
+}
+
+function setCachedPermission(userId, guildId, hasPermission) {
+    const key = `${userId}-${guildId}`;
+    permissionCache.set(key, { hasPermission, timestamp: Date.now() });
+}
+
+function clearUserPermissionCache(userId) {
+    for (const key of permissionCache.keys()) {
+        if (key.startsWith(`${userId}-`)) {
+            permissionCache.delete(key);
+        }
+    }
+}
+
 // =============================================================
 // Auth Middleware
 // =============================================================
+
+/**
+ * Basic authentication check - user is logged in
+ */
 function requireAuth(req, res, next) {
     if (!req.session.user || !req.session.accessToken) {
-        return res.status(401).json({ error: 'Unauthorized' });
+        return res.status(401).json({ error: 'Unauthorized', code: 'NOT_LOGGED_IN' });
     }
     next();
+}
+
+/**
+ * Per-guild authorization middleware factory
+ * Verifies user has permission to access/modify the specific guild
+ * This is the key security check for multi-server support
+ */
+function requireGuildAuth(paramName = 'guildId') {
+    return async (req, res, next) => {
+        // First check basic auth
+        if (!req.session.user || !req.session.accessToken) {
+            return res.status(401).json({ error: 'Unauthorized', code: 'NOT_LOGGED_IN' });
+        }
+
+        const guildId = req.params[paramName];
+        if (!guildId) {
+            return res.status(400).json({ error: 'Guild ID required', code: 'MISSING_GUILD_ID' });
+        }
+
+        const userId = req.session.user.id;
+
+        // Check cache first
+        const cachedResult = getCachedPermission(userId, guildId);
+        if (cachedResult !== null) {
+            if (!cachedResult) {
+                return res.status(403).json({
+                    error: 'You do not have permission to manage this server',
+                    code: 'INSUFFICIENT_PERMISSIONS'
+                });
+            }
+            return next();
+        }
+
+        try {
+            // Refresh token if needed
+            if (Date.now() >= req.session.tokenExpiry - 60000) {
+                try {
+                    const tokens = await refreshToken(req.session.refreshToken);
+                    req.session.accessToken = tokens.access_token;
+                    req.session.refreshToken = tokens.refresh_token;
+                    req.session.tokenExpiry = Date.now() + (tokens.expires_in * 1000);
+                } catch (e) {
+                    return res.status(401).json({ error: 'Session expired', code: 'TOKEN_EXPIRED' });
+                }
+            }
+
+            // Fetch user's guilds from Discord to verify permissions
+            const userGuilds = await fetchUserGuilds(req.session.accessToken);
+
+            // Find this specific guild
+            const guild = userGuilds.find(g => g.id === guildId);
+
+            if (!guild) {
+                // User is not in this guild at all
+                setCachedPermission(userId, guildId, false);
+                return res.status(403).json({
+                    error: 'You are not a member of this server',
+                    code: 'NOT_IN_GUILD'
+                });
+            }
+
+            // Check if user has required permission
+            const hasPerms = hasRequiredPermission(guild.permissions);
+            setCachedPermission(userId, guildId, hasPerms);
+
+            if (!hasPerms) {
+                return res.status(403).json({
+                    error: 'You do not have permission to manage this server. Requires: Manage Server or Administrator',
+                    code: 'INSUFFICIENT_PERMISSIONS',
+                    requiredPermission: REQUIRED_PERMISSION
+                });
+            }
+
+            // Also verify bot is in the guild (optional but helpful)
+            const botGuildIds = await fetchBotGuilds();
+            req.botInGuild = botGuildIds.has(guildId);
+
+            // Store guild info for route handlers
+            req.guildInfo = {
+                id: guild.id,
+                name: guild.name,
+                permissions: guild.permissions,
+                owner: guild.owner,
+                botPresent: req.botInGuild
+            };
+
+            next();
+        } catch (error) {
+            console.error('Guild auth error:', error);
+            return res.status(500).json({ error: 'Failed to verify permissions', code: 'PERMISSION_CHECK_FAILED' });
+        }
+    };
 }
 
 // =============================================================
@@ -247,7 +397,8 @@ app.post('/api/auth/logout', (req, res) => {
     });
 });
 
-// Get user's manageable guilds (where they have MANAGE_GUILD and bot is present)
+// Get user's manageable guilds with full status info
+// Returns ALL servers user can manage, with status on whether bot is present and configured
 app.get('/api/guilds', requireAuth, async (req, res) => {
     try {
         // Check if token needs refresh
@@ -258,45 +409,103 @@ app.get('/api/guilds', requireAuth, async (req, res) => {
                 req.session.refreshToken = tokens.refresh_token;
                 req.session.tokenExpiry = Date.now() + (tokens.expires_in * 1000);
             } catch (e) {
-                return res.status(401).json({ error: 'Session expired' });
+                return res.status(401).json({ error: 'Session expired', code: 'TOKEN_EXPIRED' });
             }
         }
 
         // Fetch user's guilds
-        const userGuilds = await fetchUserGuilds(req.session.accessToken);
+        let userGuilds = [];
+        try {
+            userGuilds = await fetchUserGuilds(req.session.accessToken);
+        } catch (e) {
+            console.error('Failed to fetch user guilds:', e);
+            return res.status(500).json({ error: 'Failed to fetch your Discord servers', code: 'DISCORD_API_ERROR' });
+        }
 
         // Fetch bot's guilds
-        const botGuildIds = await fetchBotGuilds();
+        let botGuildIds = new Set();
+        try {
+            botGuildIds = await fetchBotGuilds();
+        } catch (e) {
+            console.error('Failed to fetch bot guilds:', e);
+            // Continue - we'll just mark all as bot_not_present
+        }
 
-        // Filter to guilds where:
-        // 1. User has MANAGE_GUILD permission
-        // 2. Bot is a member
-        const manageableGuilds = userGuilds.filter(guild => {
-            const canManage = hasManageGuild(guild.permissions);
+        // Filter to guilds where user has required permission level
+        const manageableGuilds = userGuilds.filter(guild => hasRequiredPermission(guild.permissions));
+
+        // Build bot invite URL (with required permissions)
+        const botInviteUrl = config.clientId
+            ? `https://discord.com/api/oauth2/authorize?client_id=${config.clientId}&permissions=8&scope=bot%20applications.commands`
+            : null;
+
+        // Format response with full status for each guild
+        const guildsWithStatus = await Promise.all(manageableGuilds.map(async (guild) => {
             const botPresent = botGuildIds.has(guild.id);
-            return canManage && botPresent;
-        });
 
-        // Format response
-        const guilds = manageableGuilds.map(guild => ({
-            id: guild.id,
-            name: guild.name,
-            icon: guild.icon,
-            iconUrl: guild.icon
-                ? `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.webp?size=128`
-                : null,
-            owner: guild.owner
+            // Check if guild has channel config in database
+            let channelConfig = null;
+            let setupComplete = false;
+            let channelCount = 0;
+
+            if (botPresent) {
+                try {
+                    channelConfig = await db.getChannelConfig(guild.id);
+                    if (channelConfig && channelConfig.channels) {
+                        channelCount = Object.keys(channelConfig.channels).length;
+                        setupComplete = channelCount > 0;
+                    }
+                } catch (e) {
+                    // Database error - will show as not configured
+                    console.error(`Failed to get config for guild ${guild.id}:`, e.message);
+                }
+            }
+
+            return {
+                id: guild.id,
+                name: guild.name,
+                icon: guild.icon,
+                iconUrl: guild.icon
+                    ? `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.webp?size=128`
+                    : null,
+                owner: guild.owner,
+                // Status flags
+                botPresent,
+                setupComplete,
+                channelCount,
+                // What action is needed
+                status: !botPresent
+                    ? 'bot_not_added'
+                    : !setupComplete
+                        ? 'needs_setup'
+                        : 'ready',
+                // Invite URL if bot not present
+                inviteUrl: !botPresent ? botInviteUrl : null
+            };
         }));
 
-        res.json({ guilds });
+        // Sort: ready first, then needs_setup, then bot_not_added
+        const statusOrder = { ready: 0, needs_setup: 1, bot_not_added: 2 };
+        guildsWithStatus.sort((a, b) => statusOrder[a.status] - statusOrder[b.status]);
+
+        res.json({
+            guilds: guildsWithStatus,
+            botInviteUrl,
+            summary: {
+                total: guildsWithStatus.length,
+                ready: guildsWithStatus.filter(g => g.status === 'ready').length,
+                needsSetup: guildsWithStatus.filter(g => g.status === 'needs_setup').length,
+                botNotAdded: guildsWithStatus.filter(g => g.status === 'bot_not_added').length
+            }
+        });
     } catch (error) {
         console.error('Fetch guilds error:', error);
-        res.status(500).json({ error: 'Failed to fetch guilds' });
+        res.status(500).json({ error: 'Failed to fetch guilds', code: 'UNKNOWN_ERROR' });
     }
 });
 
 // Get specific guild info
-app.get('/api/guilds/:guildId', requireAuth, async (req, res) => {
+app.get('/api/guilds/:guildId', requireGuildAuth(), async (req, res) => {
     const { guildId } = req.params;
 
     try {
@@ -335,7 +544,7 @@ app.get('/api/guilds/:guildId', requireAuth, async (req, res) => {
 });
 
 // Get guild channels
-app.get('/api/guilds/:guildId/channels', requireAuth, async (req, res) => {
+app.get('/api/guilds/:guildId/channels', requireGuildAuth(), async (req, res) => {
     const { guildId } = req.params;
 
     try {
@@ -370,7 +579,7 @@ app.get('/api/guilds/:guildId/channels', requireAuth, async (req, res) => {
 });
 
 // Get guild roles
-app.get('/api/guilds/:guildId/roles', requireAuth, async (req, res) => {
+app.get('/api/guilds/:guildId/roles', requireGuildAuth(), async (req, res) => {
     const { guildId } = req.params;
 
     try {
@@ -407,6 +616,338 @@ app.get('/api/guilds/:guildId/roles', requireAuth, async (req, res) => {
 });
 
 // =============================================================
+// Auto-Setup & Sync
+// =============================================================
+
+// CheapShot channel names to look for
+const CHEAPSHOT_CHANNELS = {
+    'cheapshot': 'public',
+    'cheapshot-private': 'private',
+    'cheapshot-moderation': 'moderation'
+};
+
+// Auto-detect and sync existing CheapShot channels to database
+// Call this when a guild shows "needs_setup" to attempt auto-recovery
+app.post('/api/guilds/:guildId/sync', requireGuildAuth(), async (req, res) => {
+    const { guildId } = req.params;
+
+    try {
+        if (config.botTokens.length === 0) {
+            return res.status(500).json({ error: 'No bot token configured', code: 'NO_BOT_TOKEN' });
+        }
+
+        // Fetch guild channels from Discord
+        const response = await fetch(`${config.discordApiBase}/guilds/${guildId}/channels`, {
+            headers: { Authorization: `Bot ${config.botTokens[0]}` }
+        });
+
+        if (!response.ok) {
+            const status = response.status;
+            if (status === 404 || status === 403) {
+                return res.status(404).json({
+                    error: 'Bot is not in this server or lacks permissions',
+                    code: 'BOT_NOT_IN_GUILD'
+                });
+            }
+            return res.status(500).json({ error: 'Failed to fetch channels from Discord', code: 'DISCORD_API_ERROR' });
+        }
+
+        const discordChannels = await response.json();
+
+        // Look for existing CheapShot channels
+        const foundChannels = {};
+        const channelsFound = [];
+
+        for (const channel of discordChannels) {
+            const channelType = CHEAPSHOT_CHANNELS[channel.name.toLowerCase()];
+            if (channelType && channel.type === 0) { // type 0 = text channel
+                foundChannels[channel.name] = {
+                    id: channel.id,
+                    type: channelType
+                };
+                channelsFound.push({ name: channel.name, id: channel.id, type: channelType });
+            }
+        }
+
+        // If we found any CheapShot channels, save them to database
+        if (Object.keys(foundChannels).length > 0) {
+            // Get existing config and merge
+            const existingConfig = await db.getChannelConfig(guildId);
+            const existingChannels = existingConfig?.channels || {};
+
+            const mergedChannels = { ...existingChannels, ...foundChannels };
+            await db.saveChannelConfig(guildId, mergedChannels);
+
+            await db.addAuditLog(guildId, req.session.user.id, 'sync_channels', {
+                channelsFound: channelsFound.map(c => c.name),
+                autoDetected: true
+            });
+
+            return res.json({
+                success: true,
+                message: `Found and synced ${channelsFound.length} CheapShot channel(s)`,
+                channelsFound,
+                setupComplete: true
+            });
+        }
+
+        // No CheapShot channels found
+        return res.json({
+            success: true,
+            message: 'No CheapShot channels found. You can add channels manually or the bot will create them automatically.',
+            channelsFound: [],
+            setupComplete: false,
+            hint: 'To have the bot create channels automatically, remove and re-add the bot to this server.'
+        });
+
+    } catch (error) {
+        console.error('Sync error:', error);
+        res.status(500).json({ error: 'Failed to sync channels', code: 'SYNC_ERROR' });
+    }
+});
+
+// Get full guild status including setup info
+app.get('/api/guilds/:guildId/status', requireGuildAuth(), async (req, res) => {
+    const { guildId } = req.params;
+
+    try {
+        if (config.botTokens.length === 0) {
+            return res.status(500).json({ error: 'No bot token configured' });
+        }
+
+        // Check if bot is in guild
+        const guildResponse = await fetch(`${config.discordApiBase}/guilds/${guildId}`, {
+            headers: { Authorization: `Bot ${config.botTokens[0]}` }
+        });
+
+        const botPresent = guildResponse.ok;
+
+        if (!botPresent) {
+            return res.json({
+                guildId,
+                botPresent: false,
+                setupComplete: false,
+                channelCount: 0,
+                status: 'bot_not_added',
+                inviteUrl: config.clientId
+                    ? `https://discord.com/api/oauth2/authorize?client_id=${config.clientId}&permissions=8&scope=bot%20applications.commands&guild_id=${guildId}`
+                    : null,
+                message: 'Bot is not in this server. Add the bot first.'
+            });
+        }
+
+        // Check database for channel config
+        let channelConfig = null;
+        let channelCount = 0;
+        let channels = {};
+
+        try {
+            channelConfig = await db.getChannelConfig(guildId);
+            if (channelConfig?.channels) {
+                channels = channelConfig.channels;
+                channelCount = Object.keys(channels).length;
+            }
+        } catch (e) {
+            console.error(`Failed to get config for ${guildId}:`, e.message);
+        }
+
+        const setupComplete = channelCount > 0;
+
+        // Get actual Discord channel info for configured channels
+        const channelsWithInfo = [];
+        if (setupComplete) {
+            const channelsResponse = await fetch(`${config.discordApiBase}/guilds/${guildId}/channels`, {
+                headers: { Authorization: `Bot ${config.botTokens[0]}` }
+            });
+
+            if (channelsResponse.ok) {
+                const discordChannels = await channelsResponse.json();
+                const channelMap = new Map(discordChannels.map(c => [c.id, c]));
+
+                for (const [name, data] of Object.entries(channels)) {
+                    const discordChannel = channelMap.get(data.id);
+                    channelsWithInfo.push({
+                        name,
+                        id: data.id,
+                        type: data.type,
+                        exists: !!discordChannel,
+                        discordName: discordChannel?.name || null
+                    });
+                }
+            }
+        }
+
+        // Check for orphaned channels (in Discord but not in config)
+        const discordChannelsResponse = await fetch(`${config.discordApiBase}/guilds/${guildId}/channels`, {
+            headers: { Authorization: `Bot ${config.botTokens[0]}` }
+        });
+
+        let orphanedChannels = [];
+        if (discordChannelsResponse.ok) {
+            const discordChannels = await discordChannelsResponse.json();
+            const configuredIds = new Set(Object.values(channels).map(c => c.id));
+
+            orphanedChannels = discordChannels
+                .filter(c => CHEAPSHOT_CHANNELS[c.name.toLowerCase()] && !configuredIds.has(c.id))
+                .map(c => ({ name: c.name, id: c.id, type: CHEAPSHOT_CHANNELS[c.name.toLowerCase()] }));
+        }
+
+        res.json({
+            guildId,
+            botPresent: true,
+            setupComplete,
+            channelCount,
+            status: setupComplete ? 'ready' : 'needs_setup',
+            channels: channelsWithInfo,
+            orphanedChannels, // CheapShot channels in Discord but not in DB
+            canAutoSync: orphanedChannels.length > 0,
+            message: setupComplete
+                ? `Guild is configured with ${channelCount} channel(s)`
+                : orphanedChannels.length > 0
+                    ? `Found ${orphanedChannels.length} CheapShot channel(s) that can be synced`
+                    : 'No channels configured. Add channels manually or re-add the bot.'
+        });
+
+    } catch (error) {
+        console.error('Status check error:', error);
+        res.status(500).json({ error: 'Failed to check guild status' });
+    }
+});
+
+// =============================================================
+// Guild Settings & Channel Config (Database-backed)
+// =============================================================
+
+// Get guild settings
+app.get('/api/guilds/:guildId/settings', requireGuildAuth(), async (req, res) => {
+    const { guildId } = req.params;
+
+    try {
+        const settings = await db.getGuildSettings(guildId);
+        res.json({ settings: settings || {} });
+    } catch (error) {
+        console.error('Get settings error:', error);
+        res.status(500).json({ error: 'Failed to get settings' });
+    }
+});
+
+// Update guild settings
+app.put('/api/guilds/:guildId/settings', requireGuildAuth(), async (req, res) => {
+    const { guildId } = req.params;
+    const { settings } = req.body;
+
+    if (!settings || typeof settings !== 'object') {
+        return res.status(400).json({ error: 'Invalid settings object' });
+    }
+
+    try {
+        await db.updateGuildSettings(guildId, settings);
+
+        // Log the action
+        await db.addAuditLog(guildId, req.session.user.id, 'update_settings', {
+            updatedFields: Object.keys(settings)
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Update settings error:', error);
+        res.status(500).json({ error: 'Failed to update settings' });
+    }
+});
+
+// Get channel config for a guild
+app.get('/api/guilds/:guildId/channels/config', requireGuildAuth(), async (req, res) => {
+    const { guildId } = req.params;
+
+    try {
+        const channelConfig = await db.getChannelConfig(guildId);
+        res.json({ channels: channelConfig?.channels || {} });
+    } catch (error) {
+        console.error('Get channel config error:', error);
+        res.status(500).json({ error: 'Failed to get channel config' });
+    }
+});
+
+// Save channel config for a guild
+app.put('/api/guilds/:guildId/channels/config', requireGuildAuth(), async (req, res) => {
+    const { guildId } = req.params;
+    const { channels } = req.body;
+
+    if (!channels || typeof channels !== 'object') {
+        return res.status(400).json({ error: 'Invalid channels config' });
+    }
+
+    try {
+        await db.saveChannelConfig(guildId, channels);
+
+        // Log the action
+        await db.addAuditLog(guildId, req.session.user.id, 'update_channels', {
+            channelNames: Object.keys(channels)
+        });
+
+        res.json({ success: true, message: 'Channel config saved. Bot will pick up changes within 1 minute.' });
+    } catch (error) {
+        console.error('Save channel config error:', error);
+        res.status(500).json({ error: 'Failed to save channel config' });
+    }
+});
+
+// Add a single channel to config
+app.post('/api/guilds/:guildId/channels/config', requireGuildAuth(), async (req, res) => {
+    const { guildId } = req.params;
+    const { channelName, channelId, channelType } = req.body;
+
+    if (!channelName || !channelId) {
+        return res.status(400).json({ error: 'channelName and channelId are required' });
+    }
+
+    try {
+        await db.addChannel(guildId, channelName, channelId, channelType || 'public');
+
+        await db.addAuditLog(guildId, req.session.user.id, 'add_channel', {
+            channelName, channelId, channelType
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Add channel error:', error);
+        res.status(500).json({ error: 'Failed to add channel' });
+    }
+});
+
+// Remove a channel from config
+app.delete('/api/guilds/:guildId/channels/config/:channelName', requireGuildAuth(), async (req, res) => {
+    const { guildId, channelName } = req.params;
+
+    try {
+        await db.removeChannel(guildId, channelName);
+
+        await db.addAuditLog(guildId, req.session.user.id, 'remove_channel', {
+            channelName
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Remove channel error:', error);
+        res.status(500).json({ error: 'Failed to remove channel' });
+    }
+});
+
+// Get audit logs for a guild
+app.get('/api/guilds/:guildId/audit-logs', requireGuildAuth(), async (req, res) => {
+    const { guildId } = req.params;
+    const limit = parseInt(req.query.limit) || 50;
+
+    try {
+        const logs = await db.getAuditLogs(guildId, limit);
+        res.json({ logs });
+    } catch (error) {
+        console.error('Get audit logs error:', error);
+        res.status(500).json({ error: 'Failed to get audit logs' });
+    }
+});
+
+// =============================================================
 // Start Server
 // =============================================================
 app.listen(config.port, () => {
@@ -414,3 +955,4 @@ app.listen(config.port, () => {
     console.log(`   Client ID: ${config.clientId}`);
     console.log(`   Redirect URI: ${config.redirectUri}`);
 });
+

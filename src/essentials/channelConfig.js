@@ -1,23 +1,27 @@
 /**
  * Channel Configuration Manager
  * 
- * Handles loading and caching channel configurations from guild data directories.
- * This replaces the .env-based channel configuration with a per-guild directory structure.
+ * Handles loading and caching channel configurations from PostgreSQL database.
+ * Falls back to JSON files for backwards compatibility.
+ * 
+ * The database is the primary source (set via Dashboard), 
+ * JSON files are secondary (for guilds set up before database integration).
  */
 
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { logger } from '../ai/logger.js';
+import db from '../shared/database.js';
 
 // Get __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Path to guild data directory
+// Path to guild data directory (legacy fallback)
 const GUILD_DATA_PATH = path.join(__dirname, '../../data/guild');
 
-// Cache for guild channel configs (reduces file reads)
+// Cache for guild channel configs (reduces database/file reads)
 const channelConfigCache = new Map();
 const CACHE_TTL_MS = 60000; // 1 minute cache
 
@@ -37,7 +41,7 @@ const CHANNEL_TYPE_MAP = {
 };
 
 /**
- * Load channel configuration from a guild's channels.json file
+ * Load channel configuration from legacy JSON file
  * @param {string} guildId - Discord guild ID
  * @returns {Object|null} Channel configuration or null if not found
  */
@@ -46,22 +50,68 @@ function loadChannelConfigFromFile(guildId) {
         const channelsFile = path.join(GUILD_DATA_PATH, guildId, 'channels.json');
 
         if (!fs.existsSync(channelsFile)) {
-            logger.debug('CHANNEL_CONFIG', `No channels.json found for guild ${guildId}`);
             return null;
         }
 
         const data = JSON.parse(fs.readFileSync(channelsFile, 'utf8'));
+        logger.debug('CHANNEL_CONFIG', `Loaded config from file for guild ${guildId}`);
         return data;
     } catch (error) {
-        logger.error('CHANNEL_CONFIG', `Failed to load channel config for guild ${guildId}: ${error.message}`);
+        logger.error('CHANNEL_CONFIG', `Failed to load channel config from file for guild ${guildId}: ${error.message}`);
+        return null;
+    }
+}
+
+/**
+ * Load channel configuration from database
+ * @param {string} guildId - Discord guild ID
+ * @returns {Promise<Object|null>} Channel configuration or null if not found
+ */
+async function loadChannelConfigFromDatabase(guildId) {
+    try {
+        const config = await db.getChannelConfig(guildId);
+        if (config) {
+            logger.debug('CHANNEL_CONFIG', `Loaded config from database for guild ${guildId}`);
+        }
+        return config;
+    } catch (error) {
+        logger.error('CHANNEL_CONFIG', `Failed to load channel config from database for guild ${guildId}: ${error.message}`);
         return null;
     }
 }
 
 /**
  * Get channel configuration for a guild (with caching)
+ * Tries database first, falls back to JSON file
  * @param {string} guildId - Discord guild ID
- * @returns {Object|null} Channel configuration or null if not found
+ * @returns {Promise<Object|null>} Channel configuration or null if not found
+ */
+async function getChannelConfigAsync(guildId) {
+    const cached = channelConfigCache.get(guildId);
+
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
+        return cached.config;
+    }
+
+    // Try database first (primary source)
+    let config = await loadChannelConfigFromDatabase(guildId);
+
+    // Fall back to file if not in database
+    if (!config) {
+        config = loadChannelConfigFromFile(guildId);
+    }
+
+    channelConfigCache.set(guildId, {
+        config,
+        timestamp: Date.now()
+    });
+
+    return config;
+}
+
+/**
+ * Synchronous version for backwards compatibility
+ * Uses cached value or file fallback (can't await in sync context)
  */
 function getChannelConfig(guildId) {
     const cached = channelConfigCache.get(guildId);
@@ -70,12 +120,28 @@ function getChannelConfig(guildId) {
         return cached.config;
     }
 
+    // Sync fallback - only file-based
     const config = loadChannelConfigFromFile(guildId);
     channelConfigCache.set(guildId, {
         config,
         timestamp: Date.now()
     });
 
+    return config;
+}
+
+/**
+ * Refresh the cache from database for a guild
+ * Call this after database updates to ensure bot picks up changes
+ * @param {string} guildId - Discord guild ID
+ */
+export async function refreshChannelConfig(guildId) {
+    const config = await loadChannelConfigFromDatabase(guildId);
+    channelConfigCache.set(guildId, {
+        config,
+        timestamp: Date.now()
+    });
+    logger.info('CHANNEL_CONFIG', `Refreshed config for guild ${guildId}`);
     return config;
 }
 
@@ -112,6 +178,34 @@ export function getAllowedChannelIds(guildId) {
 }
 
 /**
+ * Async version of getAllowedChannelIds - checks database first
+ * @param {string} guildId - Discord guild ID
+ * @returns {Promise<string[]>} Array of channel IDs
+ */
+export async function getAllowedChannelIdsAsync(guildId) {
+    const config = await getChannelConfigAsync(guildId);
+
+    if (!config || !config.channels) {
+        return [];
+    }
+
+    const allowedIds = [];
+
+    for (const [channelName, channelData] of Object.entries(config.channels)) {
+        let channelType = channelData.type || CHANNEL_TYPE_MAP[channelName] || 'unknown';
+
+        if (ALLOWED_CHANNEL_TYPES.includes(channelType)) {
+            if (channelData.id) {
+                allowedIds.push(channelData.id);
+            }
+        }
+    }
+
+    logger.debug('CHANNEL_CONFIG', `Guild ${guildId}: Allowed channels (async): ${allowedIds.join(', ') || 'none'}`);
+    return allowedIds;
+}
+
+/**
  * Check if a channel is allowed for bot responses in a specific guild
  * @param {string} guildId - Discord guild ID
  * @param {string} channelId - Discord channel ID to check
@@ -122,6 +216,19 @@ export function isChannelAllowed(guildId, channelId) {
 
     // If no allowed channels are configured, default to not responding
     // (This means the guild hasn't been set up yet - bot will only respond to mentions)
+    if (allowedIds.length === 0) {
+        return false;
+    }
+
+    return allowedIds.includes(channelId);
+}
+
+/**
+ * Async version - checks database first
+ */
+export async function isChannelAllowedAsync(guildId, channelId) {
+    const allowedIds = await getAllowedChannelIdsAsync(guildId);
+
     if (allowedIds.length === 0) {
         return false;
     }
@@ -181,7 +288,7 @@ export function getPrivateChannelId(guildId) {
 }
 
 /**
- * Clear the cache for a specific guild (call this when channels.json is updated)
+ * Clear the cache for a specific guild (call this when config is updated)
  * @param {string} guildId - Discord guild ID
  */
 export function clearChannelCache(guildId) {
@@ -195,4 +302,18 @@ export function clearChannelCache(guildId) {
 export function clearAllChannelCache() {
     channelConfigCache.clear();
     logger.debug('CHANNEL_CONFIG', 'Cleared all channel cache');
+}
+
+/**
+ * Initialize - preload configs from database on startup
+ * This warms the cache so sync functions work immediately
+ */
+export async function initializeChannelConfigs(guildIds) {
+    logger.info('CHANNEL_CONFIG', `Initializing channel configs for ${guildIds.length} guilds...`);
+
+    for (const guildId of guildIds) {
+        await getChannelConfigAsync(guildId);
+    }
+
+    logger.info('CHANNEL_CONFIG', 'Channel config initialization complete');
 }

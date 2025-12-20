@@ -5,12 +5,13 @@
  * This module handles initial setup tasks like:
  * - Sending a welcome message to the server owner
  * - Creating default CheapShot channels
- * - Storing channel IDs in guild data
+ * - Storing channel IDs in database (primary) and guild data (fallback)
  * - Logging the join event
  */
 
 import { EmbedBuilder, ChannelType, PermissionFlagsBits, AuditLogEvent } from 'discord.js';
 import { logger } from '../ai/logger.js';
+import db from '../shared/database.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -19,7 +20,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Path to guild data directory
+// Path to guild data directory (legacy fallback)
 const GUILD_DATA_PATH = path.join(__dirname, '../../data/guild');
 
 // Channel names to check/create
@@ -49,11 +50,21 @@ function ensureGuildDirectory(guildId) {
 }
 
 /**
- * Save channel data to the guild's channels.json file
+ * Save channel data to both database and file (for redundancy)
+ * Database is primary (dashboard reads from it), file is fallback
  * @param {string} guildId - Guild ID
- * @param {Object} channels - Object with channel names as keys, each containing {id}
+ * @param {Object} channels - Object with channel names as keys, each containing {id, type}
  */
-function saveChannelData(guildId, channels) {
+async function saveChannelData(guildId, channels) {
+    // 1. Save to database (primary - dashboard reads this)
+    try {
+        await db.saveChannelConfig(guildId, channels);
+        logger.info('SERVER_SETUP', `Saved channel data to database for guild ${guildId}`);
+    } catch (dbError) {
+        logger.error('SERVER_SETUP', `Failed to save to database: ${dbError.message}`);
+    }
+
+    // 2. Also save to file (fallback for when database is unavailable)
     try {
         const guildDir = ensureGuildDirectory(guildId);
         const channelsFile = path.join(guildDir, 'channels.json');
@@ -64,8 +75,8 @@ function saveChannelData(guildId, channels) {
 
         fs.writeFileSync(channelsFile, JSON.stringify(data, null, 2));
         logger.info('SERVER_SETUP', `Saved channel data to ${channelsFile}`);
-    } catch (error) {
-        logger.error('SERVER_SETUP', `Failed to save channel data: ${error.message}`);
+    } catch (fileError) {
+        logger.error('SERVER_SETUP', `Failed to save channel data to file: ${fileError.message}`);
     }
 }
 
@@ -232,7 +243,7 @@ async function createCheapShotChannels(guild, bot) {
                 [CHANNEL_NAMES.private]: { id: existingPrivate.id, type: 'private' },
                 [CHANNEL_NAMES.moderation]: { id: existingModeration.id, type: 'moderation' }
             };
-            saveChannelData(guild.id, channelData);
+            await saveChannelData(guild.id, channelData);
 
             return {
                 public: existingPublic.id,
@@ -401,8 +412,8 @@ async function createCheapShotChannels(guild, bot) {
         }
         channelData[CHANNEL_NAMES.moderation] = { id: modChannelId, type: 'moderation' };
 
-        // Save all channel IDs to the guild data file
-        saveChannelData(guild.id, channelData);
+        // Save all channel IDs to database and file
+        await saveChannelData(guild.id, channelData);
 
         logger.info('SERVER_SETUP', `CheapShot channels created successfully in ${guild.name}`);
 

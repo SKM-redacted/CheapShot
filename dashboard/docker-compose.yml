@@ -9,8 +9,10 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      # All PostgreSQL data stored in this host directory
-      - /home/ubuntu/docker-stuff/postgres/data:/var/lib/postgresql/data
+      # PostgreSQL data - change this path for production deployments
+      # On Linux/production: /home/ubuntu/docker-stuff/postgres/data
+      # On Windows/local: ./data/postgres
+      - ./data/postgres:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     restart: unless-stopped
     healthcheck:
