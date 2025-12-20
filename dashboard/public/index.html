@@ -4,307 +4,326 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CheapShot - AI Discord Bot</title>
-    <meta name="description" content="An AI-powered Discord bot for server management">
+    <title>CheapShot</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link
-        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap"
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
         rel="stylesheet">
 
     <style>
-        *,
-        *::before,
-        *::after {
+        * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
 
-        :root {
-            --bg: #000;
-            --surface: #0a0a0a;
-            --border: #1a1a1a;
-            --text: #fff;
-            --text-dim: #666;
-            --accent: #ff2d2d;
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: #0a0a0a;
+            color: #fff;
+            min-height: 100vh;
         }
 
-        body {
-            font-family: 'Inter', -apple-system, sans-serif;
-            background: var(--bg);
-            color: var(--text);
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
             min-height: 100vh;
+        }
+
+        /* Left Panel - Visual */
+        .left {
+            background: linear-gradient(135deg, #0f0f0f 0%, #1a0a0a 100%);
             display: flex;
             flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 60px;
+            position: relative;
             overflow: hidden;
         }
 
-        /* Grid background */
-        .grid-bg {
-            position: fixed;
-            inset: 0;
-            background-image:
-                linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-            background-size: 60px 60px;
-            pointer-events: none;
-        }
-
-        /* Glow */
-        .glow {
-            position: fixed;
+        .left::before {
+            content: '';
+            position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 600px;
-            height: 600px;
-            background: radial-gradient(circle, rgba(255, 45, 45, 0.08) 0%, transparent 70%);
-            pointer-events: none;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(255, 45, 45, 0.15) 0%, transparent 70%);
+            animation: pulse 4s ease-in-out infinite;
         }
 
-        /* Header */
-        header {
-            padding: 24px 40px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            position: relative;
-            z-index: 10;
-        }
-
-        .logo {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            font-weight: 600;
-            font-size: 18px;
-            letter-spacing: -0.02em;
-        }
-
-        .logo-icon {
-            width: 32px;
-            height: 32px;
-            background: var(--accent);
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .logo-icon svg {
-            width: 18px;
-            height: 18px;
-            color: white;
-        }
-
-        .nav-btn {
-            padding: 10px 20px;
-            background: transparent;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: var(--text);
-            font-size: 14px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .nav-btn:hover {
-            background: var(--surface);
-            border-color: #333;
-        }
-
-        /* Main */
-        main {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 40px;
-            position: relative;
-            z-index: 10;
-        }
-
-        .terminal {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 13px;
-            color: var(--text-dim);
-            margin-bottom: 32px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .terminal-dot {
-            width: 8px;
-            height: 8px;
-            background: var(--accent);
-            border-radius: 50%;
-            animation: blink 2s ease-in-out infinite;
-        }
-
-        @keyframes blink {
+        @keyframes pulse {
 
             0%,
             100% {
+                transform: translate(-50%, -50%) scale(1);
                 opacity: 1;
             }
 
             50% {
-                opacity: 0.3;
+                transform: translate(-50%, -50%) scale(1.2);
+                opacity: 0.6;
             }
         }
 
-        h1 {
-            font-size: clamp(48px, 10vw, 80px);
-            font-weight: 700;
-            letter-spacing: -0.04em;
-            margin-bottom: 16px;
+        .brand {
+            position: relative;
+            z-index: 1;
             text-align: center;
         }
 
-        .tagline {
-            font-size: 18px;
-            color: var(--text-dim);
-            margin-bottom: 48px;
-            text-align: center;
-        }
-
-        .actions {
+        .brand-icon {
+            width: 120px;
+            height: 120px;
+            background: linear-gradient(135deg, #ff2d2d 0%, #cc0000 100%);
+            border-radius: 32px;
             display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 32px;
+            box-shadow: 0 20px 60px rgba(255, 45, 45, 0.4);
+        }
+
+        .brand-icon svg {
+            width: 60px;
+            height: 60px;
+            color: white;
+        }
+
+        .brand-name {
+            font-size: 48px;
+            font-weight: 700;
+            letter-spacing: -0.03em;
+            margin-bottom: 12px;
+        }
+
+        .brand-tag {
+            font-size: 16px;
+            color: #666;
+            font-weight: 400;
+        }
+
+        /* Features list */
+        .features {
+            margin-top: 60px;
+            display: flex;
+            flex-direction: column;
             gap: 16px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .feature {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 14px;
+            color: #888;
+        }
+
+        .feature-icon {
+            width: 24px;
+            height: 24px;
+            background: rgba(255, 45, 45, 0.1);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+
+        /* Right Panel - Actions */
+        .right {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 60px 80px;
+            background: #0a0a0a;
+        }
+
+        .right h2 {
+            font-size: 32px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            letter-spacing: -0.02em;
+        }
+
+        .right p {
+            color: #666;
+            font-size: 15px;
+            margin-bottom: 40px;
+            line-height: 1.6;
         }
 
         .btn {
-            padding: 14px 28px;
-            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            padding: 16px 24px;
+            border-radius: 12px;
             font-size: 15px;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.2s;
-            display: flex;
-            align-items: center;
-            gap: 10px;
             border: none;
-        }
-
-        .btn-primary {
-            background: var(--accent);
-            color: white;
-        }
-
-        .btn-primary:hover {
-            background: #e02626;
-            transform: translateY(-2px);
-        }
-
-        .btn-secondary {
-            background: var(--surface);
-            color: var(--text);
-            border: 1px solid var(--border);
-        }
-
-        .btn-secondary:hover {
-            border-color: #333;
-            background: #111;
+            width: 100%;
+            margin-bottom: 12px;
         }
 
         .btn svg {
-            width: 18px;
-            height: 18px;
+            width: 20px;
+            height: 20px;
         }
 
-        /* Footer */
-        footer {
-            padding: 24px 40px;
-            text-align: center;
+        .btn-discord {
+            background: #5865F2;
+            color: white;
+        }
+
+        .btn-discord:hover {
+            background: #4752c4;
+            transform: translateY(-2px);
+        }
+
+        .btn-dashboard {
+            background: #1a1a1a;
+            color: #fff;
+            border: 1px solid #2a2a2a;
+        }
+
+        .btn-dashboard:hover {
+            background: #222;
+            border-color: #333;
+        }
+
+        .divider {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin: 24px 0;
+            color: #444;
             font-size: 13px;
-            color: var(--text-dim);
-            position: relative;
-            z-index: 10;
+        }
+
+        .divider::before,
+        .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: #222;
+        }
+
+        .footer {
+            margin-top: 60px;
+            font-size: 12px;
+            color: #444;
         }
 
         /* Mobile */
-        @media (max-width: 600px) {
-
-            header,
-            footer {
-                padding: 20px;
+        @media (max-width: 900px) {
+            .container {
+                grid-template-columns: 1fr;
             }
 
-            main {
-                padding: 20px;
+            .left {
+                padding: 40px;
+                min-height: 50vh;
             }
 
-            .actions {
-                flex-direction: column;
-                width: 100%;
+            .brand-icon {
+                width: 80px;
+                height: 80px;
+                border-radius: 20px;
             }
 
-            .btn {
-                justify-content: center;
+            .brand-icon svg {
+                width: 40px;
+                height: 40px;
+            }
+
+            .brand-name {
+                font-size: 32px;
+            }
+
+            .features {
+                display: none;
+            }
+
+            .right {
+                padding: 40px;
             }
         }
     </style>
 </head>
 
 <body>
-    <div class="grid-bg"></div>
-    <div class="glow"></div>
-
-    <header>
-        <div class="logo">
-            <div class="logo-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-                </svg>
+    <div class="container">
+        <div class="left">
+            <div class="brand">
+                <div class="brand-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                    </svg>
+                </div>
+                <div class="brand-name">CheapShot</div>
+                <div class="brand-tag">AI Discord Bot</div>
             </div>
-            <span>CheapShot</span>
+
+            <div class="features">
+                <div class="feature">
+                    <span class="feature-icon">🤖</span>
+                    <span>Natural language commands</span>
+                </div>
+                <div class="feature">
+                    <span class="feature-icon">🛡️</span>
+                    <span>AI moderation</span>
+                </div>
+                <div class="feature">
+                    <span class="feature-icon">🎨</span>
+                    <span>Image generation</span>
+                </div>
+                <div class="feature">
+                    <span class="feature-icon">⚡</span>
+                    <span>Server management</span>
+                </div>
+            </div>
         </div>
-        <button class="nav-btn" id="login-btn">Sign In</button>
-    </header>
 
-    <main>
-        <div class="terminal">
-            <span class="terminal-dot"></span>
-            <span>AI-powered Discord bot</span>
-        </div>
+        <div class="right">
+            <h2>Get Started</h2>
+            <p>Add CheapShot to your Discord server or sign in to manage your existing setup.</p>
 
-        <h1>CheapShot</h1>
-        <p class="tagline">Manage your Discord server with natural language.</p>
-
-        <div class="actions">
-            <button class="btn btn-primary" id="add-btn">
+            <button class="btn btn-discord" id="add-btn">
                 <svg viewBox="0 0 24 24" fill="currentColor">
                     <path
                         d="M20.317 4.492c-1.53-.69-3.17-1.2-4.885-1.49a.075.075 0 0 0-.079.036c-.21.369-.444.85-.608 1.23a18.566 18.566 0 0 0-5.487 0 12.36 12.36 0 0 0-.617-1.23A.077.077 0 0 0 8.562 3c-1.714.29-3.354.8-4.885 1.491a.07.07 0 0 0-.032.027C.533 9.093-.32 13.555.099 17.961a.08.08 0 0 0 .031.055 20.03 20.03 0 0 0 5.993 2.98.078.078 0 0 0 .084-.026c.462-.62.874-1.275 1.226-1.963.021-.04.001-.088-.041-.104a13.201 13.201 0 0 1-1.872-.878.075.075 0 0 1-.008-.125c.126-.093.252-.19.372-.287a.075.075 0 0 1 .078-.01c3.927 1.764 8.18 1.764 12.061 0a.075.075 0 0 1 .079.009c.12.098.245.195.372.288a.075.075 0 0 1-.006.125c-.598.344-1.22.635-1.873.877a.075.075 0 0 0-.041.105c.36.687.772 1.341 1.225 1.962a.077.077 0 0 0 .084.028 19.963 19.963 0 0 0 6.002-2.981.076.076 0 0 0 .032-.054c.5-5.094-.838-9.52-3.549-13.442a.06.06 0 0 0-.031-.028zM8.02 15.278c-1.182 0-2.157-1.069-2.157-2.38 0-1.312.956-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.956 2.38-2.157 2.38zm7.975 0c-1.183 0-2.157-1.069-2.157-2.38 0-1.312.955-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.946 2.38-2.157 2.38z" />
                 </svg>
                 Add to Discord
             </button>
-            <button class="btn btn-secondary" id="dashboard-btn">
-                Dashboard →
-            </button>
-        </div>
-    </main>
 
-    <footer>
-        © 2025 skmredacted
-    </footer>
+            <div class="divider">or</div>
+
+            <button class="btn btn-dashboard" id="login-btn">
+                Sign in to Dashboard
+            </button>
+
+            <div class="footer">© 2025 skmredacted</div>
+        </div>
+    </div>
 
     <script>
         const CLIENT_ID = '1447587559604486417';
-        const REDIRECT_URI = encodeURIComponent(window.location.origin + '/callback');
-        const OAUTH_URL = `https://discord.com/oauth2/authorize?client_id=${CLIENT_ID}&response_type=code&redirect_uri=${REDIRECT_URI}&scope=${encodeURIComponent('identify guilds guilds.members.read')}`;
-        const BOT_URL = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&permissions=8&scope=bot%20applications.commands`;
+        const REDIRECT = encodeURIComponent(location.origin + '/callback');
+        const OAUTH = `https://discord.com/oauth2/authorize?client_id=${CLIENT_ID}&response_type=code&redirect_uri=${REDIRECT}&scope=${encodeURIComponent('identify guilds guilds.members.read')}`;
+        const BOT = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&permissions=8&scope=bot%20applications.commands`;
 
-        document.getElementById('login-btn').onclick = () => location.href = OAUTH_URL;
-        document.getElementById('dashboard-btn').onclick = () => location.href = OAUTH_URL;
-        document.getElementById('add-btn').onclick = () => window.open(BOT_URL, '_blank');
+        document.getElementById('add-btn').onclick = () => window.open(BOT, '_blank');
+        document.getElementById('login-btn').onclick = () => location.href = OAUTH;
 
-        // Check if logged in
         fetch('/api/auth/user', { credentials: 'include' })
             .then(r => r.ok && (location.href = '/dashboard.html'))
             .catch(() => { });
