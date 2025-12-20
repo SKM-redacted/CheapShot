@@ -8,15 +8,10 @@ import { state } from './state.js';
 import { panel } from './components/panel.js';
 import { toast } from './components/toast.js';
 
-// Module registry
+// Module registry - only active, working modules
 const modules = {
     ai: { title: 'AI Chat', icon: '🤖', description: 'Configure AI responses and channels' },
     moderation: { title: 'Moderation', icon: '🛡️', description: 'Auto-mod, warnings, and logging' },
-    commands: { title: 'Custom Commands', icon: '📋', description: 'Create custom bot commands' },
-    welcome: { title: 'Welcome', icon: '👋', description: 'Welcome messages and auto-roles' },
-    leveling: { title: 'Leveling', icon: '📈', description: 'XP system and level roles' },
-    economy: { title: 'Economy', icon: '💰', description: 'Currency and shop system' },
-    logging: { title: 'Logging', icon: '📝', description: 'Message and event logs' },
     settings: { title: 'Settings', icon: '⚙️', description: 'General bot settings' }
 };
 
@@ -39,10 +34,12 @@ class App {
             // Load initial data
             state.setLoading('global', true);
 
-            const [user, guilds] = await Promise.all([
+            const [user, guildsData] = await Promise.all([
                 api.getUser(),
                 api.getGuilds()
             ]);
+
+            const guilds = guildsData.guilds || guildsData || [];
 
             state.set({
                 user,
@@ -102,6 +99,12 @@ class App {
             logoutBtn.addEventListener('click', () => api.logout());
         }
 
+        // Sync button
+        const syncBtn = document.getElementById('sync-btn');
+        if (syncBtn) {
+            syncBtn.addEventListener('click', () => this.syncChannels());
+        }
+
         // Mobile menu toggle
         const menuToggle = document.getElementById('menu-toggle');
         const sidebar = document.querySelector('.sidebar');
@@ -120,9 +123,47 @@ class App {
 
                 if (view === 'overview') {
                     this.renderModuleGrid();
+                } else {
+                    // Open the module panel
+                    this.openModulePanel(view);
                 }
             });
         });
+    }
+
+    /**
+     * Sync channels for current guild
+     */
+    async syncChannels() {
+        const guild = state.getKey('selectedGuild');
+        if (!guild) {
+            toast.warning('Please select a server first');
+            return;
+        }
+
+        const syncBtn = document.getElementById('sync-btn');
+        if (syncBtn) {
+            syncBtn.disabled = true;
+            syncBtn.textContent = '🔄 Syncing...';
+        }
+
+        try {
+            const result = await api.syncChannels(guild.id);
+            if (result.setupComplete) {
+                toast.success(result.message);
+            } else {
+                toast.info(result.message);
+            }
+            // Reload guild data
+            await this.loadGuildData(guild.id);
+        } catch (error) {
+            toast.error('Failed to sync channels');
+        } finally {
+            if (syncBtn) {
+                syncBtn.disabled = false;
+                syncBtn.textContent = '🔄 Sync Channels';
+            }
+        }
     }
 
     /**
@@ -144,7 +185,7 @@ class App {
         }
 
         if (userName) {
-            userName.textContent = user.globalName || user.username;
+            userName.textContent = user.global_name || user.username;
         }
     }
 
@@ -162,7 +203,7 @@ class App {
         const dropdown = document.getElementById('server-dropdown');
         if (!dropdown) return;
 
-        if (guilds.length === 0) {
+        if (!guilds || guilds.length === 0) {
             dropdown.innerHTML = `
                 <div class="p-md text-muted text-center">
                     No servers found
@@ -252,13 +293,6 @@ class App {
         state.setLoading('guildData', true);
 
         try {
-            // Check if we need to fetch fresh data
-            const cached = state.getKey('guildData')[guildId];
-            if (cached && Date.now() - cached.timestamp < 60000) {
-                state.setLoading('guildData', false);
-                return cached;
-            }
-
             // Get guild status
             let guildStatus;
             try {
@@ -267,13 +301,25 @@ class App {
                 guildStatus = { botPresent: false };
             }
 
+            // Get settings to check which modules are enabled
+            let settings = {};
+            try {
+                settings = await api.getSettings(guildId);
+            } catch (e) {
+                console.warn('Could not load settings:', e);
+            }
+
             // Store in cache
             const guildData = state.getKey('guildData');
             guildData[guildId] = {
                 ...guildStatus,
+                settings,
                 timestamp: Date.now()
             };
             state.set({ guildData });
+
+            // Update stats
+            this.updateStats(guildStatus, settings);
 
             // Update UI based on status
             this.renderModuleGrid();
@@ -287,6 +333,22 @@ class App {
     }
 
     /**
+     * Update stats display
+     */
+    updateStats(guildStatus, settings) {
+        // Count active modules
+        const modules = settings?.modules || {};
+        const activeCount = Object.values(modules).filter(m => m?.enabled).length;
+
+        document.getElementById('stat-modules').textContent = activeCount;
+        document.getElementById('stat-channels').textContent = guildStatus.channelCount || 0;
+
+        // Members and roles require additional API calls - show dash if not available
+        document.getElementById('stat-members').textContent = '-';
+        document.getElementById('stat-roles').textContent = '-';
+    }
+
+    /**
      * Render the module grid on the overview page
      */
     renderModuleGrid() {
@@ -294,6 +356,10 @@ class App {
         if (!container) return;
 
         const guild = state.getKey('selectedGuild');
+        const guildData = state.getKey('guildData');
+        const currentData = guildData[guild?.id] || {};
+        const settings = currentData.settings || {};
+        const moduleSettings = settings.modules || {};
 
         if (!guild) {
             container.innerHTML = `
@@ -322,27 +388,31 @@ class App {
         }
 
         // Render module cards
-        container.innerHTML = Object.entries(modules).map(([key, module]) => `
-            <div class="module-card" data-module="${key}">
-                <div class="module-header">
-                    <div class="module-icon">${module.icon}</div>
-                    <label class="toggle">
-                        <input type="checkbox" class="toggle-input" data-module-toggle="${key}">
-                        <span class="toggle-track">
-                            <span class="toggle-thumb"></span>
-                        </span>
-                    </label>
+        container.innerHTML = Object.entries(modules).map(([key, module]) => {
+            const isEnabled = moduleSettings[key]?.enabled || false;
+            return `
+                <div class="module-card ${isEnabled ? 'active' : ''}" data-module="${key}">
+                    <div class="module-header">
+                        <div class="module-icon">${module.icon}</div>
+                        <label class="toggle" onclick="event.stopPropagation()">
+                            <input type="checkbox" class="toggle-input" data-module-toggle="${key}"
+                                   ${isEnabled ? 'checked' : ''}>
+                            <span class="toggle-track">
+                                <span class="toggle-thumb"></span>
+                            </span>
+                        </label>
+                    </div>
+                    <h3 class="module-title">${module.title}</h3>
+                    <p class="module-desc">${module.description}</p>
+                    <div class="module-status">
+                        <span class="module-status-dot ${isEnabled ? 'active' : ''}"></span>
+                        <span>${isEnabled ? 'Enabled' : 'Disabled'} · Click to configure</span>
+                    </div>
                 </div>
-                <h3 class="module-title">${module.title}</h3>
-                <p class="module-desc">${module.description}</p>
-                <div class="module-status">
-                    <span class="module-status-dot"></span>
-                    <span>Click to configure</span>
-                </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
 
-        // Add click handlers
+        // Add click handlers for cards
         container.querySelectorAll('.module-card').forEach(card => {
             card.addEventListener('click', (e) => {
                 // Don't open panel if clicking the toggle
@@ -377,7 +447,7 @@ class App {
             title: module.title,
             icon: module.icon,
             guildId: guild.id,
-            wide: ['commands', 'moderation'].includes(moduleName)
+            wide: ['moderation'].includes(moduleName)
         });
     }
 
@@ -389,16 +459,39 @@ class App {
         if (!guild) return;
 
         try {
-            await api.updateModuleConfig(guild.id, moduleName, { enabled });
+            // Get current settings
+            const settings = await api.getSettings(guild.id);
+            const moduleSettings = settings?.modules || {};
+
+            // Update the specific module
+            moduleSettings[moduleName] = {
+                ...(moduleSettings[moduleName] || {}),
+                enabled
+            };
+
+            // Save back
+            await api.updateSettings(guild.id, { modules: moduleSettings });
+
             toast.success(`${modules[moduleName].title} ${enabled ? 'enabled' : 'disabled'}`);
+
+            // Update local state
+            const guildData = state.getKey('guildData');
+            if (guildData[guild.id]) {
+                guildData[guild.id].settings = {
+                    ...guildData[guild.id].settings,
+                    modules: moduleSettings
+                };
+                state.set({ guildData });
+            }
 
             // Update visual state
             const card = document.querySelector(`[data-module="${moduleName}"]`);
             if (card) {
+                card.classList.toggle('active', enabled);
                 const statusDot = card.querySelector('.module-status-dot');
-                if (statusDot) {
-                    statusDot.classList.toggle('active', enabled);
-                }
+                const statusText = card.querySelector('.module-status span:last-child');
+                if (statusDot) statusDot.classList.toggle('active', enabled);
+                if (statusText) statusText.textContent = `${enabled ? 'Enabled' : 'Disabled'} · Click to configure`;
             }
         } catch (error) {
             console.error(`Failed to toggle ${moduleName}:`, error);

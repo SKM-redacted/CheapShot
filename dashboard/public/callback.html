@@ -5,23 +5,171 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Authenticating... - CheapShot</title>
-    <link rel="stylesheet" href="/css/style.css">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="/css/base.css">
+
+    <style>
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background:
+                radial-gradient(ellipse at 50% 50%, rgba(255, 45, 45, 0.1) 0%, transparent 50%);
+            animation: pulse-bg 4s ease-in-out infinite;
+            pointer-events: none;
+        }
+
+        @keyframes pulse-bg {
+
+            0%,
+            100% {
+                opacity: 0.5;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 1;
+                transform: scale(1.1);
+            }
+        }
+
+        .callback-container {
+            text-align: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        .callback-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-xl);
+            padding: var(--space-3xl);
+            min-width: 320px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+        }
+
+        .callback-spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid var(--graphite);
+            border-top-color: var(--ember);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto var(--space-xl);
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .callback-icon {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto var(--space-xl);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+        }
+
+        .callback-icon.success {
+            background: rgba(46, 204, 113, 0.2);
+            color: #2ecc71;
+        }
+
+        .callback-icon.error {
+            background: var(--blush);
+            color: var(--ember);
+        }
+
+        .callback-title {
+            font-size: var(--text-xl);
+            font-weight: 600;
+            color: var(--white);
+            margin-bottom: var(--space-sm);
+        }
+
+        .callback-detail {
+            font-size: var(--text-sm);
+            color: var(--mist);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
 </head>
 
-<body class="callback-page">
+<body>
     <div class="callback-container">
         <div class="callback-card">
-            <div class="spinner"></div>
-            <h2 id="status-text">Authenticating...</h2>
-            <p id="status-detail">Please wait while we complete the login process</p>
+            <!-- Loading State -->
+            <div id="loading-state">
+                <div class="callback-spinner"></div>
+                <h2 class="callback-title">Authenticating...</h2>
+                <p class="callback-detail">Please wait while we complete the login process</p>
+            </div>
+
+            <!-- Success State -->
+            <div id="success-state" class="hidden">
+                <div class="callback-icon success">✓</div>
+                <h2 class="callback-title" id="success-title">Welcome!</h2>
+                <p class="callback-detail">Redirecting to dashboard...</p>
+            </div>
+
+            <!-- Error State -->
+            <div id="error-state" class="hidden">
+                <div class="callback-icon error">✕</div>
+                <h2 class="callback-title" id="error-title">Authentication Failed</h2>
+                <p class="callback-detail" id="error-detail">Something went wrong</p>
+            </div>
         </div>
     </div>
 
     <script>
         async function handleCallback() {
-            const statusText = document.getElementById('status-text');
-            const statusDetail = document.getElementById('status-detail');
+            const loadingState = document.getElementById('loading-state');
+            const successState = document.getElementById('success-state');
+            const errorState = document.getElementById('error-state');
+            const successTitle = document.getElementById('success-title');
+            const errorTitle = document.getElementById('error-title');
+            const errorDetail = document.getElementById('error-detail');
+
+            function showSuccess(message) {
+                loadingState.classList.add('hidden');
+                errorState.classList.add('hidden');
+                successState.classList.remove('hidden');
+                successTitle.textContent = message;
+            }
+
+            function showError(title, detail) {
+                loadingState.classList.add('hidden');
+                successState.classList.add('hidden');
+                errorState.classList.remove('hidden');
+                errorTitle.textContent = title;
+                errorDetail.textContent = detail;
+            }
 
             // Get the authorization code from URL
             const params = new URLSearchParams(window.location.search);
@@ -29,17 +177,18 @@
             const error = params.get('error');
 
             if (error) {
-                statusText.textContent = 'Authorization Failed';
-                statusDetail.textContent = error === 'access_denied'
-                    ? 'You cancelled the authorization'
-                    : `Error: ${error}`;
+                showError(
+                    'Authorization Failed',
+                    error === 'access_denied'
+                        ? 'You cancelled the authorization'
+                        : `Error: ${error}`
+                );
                 setTimeout(() => window.location.href = '/', 3000);
                 return;
             }
 
             if (!code) {
-                statusText.textContent = 'Invalid Request';
-                statusDetail.textContent = 'No authorization code received';
+                showError('Invalid Request', 'No authorization code received');
                 setTimeout(() => window.location.href = '/', 3000);
                 return;
             }
@@ -54,23 +203,22 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error('Authentication failed');
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || 'Authentication failed');
                 }
 
                 const data = await response.json();
 
-                statusText.textContent = `Welcome, ${data.user.globalName || data.user.username}!`;
-                statusDetail.textContent = 'Redirecting to dashboard...';
+                showSuccess(`Welcome, ${data.user.globalName || data.user.username}!`);
 
                 setTimeout(() => {
                     window.location.href = '/dashboard.html';
-                }, 1000);
+                }, 1500);
 
             } catch (err) {
                 console.error('Callback error:', err);
-                statusText.textContent = 'Login Failed';
-                statusDetail.textContent = 'Something went wrong. Please try again.';
-                setTimeout(() => window.location.href = '/', 3000);
+                showError('Login Failed', err.message || 'Something went wrong. Please try again.');
+                setTimeout(() => window.location.href = '/', 4000);
             }
         }
 

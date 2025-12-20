@@ -10,6 +10,7 @@ import { sendModerationRequest } from './aiClient.js';
 import { parseResponse } from './responseParser.js';
 import { executeActions } from './actionExecutor.js';
 import { getModerationChannelId } from '../channelConfig.js';
+import db from '../../shared/database.js';
 
 /**
  * Build message context for AI
@@ -32,6 +33,20 @@ export async function analyzeMessage(message) {
     if (message.author.bot) return null;
     if (!message.content?.trim()) return null;
     if (!message.guild) return null;
+
+    // Check if moderation is enabled for this guild
+    try {
+        const settings = await db.getGuildSettings(message.guild.id);
+        const moderationEnabled = settings?.modules?.moderation?.enabled;
+
+        // If moderation module exists and is explicitly disabled, skip
+        if (settings?.modules?.moderation && moderationEnabled === false) {
+            return null;
+        }
+    } catch (e) {
+        // If we can't check settings, continue with moderation (fail open for safety)
+        logger.warn('MODERATION', `Could not check settings for ${message.guild.id}: ${e.message}`);
+    }
 
     // Skip moderation channel - don't moderate the mod log!
     const modChannelId = await getModerationChannelId(message.guild.id);
