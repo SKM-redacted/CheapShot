@@ -142,6 +142,8 @@ async function fetchUserGuilds(accessToken) {
     });
 
     if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`Discord guilds API error: ${response.status} - ${errorText}`);
         throw new Error('Failed to fetch guilds');
     }
 
