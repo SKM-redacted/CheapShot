@@ -627,6 +627,61 @@ button {
     padding: 2rem;
 }
 
+/* Status Banners */
+.status-banner {
+    padding: 1rem;
+    border-radius: var(--radius-sm);
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+}
+
+.status-banner.success {
+    background: rgba(59, 165, 93, 0.15);
+    border: 1px solid var(--success);
+    color: var(--success);
+}
+
+.status-banner.warning {
+    background: rgba(250, 166, 26, 0.15);
+    border: 1px solid var(--warning);
+    color: var(--warning);
+}
+
+.status-banner.error {
+    background: rgba(237, 66, 69, 0.15);
+    border: 1px solid var(--danger);
+    color: var(--danger);
+}
+
+/* Buttons */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.15s ease;
+    cursor: pointer;
+    border: none;
+}
+
+.btn-primary {
+    background: var(--accent-primary);
+    color: white;
+}
+
+.btn-primary:hover {
+    background: var(--accent-hover);
+}
+
+.btn-primary:disabled {
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    cursor: not-allowed;
+}
+
 /* Utilities */
 .hidden {
     display: none !important;

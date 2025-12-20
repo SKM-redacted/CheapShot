@@ -61,6 +61,21 @@ async function fetchRoles(guildId) {
     return data.roles;
 }
 
+async function syncChannels(guildId) {
+    const data = await apiCall(`/guilds/${guildId}/sync`, { method: 'POST' });
+    return data;
+}
+
+async function fetchBotChannelConfig(guildId) {
+    const data = await apiCall(`/guilds/${guildId}/channels/config`);
+    return data.channels || {};
+}
+
+async function fetchGuildStatus(guildId) {
+    const data = await apiCall(`/guilds/${guildId}/status`);
+    return data;
+}
+
 async function logout() {
     await apiCall('/auth/logout', { method: 'POST' });
     window.location.href = '/';
@@ -141,15 +156,32 @@ async function selectGuild(guildId) {
     document.getElementById('page-subtitle').textContent = 'Loading server details...';
 
     try {
-        // Fetch all data in parallel
-        const [details, channels, roles] = await Promise.all([
+        // First check if bot is in this guild
+        let guildStatus;
+        try {
+            guildStatus = await fetchGuildStatus(guildId);
+        } catch (e) {
+            // Status check failed, bot probably not in server
+            guildStatus = { botPresent: false };
+        }
+
+        // If bot not in server, show invite prompt
+        if (!guildStatus.botPresent) {
+            showBotNotInServer(guild);
+            return;
+        }
+
+        // Bot is in server, fetch all data
+        const [details, channels, roles, botChannels] = await Promise.all([
             fetchGuildDetails(guildId),
             fetchChannels(guildId),
-            fetchRoles(guildId)
+            fetchRoles(guildId),
+            fetchBotChannelConfig(guildId)
         ]);
 
         state.channels = channels;
         state.roles = roles;
+        state.botChannels = botChannels;
 
         // Update stats
         document.getElementById('member-count').textContent = details.memberCount?.toLocaleString() || '-';
@@ -159,14 +191,98 @@ async function selectGuild(guildId) {
 
         document.getElementById('page-subtitle').textContent = details.description || 'Manage your server settings';
 
+        // Update bot channels status
+        updateBotChannelsStatus(botChannels);
+
         // Render lists
         renderChannels();
         renderRoles();
+
+        // Init sync button
+        initSyncButton();
 
     } catch (err) {
         console.error('Failed to load guild:', err);
         document.getElementById('page-subtitle').textContent = 'Failed to load server details';
     }
+}
+
+function showBotNotInServer(guild) {
+    const clientId = '1447587559604486417'; // Your bot's client ID
+    const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=8&scope=bot%20applications.commands&guild_id=${guild.id}`;
+
+    document.getElementById('page-subtitle').textContent = 'Bot not installed';
+
+    // Hide normal content
+    document.getElementById('server-overview').classList.add('hidden');
+    document.getElementById('welcome-state').classList.remove('hidden');
+
+    // Show invite message
+    document.querySelector('.welcome-card').innerHTML = `
+        <div class="welcome-icon">🤖</div>
+        <h2>Add CheapShot to ${guild.name}</h2>
+        <p>CheapShot bot is not installed in this server yet.</p>
+        <p>Click the button below to add it!</p>
+        <a href="${inviteUrl}" target="_blank" class="discord-login-btn" style="margin-top: 1.5rem;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19.27 5.33C17.94 4.71 16.5 4.26 15 4a.09.09 0 0 0-.07.03c-.18.33-.39.76-.53 1.09a16.09 16.09 0 0 0-4.8 0c-.14-.34-.35-.76-.54-1.09c-.01-.02-.04-.03-.07-.03c-1.5.26-2.93.71-4.27 1.33c-.01 0-.02.01-.03.02c-2.72 4.07-3.47 8.03-3.1 11.95c0 .02.01.04.03.05c1.8 1.32 3.53 2.12 5.24 2.65c.03.01.06 0 .07-.02c.4-.55.76-1.13 1.07-1.74c.02-.04 0-.08-.04-.09c-.57-.22-1.11-.48-1.64-.78c-.04-.02-.04-.08-.01-.11c.11-.08.22-.17.33-.25c.02-.02.05-.02.07-.01c3.44 1.57 7.15 1.57 10.55 0c.02-.01.05-.01.07.01c.11.09.22.17.33.26c.04.03.04.09-.01.11c-.52.31-1.07.56-1.64.78c-.04.01-.05.06-.04.09c.32.61.68 1.19 1.07 1.74c.03.01.06.02.09.01c1.72-.53 3.45-1.33 5.25-2.65c.02-.01.03-.03.03-.05c.44-4.53-.73-8.46-3.1-11.95c-.01-.01-.02-.02-.04-.02zM8.52 14.91c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12c0 1.17-.84 2.12-1.89 2.12zm6.97 0c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12c0 1.17-.83 2.12-1.89 2.12z"/>
+            </svg>
+            Add CheapShot Bot
+        </a>
+        <p class="hint" style="margin-top: 1rem;">After adding the bot, refresh this page.</p>
+    `;
+}
+
+function updateBotChannelsStatus(botChannels) {
+    const statusBanner = document.getElementById('bot-channels-status');
+    const channelNames = Object.keys(botChannels);
+
+    if (channelNames.length > 0) {
+        statusBanner.className = 'status-banner success';
+        statusBanner.innerHTML = `
+            <strong>✅ Bot Active</strong> - Responding in: ${channelNames.map(n => `#${n}`).join(', ')}
+        `;
+    } else {
+        statusBanner.className = 'status-banner warning';
+        statusBanner.innerHTML = `
+            <strong>⚠️ No Channels Configured</strong> - Click "Sync Channels" to enable bot responses in CheapShot channels
+        `;
+    }
+    statusBanner.classList.remove('hidden');
+}
+
+function initSyncButton() {
+    const syncBtn = document.getElementById('sync-channels-btn');
+    if (!syncBtn || !state.selectedGuild) return;
+
+    // Remove old handler
+    const newBtn = syncBtn.cloneNode(true);
+    syncBtn.parentNode.replaceChild(newBtn, syncBtn);
+
+    newBtn.addEventListener('click', async () => {
+        newBtn.disabled = true;
+        newBtn.textContent = '⏳ Syncing...';
+
+        try {
+            const result = await syncChannels(state.selectedGuild.id);
+
+            if (result.setupComplete) {
+                alert(`✅ Success! Found ${result.channelsFound?.length || 0} CheapShot channel(s). The bot will now respond in these channels.`);
+                // Refresh bot channel config
+                const botChannels = await fetchBotChannelConfig(state.selectedGuild.id);
+                state.botChannels = botChannels;
+                updateBotChannelsStatus(botChannels);
+            } else {
+                alert(`⚠️ ${result.message}\n\n${result.hint || ''}`);
+            }
+        } catch (err) {
+            console.error('Sync failed:', err);
+            alert('❌ Failed to sync channels. Check console for details.');
+        } finally {
+            newBtn.disabled = false;
+            newBtn.textContent = '🔄 Sync Channels';
+        }
+    });
 }
 
 function renderChannels() {
