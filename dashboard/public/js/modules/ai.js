@@ -319,6 +319,30 @@ export function init(container, options = {}) {
                 // Also sync channel config
                 await api.updateChannelConfig(guildId, channels);
 
+                // Update local state so main UI reflects the change
+                const guildData = state.getKey('guildData');
+                if (guildData[guildId]) {
+                    if (!guildData[guildId].settings) {
+                        guildData[guildId].settings = {};
+                    }
+                    if (!guildData[guildId].settings.modules) {
+                        guildData[guildId].settings.modules = {};
+                    }
+                    guildData[guildId].settings.modules.ai = {
+                        enabled,
+                        channels,
+                        mentionRespond,
+                        typingIndicator
+                    };
+                    state.set({ guildData });
+                }
+
+                // Update the main dashboard UI (module cards and stats)
+                if (window.app) {
+                    window.app.renderModuleGrid();
+                    window.app.updateStats(guildId);
+                }
+
                 toast.success('AI configuration saved!');
             } catch (error) {
                 console.error('Failed to save AI config:', error);

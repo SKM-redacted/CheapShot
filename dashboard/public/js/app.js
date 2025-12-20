@@ -325,12 +325,22 @@ class App {
                 console.warn('Could not load roles:', e);
             }
 
+            // Get channels for this guild (for channel count)
+            let channels = [];
+            try {
+                channels = await api.getChannels(guildId);
+            } catch (e) {
+                console.warn('Could not load channels:', e);
+            }
+
             // Store in cache
             const guildData = state.getKey('guildData');
             guildData[guildId] = {
                 ...guildStatus,
                 ...guildInfo,
                 roles,
+                channels,
+                channelCount: channels.length,
                 settings,
                 timestamp: Date.now()
             };

@@ -207,6 +207,28 @@ export function init(container, options = {}) {
                 };
 
                 await api.updateModuleConfig(guildId, 'moderation', config);
+
+                // Update local state so main UI reflects the change
+                // Import state dynamically to avoid circular deps
+                const { state } = await import('../state.js');
+                const guildData = state.getKey('guildData');
+                if (guildData[guildId]) {
+                    if (!guildData[guildId].settings) {
+                        guildData[guildId].settings = {};
+                    }
+                    if (!guildData[guildId].settings.modules) {
+                        guildData[guildId].settings.modules = {};
+                    }
+                    guildData[guildId].settings.modules.moderation = config;
+                    state.set({ guildData });
+                }
+
+                // Update the main dashboard UI (module cards and stats)
+                if (window.app) {
+                    window.app.renderModuleGrid();
+                    window.app.updateStats(guildId);
+                }
+
                 toast.success('Moderation settings saved!');
             } catch (error) {
                 console.error('Failed to save moderation config:', error);

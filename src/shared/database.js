@@ -92,8 +92,19 @@ export async function getGuildSettings(guildId) {
             [guildId]
         );
         if (result.rows[0]?.settings) {
-            // Merge with defaults to ensure new settings fields are available
-            return { ...DEFAULT_GUILD_SETTINGS, ...result.rows[0].settings };
+            const saved = result.rows[0].settings;
+            // Deep merge modules to preserve defaults for each module
+            const mergedModules = {
+                ...DEFAULT_GUILD_SETTINGS.modules,
+                ...saved.modules,
+                ai: { ...DEFAULT_GUILD_SETTINGS.modules.ai, ...(saved.modules?.ai || {}) },
+                moderation: { ...DEFAULT_GUILD_SETTINGS.modules.moderation, ...(saved.modules?.moderation || {}) }
+            };
+            return {
+                ...DEFAULT_GUILD_SETTINGS,
+                ...saved,
+                modules: mergedModules
+            };
         }
         // Return defaults for new guilds
         return { ...DEFAULT_GUILD_SETTINGS };

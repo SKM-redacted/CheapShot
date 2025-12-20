@@ -470,12 +470,15 @@ async function handleMessage(message, bot) {
         // Check if AI module is enabled for this guild
         try {
             const settings = await db.getGuildSettings(guildId);
-            const aiEnabled = settings?.modules?.ai?.enabled;
+            // Only skip if enabled is explicitly set to false
+            // Default behavior (no settings, undefined, or true) = respond
+            const aiModuleEnabled = settings?.modules?.ai?.enabled;
 
-            // If AI module exists and is explicitly disabled, skip
-            if (settings?.modules?.ai && aiEnabled === false) {
-                return; // AI chat is disabled for this guild
+            if (aiModuleEnabled === false) {
+                logger.debug('AI', `AI module disabled for guild ${guildId}, skipping`);
+                return; // AI chat is explicitly disabled for this guild
             }
+            // If enabled is true, undefined, or settings don't exist, continue
         } catch (e) {
             // If we can't check settings, continue (fail open)
             logger.warn('AI', `Could not check AI settings for ${guildId}: ${e.message}`);
