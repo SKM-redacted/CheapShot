@@ -2,24 +2,19 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: cheapshot-postgres
-    # Load .env from project root (one directory up)
+    # Load .env from project root - this sets all PostgreSQL env vars
     env_file:
       - ../.env
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-cheapshot}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cheapshot_secure_password}
-      POSTGRES_DB: ${POSTGRES_DB:-cheapshot_dashboard}
+    # No environment section needed - env_file provides POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
     ports:
       - "5432:5432"
     volumes:
       # PostgreSQL data - change this path for production deployments
-      # On Linux/production: /home/ubuntu/docker-stuff/postgres/data
-      # On Windows/local: ./data/postgres
-      - ./data/postgres:/var/lib/postgresql/data
+      - /home/ubuntu/docker-stuff/postgres/data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     restart: unless-stopped
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cheapshot} -d ${POSTGRES_DB:-cheapshot_dashboard}" ]
+      test: [ "CMD-SHELL", "pg_isready -U cheapshot -d cheapshot_dashboard" ]
       interval: 10s
       timeout: 5s
       retries: 5
