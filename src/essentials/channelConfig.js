@@ -61,9 +61,9 @@ async function getChannelConfigAsync(guildId) {
     // Load from database
     const config = await loadChannelConfigFromDatabase(guildId);
 
-    // If database returned null, log error for visibility
+    // If database returned null, that's fine - bot will auto-detect "cheapshot" channels
     if (!config) {
-        logger.warn('CHANNEL_CONFIG', `No channel config found for guild ${guildId} - use the Dashboard to sync channels`);
+        logger.debug('CHANNEL_CONFIG', `No channel config in database for guild ${guildId} - will auto-detect 'cheapshot' channels`);
     }
 
     channelConfigCache.set(guildId, {

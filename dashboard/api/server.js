@@ -747,6 +747,89 @@ app.get('/api/guilds/:guildId/members', requireGuildAuth(), async (req, res) => 
 });
 
 // =============================================================
+// Guild Settings & Channel Config
+// =============================================================
+
+// Get guild settings
+app.get('/api/guilds/:guildId/settings', requireGuildAuth(), async (req, res) => {
+    const { guildId } = req.params;
+
+    try {
+        const settings = await db.getGuildSettings(guildId);
+        res.json({ settings: settings || {} });
+    } catch (error) {
+        console.error('Get settings error:', error);
+        res.status(500).json({ error: 'Failed to get settings' });
+    }
+});
+
+// Update guild settings
+app.put('/api/guilds/:guildId/settings', requireGuildAuth(), async (req, res) => {
+    const { guildId } = req.params;
+    const { settings } = req.body;
+
+    if (!settings || typeof settings !== 'object') {
+        return res.status(400).json({ error: 'Invalid settings object' });
+    }
+
+    try {
+        // Merge with existing settings
+        await db.updateGuildSettings(guildId, settings);
+
+        // Log the action
+        await db.addAuditLog(guildId, req.session.user.id, 'update_settings', {
+            updatedKeys: Object.keys(settings)
+        });
+
+        console.log(`[Settings] Updated settings for guild ${guildId}:`, Object.keys(settings));
+
+        res.json({ success: true, message: 'Settings updated' });
+    } catch (error) {
+        console.error('Update settings error:', error);
+        res.status(500).json({ error: 'Failed to update settings' });
+    }
+});
+
+// Get channel config specifically
+app.get('/api/guilds/:guildId/channels/config', requireGuildAuth(), async (req, res) => {
+    const { guildId } = req.params;
+
+    try {
+        const config = await db.getChannelConfig(guildId);
+        res.json({ channels: config?.channels || {} });
+    } catch (error) {
+        console.error('Get channel config error:', error);
+        res.status(500).json({ error: 'Failed to get channel config' });
+    }
+});
+
+// Update channel config
+app.put('/api/guilds/:guildId/channels/config', requireGuildAuth(), async (req, res) => {
+    const { guildId } = req.params;
+    const { channels } = req.body;
+
+    if (!channels || typeof channels !== 'object') {
+        return res.status(400).json({ error: 'Invalid channels object' });
+    }
+
+    try {
+        await db.saveChannelConfig(guildId, channels);
+
+        // Log the action
+        await db.addAuditLog(guildId, req.session.user.id, 'update_channel_config', {
+            channelNames: Object.keys(channels)
+        });
+
+        console.log(`[Channels] Updated channel config for guild ${guildId}:`, Object.keys(channels));
+
+        res.json({ success: true, message: 'Channel config updated', channels });
+    } catch (error) {
+        console.error('Update channel config error:', error);
+        res.status(500).json({ error: 'Failed to update channel config' });
+    }
+});
+
+// =============================================================
 // Auto-Setup & Sync
 // =============================================================
 
