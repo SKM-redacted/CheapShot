@@ -5,11 +5,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CheapShot - AI Discord Bot</title>
-    <meta name="description" content="AI-powered Discord bot for server management">
+    <meta name="description" content="The AI Discord bot that makes commands obsolete">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet">
 
     <style>
         * {
@@ -19,21 +21,21 @@
         }
 
         body {
-            font-family: 'Inter', -apple-system, sans-serif;
-            background: #000;
+            font-family: 'Inter', sans-serif;
+            background: #020408;
             color: #fff;
             min-height: 100vh;
             overflow-x: hidden;
         }
 
-        /* Particles container */
-        #tsparticles {
+        /* Canvas background */
+        #circuit-bg {
             position: fixed;
             inset: 0;
             z-index: 1;
         }
 
-        /* Content overlay */
+        /* Content */
         .content {
             position: relative;
             z-index: 10;
@@ -54,134 +56,156 @@
             display: flex;
             align-items: center;
             gap: 12px;
-            font-weight: 700;
-            font-size: 18px;
         }
 
-        .logo-icon {
-            width: 36px;
-            height: 36px;
-            background: linear-gradient(135deg, #ff2d2d, #cc0000);
+        .logo-img {
+            width: 42px;
+            height: 42px;
             border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 0 20px rgba(255, 45, 45, 0.4);
         }
 
-        .logo-icon svg {
-            width: 20px;
-            height: 20px;
-            color: white;
+        .logo-text {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 18px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #00d4ff, #00ff88);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
 
         .nav-btn {
             padding: 10px 20px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(0, 212, 255, 0.1);
+            border: 1px solid rgba(0, 212, 255, 0.3);
             border-radius: 8px;
-            color: #fff;
+            color: #00d4ff;
             font-size: 14px;
             font-weight: 500;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.3s;
+            font-family: inherit;
         }
 
         .nav-btn:hover {
-            background: rgba(255, 255, 255, 0.1);
-            border-color: rgba(255, 255, 255, 0.2);
+            background: rgba(0, 212, 255, 0.2);
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
         }
 
         /* Hero */
         .hero {
             flex: 1;
             display: flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
             padding: 40px;
+        }
+
+        .hero-inner {
+            max-width: 800px;
             text-align: center;
         }
 
-        .hero-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 16px;
-            background: rgba(255, 45, 45, 0.1);
-            border: 1px solid rgba(255, 45, 45, 0.2);
-            border-radius: 100px;
-            font-size: 13px;
-            color: #ff6b6b;
-            margin-bottom: 32px;
-            animation: fadeIn 1s ease-out 0.5s both;
+        /* Command transformation visual */
+        .transform-visual {
+            margin-bottom: 40px;
+            font-family: 'JetBrains Mono', monospace;
+            position: relative;
         }
 
-        .badge-dot {
-            width: 6px;
-            height: 6px;
-            background: #ff2d2d;
-            border-radius: 50%;
-            animation: pulse 2s ease-in-out infinite;
+        .old-way {
+            font-size: 14px;
+            color: #334;
+            text-decoration: line-through;
+            opacity: 0.4;
+            margin-bottom: 12px;
+            animation: fadeSlash 3s ease-in-out infinite;
         }
 
-        @keyframes pulse {
+        @keyframes fadeSlash {
 
             0%,
             100% {
-                opacity: 1;
-                transform: scale(1);
+                opacity: 0.3;
             }
 
             50% {
                 opacity: 0.5;
-                transform: scale(1.2);
+            }
+        }
+
+        .new-way {
+            font-size: 16px;
+            color: #00ff88;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .new-way .cursor {
+            display: inline-block;
+            width: 2px;
+            height: 20px;
+            background: #00ff88;
+            animation: blink 1s step-end infinite;
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0;
             }
         }
 
         .hero-title {
-            font-size: clamp(48px, 10vw, 96px);
+            font-size: clamp(48px, 8vw, 80px);
             font-weight: 800;
-            letter-spacing: -0.04em;
-            margin-bottom: 20px;
-            background: linear-gradient(180deg, #fff 20%, #666 100%);
+            letter-spacing: -0.03em;
+            margin-bottom: 24px;
+            line-height: 1.1;
+        }
+
+        .title-cheap {
+            color: #fff;
+        }
+
+        .title-shot {
+            background: linear-gradient(135deg, #00d4ff 0%, #00ff88 100%);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
-            animation: fadeIn 1s ease-out 0.7s both;
         }
 
         .hero-subtitle {
             font-size: 18px;
-            color: #666;
-            max-width: 500px;
-            line-height: 1.6;
-            margin-bottom: 40px;
-            animation: fadeIn 1s ease-out 0.9s both;
+            color: #668;
+            line-height: 1.7;
+            margin-bottom: 48px;
+        }
+
+        .hero-subtitle strong {
+            color: #00d4ff;
+            font-weight: 600;
         }
 
         .hero-buttons {
             display: flex;
             gap: 16px;
-            animation: fadeIn 1s ease-out 1.1s both;
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            justify-content: center;
+            flex-wrap: wrap;
         }
 
         .btn {
             display: flex;
             align-items: center;
             gap: 10px;
-            padding: 14px 28px;
+            padding: 16px 32px;
             border-radius: 10px;
             font-size: 15px;
             font-weight: 600;
@@ -197,63 +221,53 @@
         }
 
         .btn-primary {
-            background: linear-gradient(135deg, #ff2d2d, #cc0000);
-            color: white;
-            box-shadow: 0 4px 20px rgba(255, 45, 45, 0.4);
+            background: linear-gradient(135deg, #00d4ff, #00a8cc);
+            color: #000;
+            box-shadow: 0 4px 30px rgba(0, 212, 255, 0.4);
         }
 
         .btn-primary:hover {
             transform: translateY(-2px);
-            box-shadow: 0 8px 30px rgba(255, 45, 45, 0.5);
+            box-shadow: 0 8px 40px rgba(0, 212, 255, 0.6);
         }
 
         .btn-secondary {
-            background: rgba(255, 255, 255, 0.05);
-            color: #fff;
-            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: transparent;
+            color: #00d4ff;
+            border: 1px solid rgba(0, 212, 255, 0.3);
         }
 
         .btn-secondary:hover {
-            background: rgba(255, 255, 255, 0.1);
-            border-color: rgba(255, 255, 255, 0.25);
+            background: rgba(0, 212, 255, 0.1);
+            border-color: rgba(0, 212, 255, 0.5);
         }
 
-        /* Features */
+        /* Stats/Features */
         .features {
             display: flex;
             justify-content: center;
-            gap: 24px;
-            flex-wrap: wrap;
-            padding: 0 40px 80px;
-            animation: fadeIn 1s ease-out 1.3s both;
+            gap: 48px;
+            padding: 60px 40px;
+            border-top: 1px solid rgba(0, 212, 255, 0.1);
         }
 
         .feature {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 16px 24px;
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 12px;
-            backdrop-filter: blur(10px);
-            transition: all 0.3s;
+            text-align: center;
         }
 
-        .feature:hover {
-            background: rgba(255, 255, 255, 0.05);
-            border-color: rgba(255, 45, 45, 0.3);
-            transform: translateY(-2px);
+        .feature-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 32px;
+            font-weight: 700;
+            color: #00d4ff;
+            margin-bottom: 8px;
         }
 
-        .feature-icon {
-            font-size: 20px;
-        }
-
-        .feature-text {
-            font-size: 14px;
-            font-weight: 500;
-            color: #aaa;
+        .feature-label {
+            font-size: 13px;
+            color: #446;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
         }
 
         /* Footer */
@@ -261,11 +275,11 @@
             padding: 24px;
             text-align: center;
             font-size: 12px;
-            color: #333;
+            color: #334;
         }
 
         /* Mobile */
-        @media (max-width: 600px) {
+        @media (max-width: 768px) {
             .header {
                 padding: 16px 20px;
             }
@@ -276,7 +290,6 @@
 
             .hero-buttons {
                 flex-direction: column;
-                width: 100%;
             }
 
             .btn {
@@ -284,84 +297,78 @@
             }
 
             .features {
-                padding: 0 20px 40px;
-            }
-
-            .feature {
-                width: 100%;
-                justify-content: center;
+                flex-direction: column;
+                gap: 32px;
+                padding: 40px 20px;
             }
         }
     </style>
 </head>
 
 <body>
-    <!-- Particles -->
-    <div id="tsparticles"></div>
+    <canvas id="circuit-bg"></canvas>
 
-    <!-- Content -->
     <div class="content">
         <header class="header">
             <div class="logo">
-                <div class="logo-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-                    </svg>
-                </div>
-                <span>CheapShot</span>
+                <img src="/images/logo.png" alt="CheapShot" class="logo-img" onerror="this.style.display='none'">
+                <span class="logo-text">CHEAPSHOT</span>
             </div>
-            <button class="nav-btn" id="nav-login">Sign In</button>
+            <button class="nav-btn" id="nav-login">Dashboard</button>
         </header>
 
         <main class="hero">
-            <div class="hero-badge">
-                <span class="badge-dot"></span>
-                AI-Powered
-            </div>
+            <div class="hero-inner">
+                <div class="transform-visual">
+                    <div class="old-way">/ban @user reason:spam duration:7d</div>
+                    <div class="new-way">
+                        <span>"Ban that spammer for a week"</span>
+                        <span class="cursor"></span>
+                    </div>
+                </div>
 
-            <h1 class="hero-title">CheapShot</h1>
-            <p class="hero-subtitle">
-                The Discord bot that understands you. Manage your server with natural language.
-            </p>
+                <h1 class="hero-title">
+                    <span class="title-cheap">Cheap</span><span class="title-shot">Shot</span>
+                </h1>
 
-            <div class="hero-buttons">
-                <button class="btn btn-primary" id="add-btn">
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                        <path
-                            d="M20.317 4.492c-1.53-.69-3.17-1.2-4.885-1.49a.075.075 0 0 0-.079.036c-.21.369-.444.85-.608 1.23a18.566 18.566 0 0 0-5.487 0 12.36 12.36 0 0 0-.617-1.23A.077.077 0 0 0 8.562 3c-1.714.29-3.354.8-4.885 1.491a.07.07 0 0 0-.032.027C.533 9.093-.32 13.555.099 17.961a.08.08 0 0 0 .031.055 20.03 20.03 0 0 0 5.993 2.98.078.078 0 0 0 .084-.026c.462-.62.874-1.275 1.226-1.963.021-.04.001-.088-.041-.104a13.201 13.201 0 0 1-1.872-.878.075.075 0 0 1-.008-.125c.126-.093.252-.19.372-.287a.075.075 0 0 1 .078-.01c3.927 1.764 8.18 1.764 12.061 0a.075.075 0 0 1 .079.009c.12.098.245.195.372.288a.075.075 0 0 1-.006.125c-.598.344-1.22.635-1.873.877a.075.075 0 0 0-.041.105c.36.687.772 1.341 1.225 1.962a.077.077 0 0 0 .084.028 19.963 19.963 0 0 0 6.002-2.981.076.076 0 0 0 .032-.054c.5-5.094-.838-9.52-3.549-13.442a.06.06 0 0 0-.031-.028zM8.02 15.278c-1.182 0-2.157-1.069-2.157-2.38 0-1.312.956-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.956 2.38-2.157 2.38zm7.975 0c-1.183 0-2.157-1.069-2.157-2.38 0-1.312.955-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.946 2.38-2.157 2.38z" />
-                    </svg>
-                    Add to Discord
-                </button>
-                <button class="btn btn-secondary" id="dashboard-btn">
-                    Open Dashboard →
-                </button>
+                <p class="hero-subtitle">
+                    The AI that <strong>understands</strong> what you want.
+                    <br>No commands. No syntax. Just speak.
+                </p>
+
+                <div class="hero-buttons">
+                    <button class="btn btn-primary" id="add-btn">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path
+                                d="M20.317 4.492c-1.53-.69-3.17-1.2-4.885-1.49a.075.075 0 0 0-.079.036c-.21.369-.444.85-.608 1.23a18.566 18.566 0 0 0-5.487 0 12.36 12.36 0 0 0-.617-1.23A.077.077 0 0 0 8.562 3c-1.714.29-3.354.8-4.885 1.491a.07.07 0 0 0-.032.027C.533 9.093-.32 13.555.099 17.961a.08.08 0 0 0 .031.055 20.03 20.03 0 0 0 5.993 2.98.078.078 0 0 0 .084-.026c.462-.62.874-1.275 1.226-1.963.021-.04.001-.088-.041-.104a13.201 13.201 0 0 1-1.872-.878.075.075 0 0 1-.008-.125c.126-.093.252-.19.372-.287a.075.075 0 0 1 .078-.01c3.927 1.764 8.18 1.764 12.061 0a.075.075 0 0 1 .079.009c.12.098.245.195.372.288a.075.075 0 0 1-.006.125c-.598.344-1.22.635-1.873.877a.075.075 0 0 0-.041.105c.36.687.772 1.341 1.225 1.962a.077.077 0 0 0 .084.028 19.963 19.963 0 0 0 6.002-2.981.076.076 0 0 0 .032-.054c.5-5.094-.838-9.52-3.549-13.442a.06.06 0 0 0-.031-.028zM8.02 15.278c-1.182 0-2.157-1.069-2.157-2.38 0-1.312.956-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.956 2.38-2.157 2.38zm7.975 0c-1.183 0-2.157-1.069-2.157-2.38 0-1.312.955-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.946 2.38-2.157 2.38z" />
+                        </svg>
+                        Add to Discord
+                    </button>
+                    <button class="btn btn-secondary" id="dashboard-btn">
+                        Learn More →
+                    </button>
+                </div>
             </div>
         </main>
 
         <section class="features">
             <div class="feature">
-                <span class="feature-icon">🤖</span>
-                <span class="feature-text">Natural Language AI</span>
+                <div class="feature-value">40+</div>
+                <div class="feature-label">AI Tools</div>
             </div>
             <div class="feature">
-                <span class="feature-icon">🛡️</span>
-                <span class="feature-text">Smart Moderation</span>
+                <div class="feature-value">0</div>
+                <div class="feature-label">Commands to Learn</div>
             </div>
             <div class="feature">
-                <span class="feature-icon">🎨</span>
-                <span class="feature-text">Image Generation</span>
-            </div>
-            <div class="feature">
-                <span class="feature-icon">⚡</span>
-                <span class="feature-text">Server Management</span>
+                <div class="feature-value">∞</div>
+                <div class="feature-label">Possibilities</div>
             </div>
         </section>
 
         <footer class="footer">© 2025 skmredacted</footer>
     </div>
 
-    <!-- Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/tsparticles@2/tsparticles.bundle.min.js"></script>
     <script src="/js/landing.js"></script>
 </body>
 
