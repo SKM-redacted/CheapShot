@@ -5,263 +5,367 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CheapShot</title>
+    <meta name="description" content="AI-powered Discord bot">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
         rel="stylesheet">
+    <link rel="stylesheet" href="/css/base.css">
 
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
         body {
-            font-family: 'Space Grotesk', sans-serif;
-            background: #000;
-            color: #fff;
             overflow: hidden;
         }
 
-        canvas {
+        /* Circuit Canvas */
+        #circuit {
             position: fixed;
-            top: 0;
-            left: 0;
-            z-index: 1;
+            inset: 0;
+            z-index: 0;
         }
 
-        .ui {
-            position: fixed;
-            z-index: 100;
-            pointer-events: none;
+        /* Content Layer */
+        .content {
+            position: relative;
+            z-index: 10;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
         }
 
-        .ui>* {
-            pointer-events: auto;
+        /* Header */
+        .header {
+            padding: var(--space-lg) var(--space-2xl);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
 
-        /* Top left - Logo */
-        .brand {
-            position: fixed;
-            top: 32px;
-            left: 40px;
+        .logo {
             display: flex;
             align-items: center;
-            gap: 14px;
-            z-index: 100;
+            gap: var(--space-md);
         }
 
-        .brand-mark {
-            width: 42px;
-            height: 42px;
-            background: linear-gradient(135deg, #ff2d2d 0%, #aa0000 100%);
-            border-radius: 12px;
+        .logo-mark {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--ember), var(--blood));
+            border-radius: var(--radius-md);
             display: flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 0 30px rgba(255, 45, 45, 0.5);
+            box-shadow: var(--shadow-glow);
         }
 
-        .brand-mark svg {
+        .logo-mark svg {
             width: 22px;
             height: 22px;
             color: white;
         }
 
-        .brand-name {
-            font-size: 20px;
-            font-weight: 600;
+        .logo-text {
+            font-size: var(--text-lg);
+            font-weight: 700;
+            color: var(--white);
             letter-spacing: -0.02em;
         }
 
-        /* Top right - Sign in */
-        .nav {
-            position: fixed;
-            top: 32px;
-            right: 40px;
-            z-index: 100;
-        }
-
-        .nav-btn {
-            padding: 12px 24px;
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 10px;
-            color: #888;
-            font-size: 14px;
+        .header-btn {
+            padding: 10px 20px;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-md);
+            color: var(--cloud);
+            font-size: var(--text-sm);
             font-weight: 500;
             cursor: pointer;
-            transition: all 0.3s;
-            font-family: inherit;
+            transition: all var(--transition-fast);
+            backdrop-filter: blur(10px);
         }
 
-        .nav-btn:hover {
-            background: rgba(255, 255, 255, 0.06);
-            border-color: rgba(255, 255, 255, 0.15);
-            color: #fff;
+        .header-btn:hover {
+            background: var(--graphite);
+            border-color: var(--steel);
+            color: var(--white);
         }
 
-        /* Center - Main content */
-        .main {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-            z-index: 100;
-        }
-
-        .tagline {
-            font-size: 13px;
-            text-transform: uppercase;
-            letter-spacing: 0.3em;
-            color: #444;
-            margin-bottom: 24px;
-        }
-
-        .title {
-            font-size: clamp(32px, 6vw, 56px);
-            font-weight: 700;
-            letter-spacing: -0.03em;
-            margin-bottom: 16px;
-            line-height: 1.1;
-        }
-
-        .title span {
-            color: #ff2d2d;
-        }
-
-        .subtitle {
-            font-size: 16px;
-            color: #555;
-            max-width: 380px;
-            margin: 0 auto 40px;
-            line-height: 1.6;
-        }
-
-        .actions {
+        /* Hero */
+        .hero {
+            flex: 1;
             display: flex;
-            gap: 16px;
+            align-items: center;
             justify-content: center;
+            padding: var(--space-2xl);
+        }
+
+        .hero-inner {
+            max-width: 700px;
+            text-align: center;
+        }
+
+        /* Terminal */
+        .terminal {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-sm);
+            padding: var(--space-sm) var(--space-md);
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-full);
+            margin-bottom: var(--space-xl);
+            backdrop-filter: blur(10px);
+            animation: fadeInDown 0.6s ease-out;
+        }
+
+        .terminal-prompt {
+            color: var(--ember);
+            font-family: var(--font-mono);
+            font-size: var(--text-sm);
+        }
+
+        .terminal-text {
+            font-family: var(--font-mono);
+            font-size: var(--text-sm);
+            color: var(--mist);
+        }
+
+        .terminal-cursor {
+            display: inline-block;
+            width: 8px;
+            height: 16px;
+            background: var(--ember);
+            animation: blink 1s step-end infinite;
+        }
+
+        @keyframes blink {
+            50% {
+                opacity: 0;
+            }
+        }
+
+        /* Title */
+        .hero-title {
+            font-size: clamp(3rem, 8vw, 5rem);
+            font-weight: 800;
+            letter-spacing: -0.04em;
+            margin-bottom: var(--space-md);
+            animation: fadeInUp 0.8s ease-out 0.2s both;
+        }
+
+        .title-gradient {
+            background: linear-gradient(135deg, var(--white) 0%, var(--cloud) 50%, var(--ember) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* Subtitle */
+        .hero-subtitle {
+            font-size: var(--text-lg);
+            color: var(--mist);
+            line-height: 1.7;
+            margin-bottom: var(--space-2xl);
+            animation: fadeInUp 0.8s ease-out 0.4s both;
+        }
+
+        .highlight {
+            color: var(--ember);
+            font-weight: 600;
+        }
+
+        /* Buttons */
+        .hero-buttons {
+            display: flex;
+            gap: var(--space-md);
+            justify-content: center;
+            animation: fadeInUp 0.8s ease-out 0.6s both;
         }
 
         .btn {
             display: inline-flex;
             align-items: center;
-            gap: 10px;
+            gap: var(--space-sm);
             padding: 14px 28px;
-            border-radius: 10px;
-            font-size: 14px;
+            border-radius: var(--radius-md);
+            font-size: var(--text-base);
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s;
+            transition: all var(--transition-base);
             border: none;
             font-family: inherit;
         }
 
         .btn svg {
-            width: 18px;
-            height: 18px;
+            width: 20px;
+            height: 20px;
         }
 
         .btn-primary {
-            background: #ff2d2d;
-            color: white;
-            box-shadow: 0 0 40px rgba(255, 45, 45, 0.4);
+            background: linear-gradient(135deg, var(--ember), var(--blood));
+            color: var(--white);
+            box-shadow: 0 4px 24px rgba(255, 45, 45, 0.4);
         }
 
         .btn-primary:hover {
-            background: #e52525;
             transform: translateY(-2px);
-            box-shadow: 0 0 50px rgba(255, 45, 45, 0.5);
+            box-shadow: 0 8px 32px rgba(255, 45, 45, 0.5);
         }
 
-        .btn-ghost {
-            background: transparent;
-            color: #666;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+        .btn-secondary {
+            background: var(--glass-bg);
+            color: var(--white);
+            border: 1px solid var(--glass-border);
+            backdrop-filter: blur(10px);
         }
 
-        .btn-ghost:hover {
-            color: #fff;
-            border-color: rgba(255, 255, 255, 0.2);
+        .btn-secondary:hover {
+            background: var(--graphite);
+            border-color: var(--steel);
         }
 
-        /* Bottom - Footer */
+        /* Feature Pills */
+        .features {
+            display: flex;
+            gap: var(--space-md);
+            justify-content: center;
+            flex-wrap: wrap;
+            padding: 0 var(--space-2xl) var(--space-2xl);
+            animation: fadeInUp 0.8s ease-out 0.8s both;
+        }
+
+        .feature-pill {
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+            padding: var(--space-sm) var(--space-md);
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-full);
+            backdrop-filter: blur(10px);
+            transition: all var(--transition-fast);
+        }
+
+        .feature-pill:hover {
+            border-color: rgba(255, 45, 45, 0.3);
+            background: var(--blush);
+        }
+
+        .feature-icon {
+            font-size: 16px;
+        }
+
+        .feature-text {
+            font-size: var(--text-sm);
+            color: var(--cloud);
+            font-weight: 500;
+        }
+
+        /* Footer */
         .footer {
-            position: fixed;
-            bottom: 32px;
-            left: 50%;
-            transform: translateX(-50%);
-            font-size: 11px;
-            color: #222;
-            z-index: 100;
+            padding: var(--space-lg);
+            text-align: center;
+            font-size: var(--text-xs);
+            color: var(--steel);
         }
 
         /* Mobile */
-        @media (max-width: 600px) {
-            .brand {
-                top: 20px;
-                left: 20px;
+        @media (max-width: 640px) {
+            .header {
+                padding: var(--space-md);
             }
 
-            .nav {
-                top: 20px;
-                right: 20px;
+            .hero {
+                padding: var(--space-lg);
             }
 
-            .main {
-                width: 90%;
-            }
-
-            .actions {
+            .hero-buttons {
                 flex-direction: column;
+                width: 100%;
             }
 
             .btn {
                 justify-content: center;
-                width: 100%;
+            }
+
+            .features {
+                padding: 0 var(--space-md) var(--space-lg);
             }
         }
     </style>
 </head>
 
 <body>
-    <canvas id="canvas"></canvas>
+    <!-- Circuit Background -->
+    <canvas id="circuit"></canvas>
 
-    <div class="brand">
-        <div class="brand-mark">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-            </svg>
-        </div>
-        <span class="brand-name">CheapShot</span>
+    <!-- Content -->
+    <div class="content">
+        <header class="header">
+            <div class="logo">
+                <div class="logo-mark">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                    </svg>
+                </div>
+                <span class="logo-text">CheapShot</span>
+            </div>
+            <button class="header-btn" id="login-btn">Sign In</button>
+        </header>
+
+        <main class="hero">
+            <div class="hero-inner">
+                <div class="terminal">
+                    <span class="terminal-prompt">$</span>
+                    <span class="terminal-text" id="typing"></span>
+                    <span class="terminal-cursor"></span>
+                </div>
+
+                <h1 class="hero-title">
+                    <span class="title-gradient">CheapShot</span>
+                </h1>
+
+                <p class="hero-subtitle">
+                    Forget slash commands. Just <span class="highlight">talk</span>.
+                    Our AI understands what you want and makes it happen.
+                </p>
+
+                <div class="hero-buttons">
+                    <button class="btn btn-primary" id="add-btn">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path
+                                d="M20.317 4.492c-1.53-.69-3.17-1.2-4.885-1.49a.075.075 0 0 0-.079.036c-.21.369-.444.85-.608 1.23a18.566 18.566 0 0 0-5.487 0 12.36 12.36 0 0 0-.617-1.23A.077.077 0 0 0 8.562 3c-1.714.29-3.354.8-4.885 1.491a.07.07 0 0 0-.032.027C.533 9.093-.32 13.555.099 17.961a.08.08 0 0 0 .031.055 20.03 20.03 0 0 0 5.993 2.98.078.078 0 0 0 .084-.026c.462-.62.874-1.275 1.226-1.963.021-.04.001-.088-.041-.104a13.201 13.201 0 0 1-1.872-.878.075.075 0 0 1-.008-.125c.126-.093.252-.19.372-.287a.075.075 0 0 1 .078-.01c3.927 1.764 8.18 1.764 12.061 0a.075.075 0 0 1 .079.009c.12.098.245.195.372.288a.075.075 0 0 1-.006.125c-.598.344-1.22.635-1.873.877a.075.075 0 0 0-.041.105c.36.687.772 1.341 1.225 1.962a.077.077 0 0 0 .084.028 19.963 19.963 0 0 0 6.002-2.981.076.076 0 0 0 .032-.054c.5-5.094-.838-9.52-3.549-13.442a.06.06 0 0 0-.031-.028zM8.02 15.278c-1.182 0-2.157-1.069-2.157-2.38 0-1.312.956-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.956 2.38-2.157 2.38zm7.975 0c-1.183 0-2.157-1.069-2.157-2.38 0-1.312.955-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.946 2.38-2.157 2.38z" />
+                        </svg>
+                        Add to Discord
+                    </button>
+                    <button class="btn btn-secondary" id="dashboard-btn">Dashboard →</button>
+                </div>
+            </div>
+        </main>
+
+        <section class="features">
+            <div class="feature-pill">
+                <span class="feature-icon">🤖</span>
+                <span class="feature-text">Natural Language</span>
+            </div>
+            <div class="feature-pill">
+                <span class="feature-icon">⚡</span>
+                <span class="feature-text">40+ Tools</span>
+            </div>
+            <div class="feature-pill">
+                <span class="feature-icon">🛡️</span>
+                <span class="feature-text">AI Moderation</span>
+            </div>
+            <div class="feature-pill">
+                <span class="feature-icon">🎨</span>
+                <span class="feature-text">Image Gen</span>
+            </div>
+        </section>
+
+        <footer class="footer">© 2025 skmredacted</footer>
     </div>
-
-    <nav class="nav">
-        <button class="nav-btn" id="signin">Sign in</button>
-    </nav>
-
-    <main class="main">
-        <div class="tagline">AI-Powered Discord</div>
-        <h1 class="title">Commands are <span>dead</span>.</h1>
-        <p class="subtitle">Just talk. CheapShot understands context, executes actions, and manages your server through
-            conversation.</p>
-        <div class="actions">
-            <button class="btn btn-primary" id="add">
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                    <path
-                        d="M20.317 4.492c-1.53-.69-3.17-1.2-4.885-1.49a.075.075 0 0 0-.079.036c-.21.369-.444.85-.608 1.23a18.566 18.566 0 0 0-5.487 0 12.36 12.36 0 0 0-.617-1.23A.077.077 0 0 0 8.562 3c-1.714.29-3.354.8-4.885 1.491a.07.07 0 0 0-.032.027C.533 9.093-.32 13.555.099 17.961a.08.08 0 0 0 .031.055 20.03 20.03 0 0 0 5.993 2.98.078.078 0 0 0 .084-.026c.462-.62.874-1.275 1.226-1.963.021-.04.001-.088-.041-.104a13.201 13.201 0 0 1-1.872-.878.075.075 0 0 1-.008-.125c.126-.093.252-.19.372-.287a.075.075 0 0 1 .078-.01c3.927 1.764 8.18 1.764 12.061 0a.075.075 0 0 1 .079.009c.12.098.245.195.372.288a.075.075 0 0 1-.006.125c-.598.344-1.22.635-1.873.877a.075.075 0 0 0-.041.105c.36.687.772 1.341 1.225 1.962a.077.077 0 0 0 .084.028 19.963 19.963 0 0 0 6.002-2.981.076.076 0 0 0 .032-.054c.5-5.094-.838-9.52-3.549-13.442a.06.06 0 0 0-.031-.028zM8.02 15.278c-1.182 0-2.157-1.069-2.157-2.38 0-1.312.956-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.956 2.38-2.157 2.38zm7.975 0c-1.183 0-2.157-1.069-2.157-2.38 0-1.312.955-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.946 2.38-2.157 2.38z" />
-                </svg>
-                Add to Discord
-            </button>
-            <button class="btn btn-ghost" id="dashboard">Dashboard</button>
-        </div>
-    </main>
-
-    <footer class="footer">© 2025 skmredacted</footer>
 
     <script src="/js/landing.js"></script>
 </body>
