@@ -4,757 +4,310 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CheapShot - AI-Powered Discord Bot</title>
-    <meta name="description"
-        content="The ultimate AI Discord bot. Natural language server management, intelligent moderation, image generation, and more.">
+    <title>CheapShot - AI Discord Bot</title>
+    <meta name="description" content="An AI-powered Discord bot for server management">
 
-    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
-    <!-- Styles -->
-    <link rel="stylesheet" href="/css/base.css">
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
 
     <style>
-        /* Landing Page Specific Styles */
-        body {
-            overflow-x: hidden;
+        *,
+        *::before,
+        *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
 
-        /* Hero Section */
-        .hero {
+        :root {
+            --bg: #000;
+            --surface: #0a0a0a;
+            --border: #1a1a1a;
+            --text: #fff;
+            --text-dim: #666;
+            --accent: #ff2d2d;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
             min-height: 100vh;
             display: flex;
             flex-direction: column;
-            position: relative;
             overflow: hidden;
         }
 
-        .hero::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background:
-                radial-gradient(ellipse at 30% 20%, rgba(255, 45, 45, 0.08) 0%, transparent 50%),
-                radial-gradient(ellipse at 70% 80%, rgba(255, 45, 45, 0.05) 0%, transparent 50%);
-            animation: pulse-bg 8s ease-in-out infinite;
+        /* Grid background */
+        .grid-bg {
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+            background-size: 60px 60px;
             pointer-events: none;
         }
 
-        @keyframes pulse-bg {
-
-            0%,
-            100% {
-                opacity: 1;
-                transform: scale(1);
-            }
-
-            50% {
-                opacity: 0.7;
-                transform: scale(1.05);
-            }
+        /* Glow */
+        .glow {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(255, 45, 45, 0.08) 0%, transparent 70%);
+            pointer-events: none;
         }
 
-        /* Navigation */
-        .nav {
-            padding: var(--space-lg) var(--space-2xl);
+        /* Header */
+        header {
+            padding: 24px 40px;
             display: flex;
-            align-items: center;
             justify-content: space-between;
+            align-items: center;
             position: relative;
             z-index: 10;
         }
 
-        .nav-logo {
+        .logo {
             display: flex;
             align-items: center;
-            gap: var(--space-md);
-        }
-
-        .nav-logo-mark {
-            width: 44px;
-            height: 44px;
-            background: linear-gradient(135deg, var(--ember) 0%, var(--blood) 100%);
-            border-radius: var(--radius-md);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 4px 20px rgba(255, 45, 45, 0.3);
-        }
-
-        .nav-logo-mark svg {
-            width: 26px;
-            height: 26px;
-            color: white;
-        }
-
-        .nav-logo-text {
-            font-size: var(--text-xl);
-            font-weight: 700;
-            color: var(--white);
+            gap: 12px;
+            font-weight: 600;
+            font-size: 18px;
             letter-spacing: -0.02em;
         }
 
-        .nav-links {
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: var(--accent);
+            border-radius: 8px;
             display: flex;
             align-items: center;
-            gap: var(--space-lg);
+            justify-content: center;
         }
 
-        .nav-link {
-            color: var(--mist);
-            font-size: var(--text-sm);
+        .logo-icon svg {
+            width: 18px;
+            height: 18px;
+            color: white;
+        }
+
+        .nav-btn {
+            padding: 10px 20px;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 14px;
             font-weight: 500;
-            transition: color var(--transition-fast);
+            cursor: pointer;
+            transition: all 0.2s;
         }
 
-        .nav-link:hover {
-            color: var(--white);
+        .nav-btn:hover {
+            background: var(--surface);
+            border-color: #333;
         }
 
-        /* Hero Content */
-        .hero-content {
+        /* Main */
+        main {
             flex: 1;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            text-align: center;
-            padding: var(--space-2xl);
+            padding: 40px;
             position: relative;
-            z-index: 5;
+            z-index: 10;
         }
 
-        .hero-badge {
-            display: inline-flex;
+        .terminal {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            color: var(--text-dim);
+            margin-bottom: 32px;
+            display: flex;
             align-items: center;
-            gap: var(--space-sm);
-            padding: 0.5rem 1rem;
-            background: var(--blush);
-            border: 1px solid rgba(255, 45, 45, 0.3);
-            border-radius: var(--radius-full);
-            font-size: var(--text-sm);
-            font-weight: 500;
-            color: var(--ember);
-            margin-bottom: var(--space-lg);
-            animation: fadeInDown 0.6s ease-out;
+            gap: 8px;
         }
 
-        .hero-badge-dot {
+        .terminal-dot {
             width: 8px;
             height: 8px;
-            background: var(--ember);
+            background: var(--accent);
             border-radius: 50%;
-            animation: pulse 2s ease-in-out infinite;
+            animation: blink 2s ease-in-out infinite;
         }
 
-        .hero-title {
-            font-size: clamp(2.5rem, 8vw, 5rem);
-            font-weight: 800;
-            line-height: 1.1;
-            letter-spacing: -0.03em;
-            margin-bottom: var(--space-lg);
-            animation: fadeInUp 0.8s ease-out;
-        }
-
-        .hero-title-gradient {
-            background: linear-gradient(135deg, var(--white) 0%, var(--cloud) 50%, var(--ember) 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .hero-subtitle {
-            font-size: var(--text-xl);
-            color: var(--mist);
-            max-width: 600px;
-            margin-bottom: var(--space-2xl);
-            line-height: 1.6;
-            animation: fadeInUp 0.8s ease-out 0.1s both;
-        }
-
-        .hero-actions {
-            display: flex;
-            gap: var(--space-md);
-            flex-wrap: wrap;
-            justify-content: center;
-            animation: fadeInUp 0.8s ease-out 0.2s both;
-        }
-
-        .btn-hero {
-            padding: 1rem 2rem;
-            font-size: var(--text-base);
-            font-weight: 600;
-            border-radius: var(--radius-md);
-            display: inline-flex;
-            align-items: center;
-            gap: var(--space-sm);
-            transition: all var(--transition-base);
-            cursor: pointer;
-            border: none;
-        }
-
-        .btn-hero-primary {
-            background: linear-gradient(135deg, var(--ember) 0%, var(--blood) 100%);
-            color: var(--white);
-            box-shadow: 0 4px 20px rgba(255, 45, 45, 0.4);
-        }
-
-        .btn-hero-primary:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 30px rgba(255, 45, 45, 0.5);
-        }
-
-        .btn-hero-secondary {
-            background: var(--glass-bg);
-            color: var(--white);
-            border: 1px solid var(--glass-border);
-            backdrop-filter: blur(10px);
-        }
-
-        .btn-hero-secondary:hover {
-            background: var(--graphite);
-            border-color: var(--steel);
-        }
-
-        /* Scroll indicator */
-        .scroll-indicator {
-            position: absolute;
-            bottom: var(--space-2xl);
-            left: 50%;
-            transform: translateX(-50%);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: var(--space-sm);
-            color: var(--silver);
-            font-size: var(--text-xs);
-            animation: bounce 2s ease-in-out infinite;
-        }
-
-        @keyframes bounce {
+        @keyframes blink {
 
             0%,
             100% {
-                transform: translateX(-50%) translateY(0);
+                opacity: 1;
             }
 
             50% {
-                transform: translateX(-50%) translateY(10px);
+                opacity: 0.3;
             }
         }
 
-        /* Features Section */
-        .section {
-            padding: var(--space-3xl) var(--space-2xl);
-            position: relative;
-        }
-
-        .section-header {
-            text-align: center;
-            max-width: 700px;
-            margin: 0 auto var(--space-3xl);
-        }
-
-        .section-label {
-            font-size: var(--text-sm);
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            color: var(--ember);
-            margin-bottom: var(--space-md);
-        }
-
-        .section-title {
-            font-size: var(--text-3xl);
+        h1 {
+            font-size: clamp(48px, 10vw, 80px);
             font-weight: 700;
-            color: var(--white);
-            margin-bottom: var(--space-md);
+            letter-spacing: -0.04em;
+            margin-bottom: 16px;
+            text-align: center;
         }
 
-        .section-desc {
-            font-size: var(--text-lg);
-            color: var(--mist);
+        .tagline {
+            font-size: 18px;
+            color: var(--text-dim);
+            margin-bottom: 48px;
+            text-align: center;
         }
 
-        /* Feature Grid */
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: var(--space-lg);
-            max-width: 1200px;
-            margin: 0 auto;
+        .actions {
+            display: flex;
+            gap: 16px;
         }
 
-        .feature-card {
-            background: var(--glass-bg);
-            backdrop-filter: blur(20px);
-            border: 1px solid var(--glass-border);
-            border-radius: var(--radius-lg);
-            padding: var(--space-xl);
-            transition: all var(--transition-base);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .feature-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: linear-gradient(90deg, var(--ember), var(--rose));
-            opacity: 0;
-            transition: opacity var(--transition-fast);
-        }
-
-        .feature-card:hover {
-            border-color: rgba(255, 45, 45, 0.3);
-            transform: translateY(-5px);
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3), 0 0 40px rgba(255, 45, 45, 0.1);
-        }
-
-        .feature-card:hover::before {
-            opacity: 1;
-        }
-
-        .feature-icon {
-            width: 56px;
-            height: 56px;
-            background: linear-gradient(135deg, var(--ember) 0%, var(--blood) 100%);
-            border-radius: var(--radius-md);
+        .btn {
+            padding: 14px 28px;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
             display: flex;
             align-items: center;
-            justify-content: center;
-            font-size: 1.75rem;
-            margin-bottom: var(--space-lg);
-            box-shadow: 0 4px 20px rgba(255, 45, 45, 0.25);
+            gap: 10px;
+            border: none;
         }
 
-        .feature-title {
-            font-size: var(--text-xl);
-            font-weight: 600;
-            color: var(--white);
-            margin-bottom: var(--space-sm);
+        .btn-primary {
+            background: var(--accent);
+            color: white;
         }
 
-        .feature-desc {
-            color: var(--mist);
-            font-size: var(--text-sm);
-            line-height: 1.7;
+        .btn-primary:hover {
+            background: #e02626;
+            transform: translateY(-2px);
         }
 
-        /* Tools Section */
-        .tools-showcase {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-            gap: var(--space-md);
-            max-width: 1000px;
-            margin: 0 auto;
+        .btn-secondary {
+            background: var(--surface);
+            color: var(--text);
+            border: 1px solid var(--border);
         }
 
-        .tool-item {
-            background: var(--graphite);
-            border: 1px solid var(--steel);
-            border-radius: var(--radius-md);
-            padding: var(--space-md);
-            text-align: center;
-            transition: all var(--transition-fast);
+        .btn-secondary:hover {
+            border-color: #333;
+            background: #111;
         }
 
-        .tool-item:hover {
-            border-color: var(--ember);
-            background: var(--blush);
-        }
-
-        .tool-icon {
-            font-size: 1.5rem;
-            margin-bottom: var(--space-xs);
-        }
-
-        .tool-name {
-            font-size: var(--text-xs);
-            color: var(--cloud);
-            font-weight: 500;
-        }
-
-        /* CTA Section */
-        .cta-section {
-            background: linear-gradient(135deg, var(--obsidian) 0%, var(--abyss) 100%);
-            padding: var(--space-3xl) var(--space-2xl);
-            text-align: center;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .cta-section::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background: radial-gradient(ellipse at center, rgba(255, 45, 45, 0.1) 0%, transparent 60%);
-            pointer-events: none;
-        }
-
-        .cta-content {
-            position: relative;
-            z-index: 1;
-            max-width: 600px;
-            margin: 0 auto;
-        }
-
-        .cta-title {
-            font-size: var(--text-3xl);
-            font-weight: 700;
-            color: var(--white);
-            margin-bottom: var(--space-md);
-        }
-
-        .cta-desc {
-            font-size: var(--text-lg);
-            color: var(--mist);
-            margin-bottom: var(--space-xl);
+        .btn svg {
+            width: 18px;
+            height: 18px;
         }
 
         /* Footer */
-        .footer {
-            padding: var(--space-2xl);
-            border-top: 1px solid var(--glass-border);
+        footer {
+            padding: 24px 40px;
             text-align: center;
+            font-size: 13px;
+            color: var(--text-dim);
+            position: relative;
+            z-index: 10;
         }
 
-        .footer-text {
-            font-size: var(--text-sm);
-            color: var(--silver);
-        }
+        /* Mobile */
+        @media (max-width: 600px) {
 
-        .footer-link {
-            color: var(--ember);
-        }
-
-        /* Responsive */
-        @media (max-width: 768px) {
-            .nav {
-                padding: var(--space-md);
+            header,
+            footer {
+                padding: 20px;
             }
 
-            .nav-links {
-                display: none;
+            main {
+                padding: 20px;
             }
 
-            .hero-content {
-                padding: var(--space-lg);
-            }
-
-            .hero-actions {
+            .actions {
                 flex-direction: column;
                 width: 100%;
             }
 
-            .btn-hero {
-                width: 100%;
+            .btn {
                 justify-content: center;
-            }
-
-            .section {
-                padding: var(--space-2xl) var(--space-lg);
-            }
-
-            .features-grid {
-                grid-template-columns: 1fr;
             }
         }
     </style>
 </head>
 
 <body>
-    <!-- Hero Section -->
-    <section class="hero">
-        <!-- Navigation -->
-        <nav class="nav">
-            <div class="nav-logo">
-                <div class="nav-logo-mark">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-                    </svg>
-                </div>
-                <span class="nav-logo-text">CheapShot</span>
-            </div>
-            <div class="nav-links">
-                <a href="#features" class="nav-link">Features</a>
-                <a href="#capabilities" class="nav-link">Capabilities</a>
-                <button class="btn btn-primary" id="nav-login-btn">Dashboard</button>
-            </div>
-        </nav>
+    <div class="grid-bg"></div>
+    <div class="glow"></div>
 
-        <!-- Hero Content -->
-        <div class="hero-content">
-            <div class="hero-badge">
-                <span class="hero-badge-dot"></span>
-                AI-Powered Discord Management
+    <header>
+        <div class="logo">
+            <div class="logo-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                </svg>
             </div>
+            <span>CheapShot</span>
+        </div>
+        <button class="nav-btn" id="login-btn">Sign In</button>
+    </header>
 
-            <h1 class="hero-title">
-                <span class="hero-title-gradient">Your Server, Supercharged</span>
-            </h1>
-
-            <p class="hero-subtitle">
-                Meet CheapShot — the AI Discord bot that understands natural language.
-                Manage channels, moderate content, generate images, and automate your server
-                with simple conversations.
-            </p>
-
-            <div class="hero-actions">
-                <button class="btn-hero btn-hero-primary" id="hero-add-btn">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                        <path
-                            d="M20.317 4.492c-1.53-.69-3.17-1.2-4.885-1.49a.075.075 0 0 0-.079.036c-.21.369-.444.85-.608 1.23a18.566 18.566 0 0 0-5.487 0 12.36 12.36 0 0 0-.617-1.23A.077.077 0 0 0 8.562 3c-1.714.29-3.354.8-4.885 1.491a.07.07 0 0 0-.032.027C.533 9.093-.32 13.555.099 17.961a.08.08 0 0 0 .031.055 20.03 20.03 0 0 0 5.993 2.98.078.078 0 0 0 .084-.026c.462-.62.874-1.275 1.226-1.963.021-.04.001-.088-.041-.104a13.201 13.201 0 0 1-1.872-.878.075.075 0 0 1-.008-.125c.126-.093.252-.19.372-.287a.075.075 0 0 1 .078-.01c3.927 1.764 8.18 1.764 12.061 0a.075.075 0 0 1 .079.009c.12.098.245.195.372.288a.075.075 0 0 1-.006.125c-.598.344-1.22.635-1.873.877a.075.075 0 0 0-.041.105c.36.687.772 1.341 1.225 1.962a.077.077 0 0 0 .084.028 19.963 19.963 0 0 0 6.002-2.981.076.076 0 0 0 .032-.054c.5-5.094-.838-9.52-3.549-13.442a.06.06 0 0 0-.031-.028zM8.02 15.278c-1.182 0-2.157-1.069-2.157-2.38 0-1.312.956-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.956 2.38-2.157 2.38zm7.975 0c-1.183 0-2.157-1.069-2.157-2.38 0-1.312.955-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.946 2.38-2.157 2.38z" />
-                    </svg>
-                    Add to Discord
-                </button>
-                <button class="btn-hero btn-hero-secondary" id="hero-login-btn">
-                    Open Dashboard →
-                </button>
-            </div>
+    <main>
+        <div class="terminal">
+            <span class="terminal-dot"></span>
+            <span>AI-powered Discord bot</span>
         </div>
 
-        <div class="scroll-indicator">
-            <span>Scroll to explore</span>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 5v14M19 12l-7 7-7-7" />
-            </svg>
+        <h1>CheapShot</h1>
+        <p class="tagline">Manage your Discord server with natural language.</p>
+
+        <div class="actions">
+            <button class="btn btn-primary" id="add-btn">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path
+                        d="M20.317 4.492c-1.53-.69-3.17-1.2-4.885-1.49a.075.075 0 0 0-.079.036c-.21.369-.444.85-.608 1.23a18.566 18.566 0 0 0-5.487 0 12.36 12.36 0 0 0-.617-1.23A.077.077 0 0 0 8.562 3c-1.714.29-3.354.8-4.885 1.491a.07.07 0 0 0-.032.027C.533 9.093-.32 13.555.099 17.961a.08.08 0 0 0 .031.055 20.03 20.03 0 0 0 5.993 2.98.078.078 0 0 0 .084-.026c.462-.62.874-1.275 1.226-1.963.021-.04.001-.088-.041-.104a13.201 13.201 0 0 1-1.872-.878.075.075 0 0 1-.008-.125c.126-.093.252-.19.372-.287a.075.075 0 0 1 .078-.01c3.927 1.764 8.18 1.764 12.061 0a.075.075 0 0 1 .079.009c.12.098.245.195.372.288a.075.075 0 0 1-.006.125c-.598.344-1.22.635-1.873.877a.075.075 0 0 0-.041.105c.36.687.772 1.341 1.225 1.962a.077.077 0 0 0 .084.028 19.963 19.963 0 0 0 6.002-2.981.076.076 0 0 0 .032-.054c.5-5.094-.838-9.52-3.549-13.442a.06.06 0 0 0-.031-.028zM8.02 15.278c-1.182 0-2.157-1.069-2.157-2.38 0-1.312.956-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.956 2.38-2.157 2.38zm7.975 0c-1.183 0-2.157-1.069-2.157-2.38 0-1.312.955-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.946 2.38-2.157 2.38z" />
+                </svg>
+                Add to Discord
+            </button>
+            <button class="btn btn-secondary" id="dashboard-btn">
+                Dashboard →
+            </button>
         </div>
-    </section>
+    </main>
 
-    <!-- Features Section -->
-    <section class="section" id="features">
-        <div class="section-header">
-            <div class="section-label">Features</div>
-            <h2 class="section-title">Everything You Need</h2>
-            <p class="section-desc">
-                CheapShot combines AI intelligence with powerful Discord integrations
-                to give you complete control over your server.
-            </p>
-        </div>
-
-        <div class="features-grid">
-            <div class="feature-card">
-                <div class="feature-icon">🤖</div>
-                <h3 class="feature-title">Natural Language AI</h3>
-                <p class="feature-desc">
-                    Just talk to CheapShot like you would a human. Ask it to create channels,
-                    set up roles, or organize your server structure. No commands to memorize.
-                </p>
-            </div>
-
-            <div class="feature-card">
-                <div class="feature-icon">🛡️</div>
-                <h3 class="feature-title">Smart Moderation</h3>
-                <p class="feature-desc">
-                    AI-powered content moderation that understands context. Automatically
-                    detects and handles rule violations with configurable actions.
-                </p>
-            </div>
-
-            <div class="feature-card">
-                <div class="feature-icon">🎨</div>
-                <h3 class="feature-title">Image Generation</h3>
-                <p class="feature-desc">
-                    Create stunning images right in Discord. Just describe what you want
-                    and CheapShot generates it using cutting-edge AI models.
-                </p>
-            </div>
-
-            <div class="feature-card">
-                <div class="feature-icon">⚡</div>
-                <h3 class="feature-title">Server Management</h3>
-                <p class="feature-desc">
-                    Create, delete, and configure channels, categories, and roles.
-                    Set up entire server structures with a single request.
-                </p>
-            </div>
-
-            <div class="feature-card">
-                <div class="feature-icon">🎭</div>
-                <h3 class="feature-title">Role Management</h3>
-                <p class="feature-desc">
-                    Create custom roles, set permissions, assign colors, and manage
-                    your community hierarchy with simple commands.
-                </p>
-            </div>
-
-            <div class="feature-card">
-                <div class="feature-icon">📊</div>
-                <h3 class="feature-title">Web Dashboard</h3>
-                <p class="feature-desc">
-                    Configure everything from a beautiful web interface. Toggle features,
-                    customize settings, and manage multiple servers.
-                </p>
-            </div>
-        </div>
-    </section>
-
-    <!-- Capabilities Section -->
-    <section class="section" id="capabilities" style="background: var(--abyss);">
-        <div class="section-header">
-            <div class="section-label">Capabilities</div>
-            <h2 class="section-title">40+ Built-in Tools</h2>
-            <p class="section-desc">
-                CheapShot has dozens of tools that work together seamlessly.
-                Here's what it can do:
-            </p>
-        </div>
-
-        <div class="tools-showcase">
-            <div class="tool-item">
-                <div class="tool-icon">📝</div>
-                <div class="tool-name">Create Channels</div>
-            </div>
-            <div class="tool-item">
-                <div class="tool-icon">🗑️</div>
-                <div class="tool-name">Delete Channels</div>
-            </div>
-            <div class="tool-item">
-                <div class="tool-icon">🔊</div>
-                <div class="tool-name">Voice Channels</div>
-            </div>
-            <div class="tool-item">
-                <div class="tool-icon">📁</div>
-                <div class="tool-name">Categories</div>
-            </div>
-            <div class="tool-item">
-                <div class="tool-icon">👥</div>
-                <div class="tool-name">Create Roles</div>
-            </div>
-            <div class="tool-item">
-                <div class="tool-icon">🎨</div>
-                <div class="tool-name">Role Colors</div>
-            </div>
-            <div class="tool-item">
-                <div class="tool-icon">🔒</div>
-                <div class="tool-name">Permissions</div>
-            </div>
-            <div class="tool-item">
-                <div class="tool-icon">📌</div>
-                <div class="tool-name">Pin Messages</div>
-            </div>
-            <div class="tool-item">
-                <div class="tool-icon">🧵</div>
-                <div class="tool-name">Threads</div>
-            </div>
-            <div class="tool-item">
-                <div class="tool-icon">📣</div>
-                <div class="tool-name">Announcements</div>
-            </div>
-            <div class="tool-item">
-                <div class="tool-icon">🎉</div>
-                <div class="tool-name">Events</div>
-            </div>
-            <div class="tool-item">
-                <div class="tool-icon">😀</div>
-                <div class="tool-name">Emojis</div>
-            </div>
-            <div class="tool-item">
-                <div class="tool-icon">🖼️</div>
-                <div class="tool-name">Generate Images</div>
-            </div>
-            <div class="tool-item">
-                <div class="tool-icon">🔗</div>
-                <div class="tool-name">Webhooks</div>
-            </div>
-            <div class="tool-item">
-                <div class="tool-icon">🔇</div>
-                <div class="tool-name">Timeout Users</div>
-            </div>
-            <div class="tool-item">
-                <div class="tool-icon">⚠️</div>
-                <div class="tool-name">Warn Users</div>
-            </div>
-        </div>
-    </section>
-
-    <!-- CTA Section -->
-    <section class="cta-section">
-        <div class="cta-content">
-            <h2 class="cta-title">Ready to Transform Your Server?</h2>
-            <p class="cta-desc">
-                Join thousands of servers already using CheapShot.
-                Setup takes less than a minute.
-            </p>
-            <div class="hero-actions">
-                <button class="btn-hero btn-hero-primary" id="cta-add-btn">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                        <path
-                            d="M20.317 4.492c-1.53-.69-3.17-1.2-4.885-1.49a.075.075 0 0 0-.079.036c-.21.369-.444.85-.608 1.23a18.566 18.566 0 0 0-5.487 0 12.36 12.36 0 0 0-.617-1.23A.077.077 0 0 0 8.562 3c-1.714.29-3.354.8-4.885 1.491a.07.07 0 0 0-.032.027C.533 9.093-.32 13.555.099 17.961a.08.08 0 0 0 .031.055 20.03 20.03 0 0 0 5.993 2.98.078.078 0 0 0 .084-.026c.462-.62.874-1.275 1.226-1.963.021-.04.001-.088-.041-.104a13.201 13.201 0 0 1-1.872-.878.075.075 0 0 1-.008-.125c.126-.093.252-.19.372-.287a.075.075 0 0 1 .078-.01c3.927 1.764 8.18 1.764 12.061 0a.075.075 0 0 1 .079.009c.12.098.245.195.372.288a.075.075 0 0 1-.006.125c-.598.344-1.22.635-1.873.877a.075.075 0 0 0-.041.105c.36.687.772 1.341 1.225 1.962a.077.077 0 0 0 .084.028 19.963 19.963 0 0 0 6.002-2.981.076.076 0 0 0 .032-.054c.5-5.094-.838-9.52-3.549-13.442a.06.06 0 0 0-.031-.028zM8.02 15.278c-1.182 0-2.157-1.069-2.157-2.38 0-1.312.956-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.956 2.38-2.157 2.38zm7.975 0c-1.183 0-2.157-1.069-2.157-2.38 0-1.312.955-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.946 2.38-2.157 2.38z" />
-                    </svg>
-                    Add to Discord — It's Free
-                </button>
-            </div>
-        </div>
-    </section>
-
-    <!-- Footer -->
-    <footer class="footer">
-        <p class="footer-text">
-            © 2024 CheapShot. Built with ❤️ for the Discord community.
-            <br>
-            <a href="/dashboard.html" class="footer-link">Dashboard</a>
-        </p>
+    <footer>
+        © 2025 skmredacted
     </footer>
 
     <script>
-        // Discord OAuth2 URL
-        const DISCORD_CLIENT_ID = '1447587559604486417';
+        const CLIENT_ID = '1447587559604486417';
         const REDIRECT_URI = encodeURIComponent(window.location.origin + '/callback');
-        const SCOPES = encodeURIComponent('identify guilds guilds.members.read');
-        const OAUTH_URL = `https://discord.com/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&response_type=code&redirect_uri=${REDIRECT_URI}&scope=${SCOPES}`;
+        const OAUTH_URL = `https://discord.com/oauth2/authorize?client_id=${CLIENT_ID}&response_type=code&redirect_uri=${REDIRECT_URI}&scope=${encodeURIComponent('identify guilds guilds.members.read')}`;
+        const BOT_URL = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&permissions=8&scope=bot%20applications.commands`;
 
-        // Bot invite URL
-        const BOT_INVITE_URL = `https://discord.com/api/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&permissions=8&scope=bot%20applications.commands`;
+        document.getElementById('login-btn').onclick = () => location.href = OAUTH_URL;
+        document.getElementById('dashboard-btn').onclick = () => location.href = OAUTH_URL;
+        document.getElementById('add-btn').onclick = () => window.open(BOT_URL, '_blank');
 
-        // Login buttons
-        document.getElementById('nav-login-btn').addEventListener('click', () => {
-            window.location.href = OAUTH_URL;
-        });
-
-        document.getElementById('hero-login-btn').addEventListener('click', () => {
-            window.location.href = OAUTH_URL;
-        });
-
-        // Add bot buttons
-        document.getElementById('hero-add-btn').addEventListener('click', () => {
-            window.open(BOT_INVITE_URL, '_blank');
-        });
-
-        document.getElementById('cta-add-btn').addEventListener('click', () => {
-            window.open(BOT_INVITE_URL, '_blank');
-        });
-
-        // Check if already logged in
+        // Check if logged in
         fetch('/api/auth/user', { credentials: 'include' })
-            .then(res => {
-                if (res.ok) {
-                    // Update nav button to go to dashboard instead of login
-                    document.getElementById('nav-login-btn').textContent = 'Dashboard';
-                    document.getElementById('hero-login-btn').textContent = 'Go to Dashboard →';
-                }
-            })
+            .then(r => r.ok && (location.href = '/dashboard.html'))
             .catch(() => { });
-
-        // Smooth scroll for anchor links
-        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-            anchor.addEventListener('click', function (e) {
-                e.preventDefault();
-                const target = document.querySelector(this.getAttribute('href'));
-                if (target) {
-                    target.scrollIntoView({ behavior: 'smooth' });
-                }
-            });
-        });
     </script>
 </body>
 
