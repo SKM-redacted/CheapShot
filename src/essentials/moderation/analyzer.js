@@ -34,7 +34,7 @@ export async function analyzeMessage(message) {
     if (!message.guild) return null;
 
     // Skip moderation channel - don't moderate the mod log!
-    const modChannelId = getModerationChannelId(message.guild.id);
+    const modChannelId = await getModerationChannelId(message.guild.id);
     if (modChannelId && message.channel.id === modChannelId) {
         return null;
     }

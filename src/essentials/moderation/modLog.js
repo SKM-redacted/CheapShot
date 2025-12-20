@@ -22,7 +22,7 @@ import { getModerationChannelId } from '../channelConfig.js';
  */
 export async function sendModLogViolation(message, result, actionsExecuted, warningCount, warningId = null) {
     // Get the moderation channel ID for this guild from channel config
-    const channelId = getModerationChannelId(message.guild.id);
+    const channelId = await getModerationChannelId(message.guild.id);
 
     // Skip if no mod log channel configured for this guild
     if (!channelId) {

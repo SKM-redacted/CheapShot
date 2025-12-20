@@ -15,6 +15,49 @@ const state = {
 };
 
 // =============================================================
+// Toast Notification System
+// =============================================================
+
+function showToast(message, type = 'info') {
+    // Remove existing toast if any
+    const existingToast = document.querySelector('.toast-notification');
+    if (existingToast) {
+        existingToast.remove();
+    }
+
+    // Create toast container if it doesn't exist
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        document.body.appendChild(container);
+    }
+
+    // Create toast element
+    const toast = document.createElement('div');
+    toast.className = `toast-notification toast-${type}`;
+    toast.innerHTML = `
+        <div class="toast-content">
+            <span class="toast-message">${message}</span>
+            <button class="toast-close" onclick="this.parentElement.parentElement.remove()">&times;</button>
+        </div>
+    `;
+
+    container.appendChild(toast);
+
+    // Trigger animation
+    requestAnimationFrame(() => {
+        toast.classList.add('show');
+    });
+
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 5000);
+}
+
+// =============================================================
 // API Functions
 // =============================================================
 
@@ -267,17 +310,17 @@ function initSyncButton() {
             const result = await syncChannels(state.selectedGuild.id);
 
             if (result.setupComplete) {
-                alert(`✅ Success! Found ${result.channelsFound?.length || 0} CheapShot channel(s). The bot will now respond in these channels.`);
+                showToast(`✅ Success! Found ${result.channelsFound?.length || 0} CheapShot channel(s). The bot will now respond in these channels.`, 'success');
                 // Refresh bot channel config
                 const botChannels = await fetchBotChannelConfig(state.selectedGuild.id);
                 state.botChannels = botChannels;
                 updateBotChannelsStatus(botChannels);
             } else {
-                alert(`⚠️ ${result.message}\n\n${result.hint || ''}`);
+                showToast(`⚠️ ${result.message} ${result.hint || ''}`, 'warning');
             }
         } catch (err) {
             console.error('Sync failed:', err);
-            alert('❌ Failed to sync channels. Check console for details.');
+            showToast('❌ Failed to sync channels. Check console for details.', 'error');
         } finally {
             newBtn.disabled = false;
             newBtn.textContent = '🔄 Sync Channels';
@@ -396,9 +439,7 @@ function initTabs() {
 
 function initLogout() {
     document.getElementById('logout-btn').addEventListener('click', async () => {
-        if (confirm('Are you sure you want to logout?')) {
-            await logout();
-        }
+        await logout();
     });
 }
 

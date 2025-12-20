@@ -21,7 +21,7 @@ import { extractImagesFromMessage, hasImages } from './imageUtils.js';
 import { generationTracker } from './generationTracker.js';
 import { setupModeration } from '../essentials/moderation/index.js';
 import { setupServerEvents } from '../essentials/serverSetup.js';
-import { isChannelAllowed, getAllowedChannelIds } from '../essentials/channelConfig.js';
+import { isChannelAllowedAsync } from '../essentials/channelConfig.js';
 
 // Initialize clients and queues
 const aiClient = new AIClient();
@@ -467,7 +467,8 @@ async function handleMessage(message, bot) {
         // Check if this channel is allowed based on guild directory config
         // If no channels configured, bot won't auto-respond (mention-only mode)
         const guildId = message.guild.id;
-        if (!isChannelAllowed(guildId, message.channel.id)) {
+        const channelAllowed = await isChannelAllowedAsync(guildId, message.channel.id);
+        if (!channelAllowed) {
             return; // Not an allowed channel for this guild
         }
     }
