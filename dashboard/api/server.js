@@ -133,21 +133,52 @@ async function fetchUser(accessToken) {
     return response.json();
 }
 
+// User guilds cache to avoid rate limits (30 second TTL)
+const userGuildsCache = new Map();
+const GUILDS_CACHE_TTL = 30 * 1000; // 30 seconds
+
 /**
- * Fetch user's guilds from Discord
+ * Fetch user's guilds from Discord (with caching and retry)
  */
 async function fetchUserGuilds(accessToken) {
-    const response = await fetch(`${config.discordApiBase}/users/@me/guilds`, {
-        headers: { Authorization: `Bearer ${accessToken}` }
-    });
-
-    if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`Discord guilds API error: ${response.status} - ${errorText}`);
-        throw new Error('Failed to fetch guilds');
+    // Check cache first
+    const cacheKey = accessToken.substring(0, 20); // Use token prefix as key
+    const cached = userGuildsCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < GUILDS_CACHE_TTL) {
+        return cached.guilds;
     }
 
-    return response.json();
+    // Retry logic for rate limits
+    let retries = 3;
+    while (retries > 0) {
+        const response = await fetch(`${config.discordApiBase}/users/@me/guilds`, {
+            headers: { Authorization: `Bearer ${accessToken}` }
+        });
+
+        if (response.status === 429) {
+            const data = await response.json();
+            const retryAfter = (data.retry_after || 1) * 1000;
+            console.log(`Rate limited, waiting ${retryAfter}ms`);
+            await new Promise(r => setTimeout(r, retryAfter + 100));
+            retries--;
+            continue;
+        }
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Discord guilds API error: ${response.status} - ${errorText}`);
+            throw new Error('Failed to fetch guilds');
+        }
+
+        const guilds = await response.json();
+
+        // Cache the result
+        userGuildsCache.set(cacheKey, { guilds, timestamp: Date.now() });
+
+        return guilds;
+    }
+
+    throw new Error('Rate limited - please wait a moment and try again');
 }
 
 /**
@@ -290,11 +321,18 @@ function requireGuildAuth(paramName = 'guildId') {
                 }
             }
 
-            // Fetch user's guilds from Discord to verify permissions
-            const userGuilds = await fetchUserGuilds(req.session.accessToken);
+            // Use guilds from session (fetched at login) - no API call needed!
+            const userGuilds = req.session.guilds || [];
+
+            if (userGuilds.length === 0) {
+                // Session might be old, try fetching once
+                const freshGuilds = await fetchUserGuilds(req.session.accessToken);
+                req.session.guilds = freshGuilds;
+                req.session.guildsTimestamp = Date.now();
+            }
 
             // Find this specific guild
-            const guild = userGuilds.find(g => g.id === guildId);
+            const guild = (req.session.guilds || []).find(g => g.id === guildId);
 
             if (!guild) {
                 // User is not in this guild at all
@@ -362,6 +400,9 @@ app.post('/api/auth/callback', async (req, res) => {
         // Fetch user info
         const user = await fetchUser(tokens.access_token);
 
+        // Fetch guilds ONCE at login and store in session
+        const guilds = await fetchUserGuilds(tokens.access_token);
+
         // Store in session
         req.session.accessToken = tokens.access_token;
         req.session.refreshToken = tokens.refresh_token;
@@ -373,6 +414,9 @@ app.post('/api/auth/callback', async (req, res) => {
             avatar: user.avatar,
             globalName: user.global_name
         };
+        // Store guilds in session - refresh with /api/guilds/refresh endpoint
+        req.session.guilds = guilds;
+        req.session.guildsTimestamp = Date.now();
 
         res.json({
             success: true,
