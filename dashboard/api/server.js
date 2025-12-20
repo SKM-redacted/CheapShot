@@ -994,6 +994,96 @@ app.get('/api/guilds/:guildId/audit-logs', requireGuildAuth(), async (req, res) 
 });
 
 // =============================================================
+// Bot Appearance (Nickname)
+// =============================================================
+
+// Set bot nickname for a guild
+app.put('/api/guilds/:guildId/bot/nickname', requireGuildAuth(), async (req, res) => {
+    const { guildId } = req.params;
+    const { nickname } = req.body;
+
+    // Validate nickname (max 32 chars, or empty to reset)
+    if (nickname && (typeof nickname !== 'string' || nickname.length > 32)) {
+        return res.status(400).json({ error: 'Nickname must be a string of 32 characters or less' });
+    }
+
+    try {
+        if (config.botTokens.length === 0) {
+            return res.status(500).json({ error: 'No bot token configured' });
+        }
+
+        // Update bot's nickname via Discord API
+        // PATCH /guilds/{guild.id}/members/@me
+        const response = await fetch(`${config.discordApiBase}/guilds/${guildId}/members/@me`, {
+            method: 'PATCH',
+            headers: {
+                Authorization: `Bot ${config.botTokens[0]}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                nick: nickname || null // null resets to default
+            })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Discord nickname API error:', response.status, errorText);
+
+            if (response.status === 403) {
+                return res.status(403).json({
+                    error: 'Bot lacks permission to change its nickname. Make sure its role is high enough.',
+                    code: 'MISSING_PERMISSION'
+                });
+            }
+
+            return res.status(response.status).json({
+                error: 'Failed to update nickname on Discord',
+                code: 'DISCORD_API_ERROR'
+            });
+        }
+
+        // Save to database for persistence (bot will re-apply on restart/rejoin)
+        await db.updateGuildSettings(guildId, {
+            modules: {
+                appearance: {
+                    customName: nickname || ''
+                }
+            }
+        });
+
+        // Log the action
+        await db.addAuditLog(guildId, req.session.user.id, 'update_bot_nickname', {
+            nickname: nickname || '(reset to default)'
+        });
+
+        res.json({
+            success: true,
+            nickname: nickname || null,
+            message: nickname
+                ? `Bot nickname changed to "${nickname}"`
+                : 'Bot nickname reset to default'
+        });
+    } catch (error) {
+        console.error('Set nickname error:', error);
+        res.status(500).json({ error: 'Failed to set bot nickname' });
+    }
+});
+
+// Get bot nickname for a guild
+app.get('/api/guilds/:guildId/bot/nickname', requireGuildAuth(), async (req, res) => {
+    const { guildId } = req.params;
+
+    try {
+        const settings = await db.getGuildSettings(guildId);
+        const nickname = settings?.modules?.appearance?.customName || '';
+        res.json({ nickname });
+    } catch (error) {
+        console.error('Get nickname error:', error);
+        res.status(500).json({ error: 'Failed to get bot nickname' });
+    }
+});
+
+// =============================================================
 // Start Server
 // =============================================================
 // Bind to 0.0.0.0 so Docker containers (nginx) can reach us

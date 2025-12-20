@@ -5,145 +5,106 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - CheapShot</title>
-    <meta name="description" content="CheapShot Discord Bot Dashboard">
-    <link rel="stylesheet" href="/css/style.css">
+    <meta name="description" content="CheapShot Discord Bot Dashboard - Configure and customize your bot">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="/css/base.css">
+    <link rel="stylesheet" href="/css/layout.css">
+    <link rel="stylesheet" href="/css/components.css">
+    <link rel="stylesheet" href="/css/modules.css">
 </head>
 
-<body class="dashboard-page">
-    <!-- Sidebar -->
-    <aside class="sidebar">
-        <div class="sidebar-header">
-            <div class="logo-icon small">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" />
-                    <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" />
-                    <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" />
-                </svg>
+<body>
+    <div class="dashboard">
+        <!-- Sidebar - Server List -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <a href="/" class="sidebar-logo" data-tooltip="CheapShot">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" />
+                        <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" />
+                        <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" />
+                    </svg>
+                </a>
             </div>
-            <span class="logo-text">CheapShot</span>
+
+            <div class="sidebar-servers" id="server-list">
+                <!-- Servers injected by JS -->
+                <div class="loading-spinner"></div>
+            </div>
+
+            <div class="sidebar-footer">
+                <div class="user-avatar" id="user-avatar" data-tooltip="Profile">
+                    <img src="" alt="" id="user-avatar-img">
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Wrapper -->
+        <div class="main-wrapper" id="main-wrapper">
+            <!-- Header -->
+            <header class="main-header">
+                <div class="header-server-info" id="header-server-info">
+                    <div class="header-server-icon" id="header-server-icon">
+                        <img src="" alt="">
+                    </div>
+                    <span class="header-server-name" id="header-server-name">Select a Server</span>
+                </div>
+                <div class="header-actions">
+                    <button class="btn btn-ghost btn-icon" id="btn-refresh" data-tooltip="Refresh">
+                        🔄
+                    </button>
+                </div>
+            </header>
+
+            <!-- Main Content -->
+            <main class="main-content" id="main-content">
+                <!-- Welcome State -->
+                <div id="welcome-state" class="welcome-state">
+                    <div class="welcome-card">
+                        <div class="welcome-icon">👈</div>
+                        <h2>Welcome to CheapShot</h2>
+                        <p>Select a server from the sidebar to configure your bot.</p>
+                    </div>
+                </div>
+
+                <!-- Module Grid (shown when server selected) -->
+                <div id="module-grid" class="module-grid hidden">
+                    <!-- Modules injected by JS -->
+                </div>
+            </main>
         </div>
 
-        <nav class="sidebar-nav">
-            <div class="nav-section">
-                <h4>Servers</h4>
-                <div id="server-list" class="server-list">
-                    <div class="loading-placeholder">Loading...</div>
+        <!-- Slide-out Config Panel -->
+        <div class="panel-overlay" id="panel-overlay"></div>
+        <aside class="config-panel" id="config-panel">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <span class="panel-title-icon" id="panel-icon">⚙️</span>
+                    <span class="panel-title-text" id="panel-title">Configuration</span>
                 </div>
+                <button class="panel-close" id="panel-close">✕</button>
             </div>
-        </nav>
-
-        <div class="sidebar-footer">
-            <div class="user-info" id="user-info">
-                <div class="user-avatar"></div>
-                <span class="user-name">Loading...</span>
+            <div class="panel-content" id="panel-content">
+                <!-- Panel content loaded dynamically -->
             </div>
-            <button id="logout-btn" class="logout-btn" title="Logout">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                    <polyline points="16,17 21,12 16,7" />
-                    <line x1="21" y1="12" x2="9" y2="12" />
-                </svg>
-            </button>
-        </div>
-    </aside>
-
-    <!-- Main Content -->
-    <main class="main-content">
-        <header class="content-header">
-            <h1 id="page-title">Select a Server</h1>
-            <p id="page-subtitle">Choose a server from the sidebar to manage</p>
-        </header>
-
-        <!-- Welcome State (no server selected) -->
-        <div id="welcome-state" class="welcome-state">
-            <div class="welcome-card">
-                <div class="welcome-icon">👈</div>
-                <h2>Get Started</h2>
-                <p>Select a server from the sidebar to view and manage its settings.</p>
-                <p class="hint">Only servers where you have admin permissions and CheapShot is installed will appear.
-                </p>
+            <div class="panel-footer" id="panel-footer">
+                <button class="btn btn-secondary" id="panel-cancel">Cancel</button>
+                <button class="btn btn-primary btn-block" id="panel-save">Save Changes</button>
             </div>
-        </div>
+        </aside>
+    </div>
 
-        <!-- Server Overview (when server selected) -->
-        <div id="server-overview" class="server-overview hidden">
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-icon">👥</div>
-                    <div class="stat-info">
-                        <span class="stat-value" id="member-count">-</span>
-                        <span class="stat-label">Members</span>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon">🟢</div>
-                    <div class="stat-info">
-                        <span class="stat-value" id="online-count">-</span>
-                        <span class="stat-label">Online</span>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon">💬</div>
-                    <div class="stat-info">
-                        <span class="stat-value" id="channel-count">-</span>
-                        <span class="stat-label">Channels</span>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon">🎭</div>
-                    <div class="stat-info">
-                        <span class="stat-value" id="role-count">-</span>
-                        <span class="stat-label">Roles</span>
-                    </div>
-                </div>
-            </div>
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
 
-            <!-- Tabs -->
-            <div class="tabs">
-                <button class="tab active" data-tab="channels">Channels</button>
-                <button class="tab" data-tab="roles">Roles</button>
-                <button class="tab" data-tab="settings">Settings</button>
-            </div>
-
-            <!-- Tab Content -->
-            <div class="tab-content">
-                <div id="channels-tab" class="tab-panel active">
-                    <div class="panel-header">
-                        <h3>Channels</h3>
-                        <button id="sync-channels-btn" class="btn btn-primary"
-                            title="Auto-detect CheapShot channels and enable bot responses">
-                            🔄 Sync Channels
-                        </button>
-                    </div>
-                    <div id="bot-channels-status" class="status-banner hidden"></div>
-                    <div id="channels-list" class="item-list">
-                        <div class="loading-placeholder">Loading channels...</div>
-                    </div>
-                </div>
-
-                <div id="roles-tab" class="tab-panel hidden">
-                    <div class="panel-header">
-                        <h3>Roles</h3>
-                    </div>
-                    <div id="roles-list" class="item-list">
-                        <div class="loading-placeholder">Loading roles...</div>
-                    </div>
-                </div>
-
-                <div id="settings-tab" class="tab-panel hidden">
-                    <div class="panel-header">
-                        <h3>Bot Settings</h3>
-                    </div>
-                    <div class="settings-form">
-                        <p class="coming-soon">⚙️ Server-specific bot settings coming soon!</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </main>
-
-    <script src="/js/app.js"></script>
+    <!-- Core Scripts -->
+    <script type="module" src="/js/app.js"></script>
 </body>
 
 </html>
