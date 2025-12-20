@@ -181,25 +181,69 @@ async function fetchUserGuilds(accessToken) {
     throw new Error('Rate limited - please wait a moment and try again');
 }
 
+// Bot guilds cache - longer TTL since bot membership changes less frequently
+let botGuildsCache = null;
+let botGuildsCacheTimestamp = 0;
+const BOT_GUILDS_CACHE_TTL = 60 * 1000; // 60 seconds
+
 /**
  * Get guilds where the bot is a member (using first bot token)
+ * Includes caching and retry logic for reliability
  */
 async function fetchBotGuilds() {
     if (config.botTokens.length === 0) {
         return new Set();
     }
 
-    const response = await fetch(`${config.discordApiBase}/users/@me/guilds`, {
-        headers: { Authorization: `Bot ${config.botTokens[0]}` }
-    });
-
-    if (!response.ok) {
-        console.error('Failed to fetch bot guilds');
-        return new Set();
+    // Check cache first
+    if (botGuildsCache && (Date.now() - botGuildsCacheTimestamp) < BOT_GUILDS_CACHE_TTL) {
+        return botGuildsCache;
     }
 
-    const guilds = await response.json();
-    return new Set(guilds.map(g => g.id));
+    // Retry logic for rate limits
+    let retries = 3;
+    while (retries > 0) {
+        try {
+            const response = await fetch(`${config.discordApiBase}/users/@me/guilds`, {
+                headers: { Authorization: `Bot ${config.botTokens[0]}` }
+            });
+
+            if (response.status === 429) {
+                const data = await response.json();
+                const retryAfter = (data.retry_after || 1) * 1000;
+                console.log(`Bot guilds rate limited, waiting ${retryAfter}ms`);
+                await new Promise(r => setTimeout(r, retryAfter + 100));
+                retries--;
+                continue;
+            }
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`Failed to fetch bot guilds: ${response.status} - ${errorText}`);
+                // Return cached data if available, otherwise empty set
+                return botGuildsCache || new Set();
+            }
+
+            const guilds = await response.json();
+            const guildSet = new Set(guilds.map(g => g.id));
+
+            // Update cache
+            botGuildsCache = guildSet;
+            botGuildsCacheTimestamp = Date.now();
+
+            return guildSet;
+        } catch (error) {
+            console.error('Error fetching bot guilds:', error.message);
+            retries--;
+            if (retries > 0) {
+                await new Promise(r => setTimeout(r, 1000));
+            }
+        }
+    }
+
+    // Return cached data if available after exhausting retries
+    console.warn('Exhausted retries for bot guilds, using cached data');
+    return botGuildsCache || new Set();
 }
 
 /**

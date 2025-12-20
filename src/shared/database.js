@@ -68,9 +68,22 @@ export async function query(text, params) {
 // =============================================================
 
 /**
+ * Default settings for new guilds
+ * AI Chat and Moderation are ON by default since that's the core purpose of the bot
+ */
+const DEFAULT_GUILD_SETTINGS = {
+    modules: {
+        ai: { enabled: true },
+        moderation: { enabled: true }
+    },
+    mentionRespond: true,
+    typingIndicator: true
+};
+
+/**
  * Get guild settings from database
  * @param {string} guildId - Discord guild ID
- * @returns {Promise<object|null>} Settings object or null
+ * @returns {Promise<object>} Settings object (with defaults if not found)
  */
 export async function getGuildSettings(guildId) {
     try {
@@ -78,11 +91,16 @@ export async function getGuildSettings(guildId) {
             `SELECT settings FROM guild_settings WHERE guild_id = $1`,
             [guildId]
         );
-        return result.rows[0]?.settings || null;
+        if (result.rows[0]?.settings) {
+            // Merge with defaults to ensure new settings fields are available
+            return { ...DEFAULT_GUILD_SETTINGS, ...result.rows[0].settings };
+        }
+        // Return defaults for new guilds
+        return { ...DEFAULT_GUILD_SETTINGS };
     } catch (err) {
         // Table might not exist yet
         console.error('Failed to get guild settings:', err.message);
-        return null;
+        return { ...DEFAULT_GUILD_SETTINGS };
     }
 }
 

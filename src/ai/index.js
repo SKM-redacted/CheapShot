@@ -22,6 +22,7 @@ import { generationTracker } from './generationTracker.js';
 import { setupModeration } from '../essentials/moderation/index.js';
 import { setupServerEvents } from '../essentials/serverSetup.js';
 import { isChannelAllowedAsync } from '../essentials/channelConfig.js';
+import db from '../shared/database.js';
 
 // Initialize clients and queues
 const aiClient = new AIClient();
@@ -464,9 +465,24 @@ async function handleMessage(message, bot) {
         // Owner DM - proceed with response
         logger.info('DM', `Received DM from owner: ${message.author.tag}`);
     } else {
+        const guildId = message.guild.id;
+
+        // Check if AI module is enabled for this guild
+        try {
+            const settings = await db.getGuildSettings(guildId);
+            const aiEnabled = settings?.modules?.ai?.enabled;
+
+            // If AI module exists and is explicitly disabled, skip
+            if (settings?.modules?.ai && aiEnabled === false) {
+                return; // AI chat is disabled for this guild
+            }
+        } catch (e) {
+            // If we can't check settings, continue (fail open)
+            logger.warn('AI', `Could not check AI settings for ${guildId}: ${e.message}`);
+        }
+
         // Check if this channel is allowed based on guild directory config
         // If no channels configured, bot won't auto-respond (mention-only mode)
-        const guildId = message.guild.id;
         const channelAllowed = await isChannelAllowedAsync(guildId, message.channel.id);
         if (!channelAllowed) {
             return; // Not an allowed channel for this guild

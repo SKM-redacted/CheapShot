@@ -101,6 +101,41 @@ export async function render(guildId, data = {}) {
 
             <div class="divider"></div>
 
+            <!-- AI Behavior Settings -->
+            <h4 class="text-white mb-md">AI Behavior</h4>
+            
+            <div class="settings-list">
+                <div class="setting-row">
+                    <div class="setting-info">
+                        <div class="text-white font-medium">Respond to @mentions</div>
+                        <div class="text-sm text-muted">Bot responds when mentioned, even outside AI channels</div>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" class="toggle-input" id="mention-respond" 
+                               ${config.mentionRespond !== false ? 'checked' : ''}>
+                        <span class="toggle-track">
+                            <span class="toggle-thumb"></span>
+                        </span>
+                    </label>
+                </div>
+
+                <div class="setting-row">
+                    <div class="setting-info">
+                        <div class="text-white font-medium">Typing Indicator</div>
+                        <div class="text-sm text-muted">Show typing indicator while generating responses</div>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" class="toggle-input" id="typing-indicator" 
+                               ${config.typingIndicator !== false ? 'checked' : ''}>
+                        <span class="toggle-track">
+                            <span class="toggle-thumb"></span>
+                        </span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="divider"></div>
+
             <!-- Save Button -->
             <div class="flex justify-end gap-md">
                 <button class="btn btn-primary" id="save-ai-btn">
@@ -156,6 +191,26 @@ export async function render(guildId, data = {}) {
             
             .channel-item.selected .channel-name {
                 color: var(--white);
+            }
+
+            .settings-list {
+                display: flex;
+                flex-direction: column;
+                gap: var(--space-sm);
+            }
+            
+            .setting-row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: var(--space-md);
+                background: var(--graphite);
+                border-radius: var(--radius-md);
+                border: 1px solid var(--glass-border);
+            }
+            
+            .setting-info {
+                flex: 1;
             }
         </style>
     `;
@@ -236,6 +291,8 @@ export function init(container, options = {}) {
 
             try {
                 const enabled = container.querySelector('#ai-enabled').checked;
+                const mentionRespond = container.querySelector('#mention-respond')?.checked ?? true;
+                const typingIndicator = container.querySelector('#typing-indicator')?.checked ?? true;
 
                 // Build channels config
                 const channels = {};
@@ -251,8 +308,13 @@ export function init(container, options = {}) {
                     channels[name] = { id, type };
                 });
 
-                // Save to API
-                await api.updateModuleConfig(guildId, 'ai', { enabled, channels });
+                // Save module config with behavior settings
+                await api.updateModuleConfig(guildId, 'ai', {
+                    enabled,
+                    channels,
+                    mentionRespond,
+                    typingIndicator
+                });
 
                 // Also sync channel config
                 await api.updateChannelConfig(guildId, channels);

@@ -383,6 +383,13 @@ class App {
             membersCard.onclick = () => this.openMembersPanel(guildId);
         }
 
+        // Channels stat card
+        const channelsCard = document.getElementById('stat-channels')?.closest('.stat-card');
+        if (channelsCard) {
+            channelsCard.style.cursor = 'pointer';
+            channelsCard.onclick = () => this.openChannelsPanel(guildId);
+        }
+
         // Roles stat card
         const rolesCard = document.getElementById('stat-roles')?.closest('.stat-card');
         if (rolesCard) {
@@ -507,6 +514,136 @@ class App {
             content,
             wide: true
         });
+    }
+
+    /**
+     * Open the channels panel
+     */
+    async openChannelsPanel(guildId) {
+        await panel.open({
+            title: 'Server Channels',
+            icon: '💬',
+            content: `
+                <div class="flex items-center justify-center p-xl">
+                    <div class="spinner"></div>
+                </div>
+            `,
+            wide: true
+        });
+
+        try {
+            const channelsData = await api.getChannels(guildId);
+            const channels = channelsData.channels || channelsData || [];
+
+            // Group channels by category
+            const categories = new Map();
+            const noCategory = [];
+
+            // First pass: collect categories
+            channels.forEach(ch => {
+                if (ch.type === 4) { // Category type
+                    categories.set(ch.id, { ...ch, children: [] });
+                }
+            });
+
+            // Second pass: assign channels to categories
+            channels.forEach(ch => {
+                if (ch.type === 4) return; // Skip categories
+                if (ch.parentId && categories.has(ch.parentId)) {
+                    categories.get(ch.parentId).children.push(ch);
+                } else {
+                    noCategory.push(ch);
+                }
+            });
+
+            // Sort channels by position
+            categories.forEach(cat => {
+                cat.children.sort((a, b) => a.position - b.position);
+            });
+            noCategory.sort((a, b) => a.position - b.position);
+
+            // Channel type icons
+            const getChannelIcon = (type) => {
+                switch (type) {
+                    case 0: return '#';  // Text
+                    case 2: return '🔊'; // Voice
+                    case 5: return '📢'; // Announcement
+                    case 10:
+                    case 11:
+                    case 12: return '🧵'; // Thread
+                    case 13: return '🎭'; // Stage
+                    case 15: return '💬'; // Forum
+                    default: return '#';
+                }
+            };
+
+            const getChannelTypeName = (type) => {
+                switch (type) {
+                    case 0: return 'Text';
+                    case 2: return 'Voice';
+                    case 5: return 'Announcement';
+                    case 10:
+                    case 11:
+                    case 12: return 'Thread';
+                    case 13: return 'Stage';
+                    case 15: return 'Forum';
+                    default: return 'Channel';
+                }
+            };
+
+            const renderChannel = (ch) => `
+                <div class="list-item">
+                    <div class="list-item-avatar" style="background: var(--steel); font-size: 1rem;">
+                        ${getChannelIcon(ch.type)}
+                    </div>
+                    <div class="list-item-info">
+                        <div class="list-item-name">${ch.name}</div>
+                        <div class="list-item-meta">${getChannelTypeName(ch.type)}</div>
+                    </div>
+                </div>
+            `;
+
+            let html = `<div class="channels-list">
+                <div class="list-header">
+                    <span>${channels.length} channels</span>
+                </div>
+                <div class="list-items">`;
+
+            // Render uncategorized channels first
+            if (noCategory.length > 0) {
+                html += noCategory.map(renderChannel).join('');
+            }
+
+            // Render categorized channels
+            const sortedCategories = [...categories.values()].sort((a, b) => a.position - b.position);
+            for (const cat of sortedCategories) {
+                if (cat.children.length > 0) {
+                    html += `
+                        <div class="list-item" style="background: var(--steel); margin-top: var(--space-md);">
+                            <div class="list-item-info">
+                                <div class="list-item-name" style="text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; color: var(--silver);">
+                                    📁 ${cat.name}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    html += cat.children.map(renderChannel).join('');
+                }
+            }
+
+            html += '</div></div>';
+            panel.setContent(html);
+
+        } catch (error) {
+            console.error('Failed to load channels:', error);
+            panel.setContent(`
+                <div class="empty-state">
+                    <div class="empty-state-icon">❌</div>
+                    <h3 class="empty-state-title">Failed to load channels</h3>
+                    <p class="empty-state-text">Could not fetch the channel list.</p>
+                </div>
+            `);
+        }
     }
 
     /**
@@ -644,6 +781,9 @@ class App {
                 };
                 state.set({ guildData });
             }
+
+            // Update stats (active modules count)
+            this.updateStats(guild.id);
 
             // Update visual state
             const card = document.querySelector(`[data-module="${moduleName}"]`);

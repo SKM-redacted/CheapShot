@@ -511,9 +511,9 @@
 }
 
 .stat-card:hover {
-    border-color: rgba(255, 45, 45, 0.2);
+    border-color: rgba(255, 255, 255, 0.1);
     transform: translateY(-2px);
-    box-shadow: var(--shadow-glow);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3), 0 0 40px -15px rgba(255, 45, 45, 0.1);
 }
 
 .stat-icon {
@@ -565,16 +565,25 @@
     top: 0;
     left: 0;
     right: 0;
-    height: 3px;
-    background: linear-gradient(90deg, var(--ember), var(--rose));
+    height: 2px;
+    background: linear-gradient(90deg,
+            transparent 0%,
+            rgba(255, 45, 45, 0.6) 20%,
+            rgba(255, 107, 122, 0.8) 50%,
+            rgba(255, 45, 45, 0.6) 80%,
+            transparent 100%);
     opacity: 0;
-    transition: opacity var(--transition-fast);
+    transition: opacity var(--transition-base);
 }
 
 .module-card:hover {
-    border-color: rgba(255, 45, 45, 0.3);
-    transform: translateY(-4px);
-    box-shadow: var(--shadow-lg), var(--shadow-glow);
+    border-color: rgba(255, 255, 255, 0.12);
+    transform: translateY(-3px) scale(1.01);
+    box-shadow:
+        0 12px 40px rgba(0, 0, 0, 0.4),
+        0 0 0 1px rgba(255, 255, 255, 0.08),
+        0 0 60px -10px rgba(255, 45, 45, 0.15);
+    background: rgba(22, 22, 28, 0.85);
 }
 
 .module-card:hover::before {
@@ -782,8 +791,8 @@
 
 /* Clickable stat cards */
 .stat-card[style*="cursor: pointer"]:hover {
-    border-color: var(--ember);
-    background: var(--glass-hover);
+    border-color: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.03);
 }
 
 .stat-card[style*="cursor: pointer"]::after {

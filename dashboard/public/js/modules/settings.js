@@ -59,34 +59,6 @@ export async function render(guildId, data = {}) {
                         </span>
                     </label>
                 </div>
-
-                <div class="setting-row">
-                    <div class="setting-info">
-                        <div class="text-white font-medium">Respond to @mentions</div>
-                        <div class="text-sm text-muted">Bot responds when mentioned, even outside AI channels</div>
-                    </div>
-                    <label class="toggle">
-                        <input type="checkbox" class="toggle-input" id="mention-respond" 
-                               ${settings.mentionRespond !== false ? 'checked' : ''}>
-                        <span class="toggle-track">
-                            <span class="toggle-thumb"></span>
-                        </span>
-                    </label>
-                </div>
-
-                <div class="setting-row">
-                    <div class="setting-info">
-                        <div class="text-white font-medium">Typing Indicator</div>
-                        <div class="text-sm text-muted">Show typing indicator while generating responses</div>
-                    </div>
-                    <label class="toggle">
-                        <input type="checkbox" class="toggle-input" id="typing-indicator" 
-                               ${settings.typingIndicator !== false ? 'checked' : ''}>
-                        <span class="toggle-track">
-                            <span class="toggle-thumb"></span>
-                        </span>
-                    </label>
-                </div>
             </div>
 
             <div class="divider"></div>
@@ -171,9 +143,7 @@ export function init(container, options = {}) {
                 const settings = {
                     prefix: container.querySelector('#prefix').value || '!',
                     nickname: container.querySelector('#nickname').value || null,
-                    deleteCommands: container.querySelector('#delete-commands').checked,
-                    mentionRespond: container.querySelector('#mention-respond').checked,
-                    typingIndicator: container.querySelector('#typing-indicator').checked
+                    deleteCommands: container.querySelector('#delete-commands').checked
                 };
 
                 await api.updateSettings(guildId, settings);
