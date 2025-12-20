@@ -87,6 +87,15 @@ class ApiClient {
         return data.roles;
     }
 
+    async getMembers(guildId, limit = 100) {
+        const data = await this.request(`/guilds/${guildId}/members?limit=${limit}`);
+        return data.members;
+    }
+
+    async getGuildInfo(guildId) {
+        return await this.request(`/guilds/${guildId}`);
+    }
+
     async syncChannels(guildId) {
         return await this.request(`/guilds/${guildId}/sync`, { method: 'POST' });
     }

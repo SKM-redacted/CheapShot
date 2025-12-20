@@ -110,7 +110,7 @@ class PanelManager {
 
         try {
             // Dynamically import the module
-            const module = await import(`./modules/${moduleName}.js`);
+            const module = await import(`../modules/${moduleName}.js`);
 
             if (module.render) {
                 const content = await module.render(moduleConfig.guildId, moduleConfig.data);

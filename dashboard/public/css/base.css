@@ -39,6 +39,9 @@
     --info: #3498db;
     --info-dim: rgba(52, 152, 219, 0.15);
 
+    /* Discord Colors */
+    --discord-blurple: #5865F2;
+
     /* Glass Effects */
     --glass-bg: rgba(16, 16, 20, 0.7);
     --glass-border: rgba(255, 255, 255, 0.06);

@@ -661,6 +661,47 @@ app.get('/api/guilds/:guildId/roles', requireGuildAuth(), async (req, res) => {
     }
 });
 
+// Get guild members (limited to first 1000)
+app.get('/api/guilds/:guildId/members', requireGuildAuth(), async (req, res) => {
+    const { guildId } = req.params;
+    const limit = Math.min(parseInt(req.query.limit) || 100, 1000);
+
+    try {
+        if (config.botTokens.length === 0) {
+            return res.status(500).json({ error: 'No bot token configured' });
+        }
+
+        const response = await fetch(`${config.discordApiBase}/guilds/${guildId}/members?limit=${limit}`, {
+            headers: { Authorization: `Bot ${config.botTokens[0]}` }
+        });
+
+        if (!response.ok) {
+            return res.status(404).json({ error: 'Guild not found' });
+        }
+
+        const members = await response.json();
+
+        const formatted = members.map(member => ({
+            id: member.user.id,
+            username: member.user.username,
+            globalName: member.user.global_name,
+            avatar: member.user.avatar,
+            avatarUrl: member.user.avatar
+                ? `https://cdn.discordapp.com/avatars/${member.user.id}/${member.user.avatar}.webp?size=64`
+                : null,
+            bot: member.user.bot || false,
+            roles: member.roles,
+            joinedAt: member.joined_at,
+            nick: member.nick
+        })).sort((a, b) => new Date(a.joinedAt) - new Date(b.joinedAt));
+
+        res.json({ members: formatted, count: formatted.length });
+    } catch (error) {
+        console.error('Fetch members error:', error);
+        res.status(500).json({ error: 'Failed to fetch members' });
+    }
+});
+
 // =============================================================
 // Auto-Setup & Sync
 // =============================================================

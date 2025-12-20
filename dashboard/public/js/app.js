@@ -309,17 +309,38 @@ class App {
                 console.warn('Could not load settings:', e);
             }
 
+            // Get detailed guild info (for member count)
+            let guildInfo = {};
+            try {
+                guildInfo = await api.getGuildInfo(guildId);
+            } catch (e) {
+                console.warn('Could not load guild info:', e);
+            }
+
+            // Get roles for this guild
+            let roles = [];
+            try {
+                roles = await api.getRoles(guildId);
+            } catch (e) {
+                console.warn('Could not load roles:', e);
+            }
+
             // Store in cache
             const guildData = state.getKey('guildData');
             guildData[guildId] = {
                 ...guildStatus,
+                ...guildInfo,
+                roles,
                 settings,
                 timestamp: Date.now()
             };
             state.set({ guildData });
 
             // Update stats
-            this.updateStats(guildStatus, settings);
+            this.updateStats(guildId);
+
+            // Setup stat card click handlers
+            this.setupStatCardHandlers(guildId);
 
             // Update UI based on status
             this.renderModuleGrid();
@@ -335,17 +356,157 @@ class App {
     /**
      * Update stats display
      */
-    updateStats(guildStatus, settings) {
+    updateStats(guildId) {
+        const guildData = state.getKey('guildData');
+        const currentData = guildData[guildId] || {};
+        const settings = currentData.settings || {};
+        const roles = currentData.roles || [];
+
         // Count active modules
-        const modules = settings?.modules || {};
-        const activeCount = Object.values(modules).filter(m => m?.enabled).length;
+        const moduleSettings = settings?.modules || {};
+        const activeCount = Object.values(moduleSettings).filter(m => m?.enabled).length;
 
         document.getElementById('stat-modules').textContent = activeCount;
-        document.getElementById('stat-channels').textContent = guildStatus.channelCount || 0;
+        document.getElementById('stat-channels').textContent = currentData.channelCount || 0;
+        document.getElementById('stat-members').textContent = currentData.memberCount || '-';
+        document.getElementById('stat-roles').textContent = roles.length || '-';
+    }
 
-        // Members and roles require additional API calls - show dash if not available
-        document.getElementById('stat-members').textContent = '-';
-        document.getElementById('stat-roles').textContent = '-';
+    /**
+     * Setup click handlers for stat cards
+     */
+    setupStatCardHandlers(guildId) {
+        // Members stat card
+        const membersCard = document.getElementById('stat-members')?.closest('.stat-card');
+        if (membersCard) {
+            membersCard.style.cursor = 'pointer';
+            membersCard.onclick = () => this.openMembersPanel(guildId);
+        }
+
+        // Roles stat card
+        const rolesCard = document.getElementById('stat-roles')?.closest('.stat-card');
+        if (rolesCard) {
+            rolesCard.style.cursor = 'pointer';
+            rolesCard.onclick = () => this.openRolesPanel(guildId);
+        }
+    }
+
+    /**
+     * Open the members panel
+     */
+    async openMembersPanel(guildId) {
+        await panel.open({
+            title: 'Server Members',
+            icon: '👥',
+            content: `
+                <div class="flex items-center justify-center p-xl">
+                    <div class="spinner"></div>
+                </div>
+            `,
+            wide: true
+        });
+
+        try {
+            const members = await api.getMembers(guildId, 100);
+            const guildData = state.getKey('guildData');
+            const roles = guildData[guildId]?.roles || [];
+            const roleMap = new Map(roles.map(r => [r.id, r]));
+
+            const content = `
+                <div class="members-list">
+                    <div class="list-header">
+                        <span>Showing ${members.length} members</span>
+                    </div>
+                    <div class="list-items">
+                        ${members.map(member => {
+                const memberRoles = member.roles
+                    .map(rid => roleMap.get(rid))
+                    .filter(Boolean)
+                    .sort((a, b) => b.position - a.position)
+                    .slice(0, 3);
+
+                return `
+                                <div class="list-item">
+                                    <div class="list-item-avatar">
+                                        ${member.avatarUrl
+                        ? `<img src="${member.avatarUrl}" alt="">`
+                        : `<span>${(member.globalName || member.username).charAt(0).toUpperCase()}</span>`
+                    }
+                                    </div>
+                                    <div class="list-item-info">
+                                        <div class="list-item-name">
+                                            ${member.nick || member.globalName || member.username}
+                                            ${member.bot ? '<span class="badge badge-bot">BOT</span>' : ''}
+                                        </div>
+                                        <div class="list-item-meta">
+                                            ${member.username}
+                                            ${memberRoles.length > 0
+                        ? ` · ${memberRoles.map(r => `<span class="role-tag" style="border-color: ${r.color > 0 ? '#' + r.color.toString(16).padStart(6, '0') : '#666'}">${r.name}</span>`).join(' ')}`
+                        : ''}
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+            }).join('')}
+                    </div>
+                </div>
+            `;
+
+            panel.setContent(content);
+        } catch (error) {
+            console.error('Failed to load members:', error);
+            panel.setContent(`
+                <div class="empty-state">
+                    <div class="empty-state-icon">❌</div>
+                    <h3 class="empty-state-title">Failed to load members</h3>
+                    <p class="empty-state-text">Could not fetch the member list.</p>
+                </div>
+            `);
+        }
+    }
+
+    /**
+     * Open the roles panel
+     */
+    async openRolesPanel(guildId) {
+        const guildData = state.getKey('guildData');
+        const roles = guildData[guildId]?.roles || [];
+
+        const content = `
+            <div class="roles-list">
+                <div class="list-header">
+                    <span>${roles.length} roles</span>
+                </div>
+                <div class="list-items">
+                    ${roles.map(role => {
+            const colorHex = role.color > 0 ? '#' + role.color.toString(16).padStart(6, '0') : '#99aab5';
+            return `
+                            <div class="list-item">
+                                <div class="role-color" style="background-color: ${colorHex}"></div>
+                                <div class="list-item-info">
+                                    <div class="list-item-name" style="color: ${colorHex}">
+                                        ${role.name}
+                                        ${role.managed ? '<span class="badge badge-managed">Managed</span>' : ''}
+                                    </div>
+                                    <div class="list-item-meta">
+                                        Position: ${role.position}
+                                        ${role.hoist ? ' · Hoisted' : ''}
+                                        ${role.mentionable ? ' · Mentionable' : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+        }).join('')}
+                </div>
+            </div>
+        `;
+
+        await panel.open({
+            title: 'Server Roles',
+            icon: '🎭',
+            content,
+            wide: true
+        });
     }
 
     /**
