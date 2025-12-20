@@ -2,6 +2,9 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: cheapshot-postgres
+    # Load .env from project root (one directory up)
+    env_file:
+      - ../.env
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-cheapshot}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cheapshot_secure_password}
