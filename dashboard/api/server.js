@@ -6,22 +6,36 @@
  */
 import express from 'express';
 import session from 'express-session';
-import RedisStore from 'connect-redis';
-import { createClient } from 'redis';
+import pgSession from 'connect-pg-simple';
+import pg from 'pg';
 import cors from 'cors';
 import { config } from './config.js';
 
 const app = express();
 
 // =============================================================
-// Redis Setup
+// PostgreSQL Setup
 // =============================================================
-const redisClient = createClient({ url: config.redisUrl });
+const PGStore = pgSession(session);
 
-redisClient.on('error', (err) => console.error('Redis error:', err));
-redisClient.on('connect', () => console.log('✅ Connected to Redis'));
+const pgPool = new pg.Pool({
+    connectionString: config.postgres.connectionString,
+    max: 10, // max clients in pool
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000,
+});
 
-await redisClient.connect();
+pgPool.on('error', (err) => console.error('PostgreSQL pool error:', err));
+pgPool.on('connect', () => console.log('✅ Connected to PostgreSQL'));
+
+// Test connection on startup
+try {
+    const client = await pgPool.connect();
+    console.log('✅ PostgreSQL connection verified');
+    client.release();
+} catch (err) {
+    console.error('❌ Failed to connect to PostgreSQL:', err.message);
+}
 
 // =============================================================
 // Middleware
@@ -34,7 +48,11 @@ app.use(cors({
 app.use(express.json());
 
 app.use(session({
-    store: new RedisStore({ client: redisClient }),
+    store: new PGStore({
+        pool: pgPool,
+        tableName: 'session', // matches init-db.sql
+        createTableIfMissing: true
+    }),
     secret: config.sessionSecret,
     resave: false,
     saveUninitialized: false,

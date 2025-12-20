@@ -23,8 +23,19 @@ export const config = {
     // Session
     sessionSecret: process.env.DASHBOARD_SESSION_SECRET || 'change-me-in-production',
 
-    // Redis
-    redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
+    // PostgreSQL
+    postgres: {
+        host: process.env.POSTGRES_HOST || 'localhost',
+        port: parseInt(process.env.POSTGRES_PORT) || 5432,
+        database: process.env.POSTGRES_DB || 'cheapshot_dashboard',
+        user: process.env.POSTGRES_USER || 'cheapshot',
+        password: process.env.POSTGRES_PASSWORD || 'cheapshot_secure_password',
+        // Connection string for convenience
+        get connectionString() {
+            return process.env.DATABASE_URL ||
+                `postgresql://${this.user}:${this.password}@${this.host}:${this.port}/${this.database}`;
+        }
+    },
 
     // Discord API
     discordApiBase: 'https://discord.com/api/v10',
