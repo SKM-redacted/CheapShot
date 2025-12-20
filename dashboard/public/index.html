@@ -8,8 +8,7 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
-        rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
     <style>
         * {
@@ -19,159 +18,166 @@
         }
 
         body {
-            font-family: 'Space Grotesk', sans-serif;
-            background: #0a0a0a;
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: #000;
             color: #fff;
             min-height: 100vh;
-        }
-
-        .container {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            min-height: 100vh;
-        }
-
-        /* Left Panel - Visual */
-        .left {
-            background: linear-gradient(135deg, #0f0f0f 0%, #1a0a0a 100%);
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            padding: 60px;
-            position: relative;
             overflow: hidden;
         }
 
-        .left::before {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 500px;
-            height: 500px;
-            background: radial-gradient(circle, rgba(255, 45, 45, 0.15) 0%, transparent 70%);
-            animation: pulse 4s ease-in-out infinite;
+        /* Particles container */
+        #particles {
+            position: fixed;
+            inset: 0;
+            z-index: 1;
         }
 
-        @keyframes pulse {
+        /* Main content */
+        .content {
+            position: relative;
+            z-index: 10;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            opacity: 0;
+            transform: translateY(20px);
+        }
 
-            0%,
+        .content.visible {
+            animation: materialize 1.5s ease-out forwards;
+        }
+
+        @keyframes materialize {
+            0% {
+                opacity: 0;
+                transform: translateY(30px) scale(0.95);
+                filter: blur(10px);
+            }
+
             100% {
-                transform: translate(-50%, -50%) scale(1);
                 opacity: 1;
+                transform: translateY(0) scale(1);
+                filter: blur(0);
+            }
+        }
+
+        /* Logo */
+        .logo {
+            width: 100px;
+            height: 100px;
+            background: linear-gradient(135deg, #ff2d2d 0%, #ff0000 100%);
+            border-radius: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 32px;
+            box-shadow:
+                0 0 60px rgba(255, 45, 45, 0.5),
+                0 0 120px rgba(255, 45, 45, 0.3),
+                0 20px 60px rgba(0, 0, 0, 0.5);
+            opacity: 0;
+            animation: logoAppear 1s ease-out 0.5s forwards;
+        }
+
+        @keyframes logoAppear {
+            0% {
+                opacity: 0;
+                transform: scale(0.5) rotate(-10deg);
+                filter: blur(20px);
             }
 
             50% {
-                transform: translate(-50%, -50%) scale(1.2);
-                opacity: 0.6;
+                transform: scale(1.1) rotate(2deg);
+            }
+
+            100% {
+                opacity: 1;
+                transform: scale(1) rotate(0deg);
+                filter: blur(0);
             }
         }
 
-        .brand {
-            position: relative;
-            z-index: 1;
-            text-align: center;
-        }
-
-        .brand-icon {
-            width: 120px;
-            height: 120px;
-            background: linear-gradient(135deg, #ff2d2d 0%, #cc0000 100%);
-            border-radius: 32px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 32px;
-            box-shadow: 0 20px 60px rgba(255, 45, 45, 0.4);
-        }
-
-        .brand-icon svg {
-            width: 60px;
-            height: 60px;
+        .logo svg {
+            width: 50px;
+            height: 50px;
             color: white;
         }
 
-        .brand-name {
-            font-size: 48px;
-            font-weight: 700;
-            letter-spacing: -0.03em;
-            margin-bottom: 12px;
+        /* Title */
+        .title {
+            font-size: clamp(36px, 8vw, 72px);
+            font-weight: 800;
+            letter-spacing: -0.04em;
+            margin-bottom: 16px;
+            text-align: center;
+            background: linear-gradient(180deg, #fff 0%, #999 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            opacity: 0;
+            animation: textAppear 1s ease-out 0.8s forwards;
         }
 
-        .brand-tag {
-            font-size: 16px;
+        .tagline {
+            font-size: 18px;
             color: #666;
-            font-weight: 400;
+            margin-bottom: 48px;
+            text-align: center;
+            opacity: 0;
+            animation: textAppear 1s ease-out 1s forwards;
         }
 
-        /* Features list */
-        .features {
-            margin-top: 60px;
+        @keyframes textAppear {
+            0% {
+                opacity: 0;
+                transform: translateY(20px);
+                filter: blur(10px);
+            }
+
+            100% {
+                opacity: 1;
+                transform: translateY(0);
+                filter: blur(0);
+            }
+        }
+
+        /* Buttons */
+        .buttons {
             display: flex;
-            flex-direction: column;
             gap: 16px;
-            position: relative;
-            z-index: 1;
-        }
-
-        .feature {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            font-size: 14px;
-            color: #888;
-        }
-
-        .feature-icon {
-            width: 24px;
-            height: 24px;
-            background: rgba(255, 45, 45, 0.1);
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 12px;
-        }
-
-        /* Right Panel - Actions */
-        .right {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            padding: 60px 80px;
-            background: #0a0a0a;
-        }
-
-        .right h2 {
-            font-size: 32px;
-            font-weight: 600;
-            margin-bottom: 12px;
-            letter-spacing: -0.02em;
-        }
-
-        .right p {
-            color: #666;
-            font-size: 15px;
-            margin-bottom: 40px;
-            line-height: 1.6;
+            opacity: 0;
+            animation: textAppear 1s ease-out 1.2s forwards;
         }
 
         .btn {
             display: flex;
             align-items: center;
-            justify-content: center;
-            gap: 12px;
-            padding: 16px 24px;
+            gap: 10px;
+            padding: 16px 32px;
             border-radius: 12px;
             font-size: 15px;
-            font-weight: 500;
+            font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             border: none;
-            width: 100%;
-            margin-bottom: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, transparent 100%);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .btn:hover::before {
+            opacity: 1;
         }
 
         .btn svg {
@@ -179,143 +185,228 @@
             height: 20px;
         }
 
-        .btn-discord {
-            background: #5865F2;
+        .btn-primary {
+            background: linear-gradient(135deg, #ff2d2d 0%, #cc0000 100%);
             color: white;
+            box-shadow: 0 4px 30px rgba(255, 45, 45, 0.4);
         }
 
-        .btn-discord:hover {
-            background: #4752c4;
-            transform: translateY(-2px);
+        .btn-primary:hover {
+            transform: translateY(-3px) scale(1.02);
+            box-shadow: 0 8px 40px rgba(255, 45, 45, 0.6);
         }
 
-        .btn-dashboard {
-            background: #1a1a1a;
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.05);
             color: #fff;
-            border: 1px solid #2a2a2a;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
         }
 
-        .btn-dashboard:hover {
-            background: #222;
-            border-color: #333;
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+            transform: translateY(-3px);
         }
 
-        .divider {
+        /* Footer */
+        .footer {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 12px;
+            color: #333;
+            z-index: 10;
+            opacity: 0;
+            animation: textAppear 1s ease-out 1.5s forwards;
+        }
+
+        /* Loading screen */
+        .loader {
+            position: fixed;
+            inset: 0;
+            background: #000;
+            z-index: 100;
             display: flex;
             align-items: center;
-            gap: 16px;
-            margin: 24px 0;
-            color: #444;
-            font-size: 13px;
+            justify-content: center;
+            transition: opacity 0.8s ease-out;
         }
 
-        .divider::before,
-        .divider::after {
-            content: '';
-            flex: 1;
-            height: 1px;
-            background: #222;
+        .loader.fade {
+            opacity: 0;
+            pointer-events: none;
         }
 
-        .footer {
-            margin-top: 60px;
-            font-size: 12px;
-            color: #444;
+        .loader-text {
+            font-size: 14px;
+            color: #333;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
         }
 
         /* Mobile */
-        @media (max-width: 900px) {
-            .container {
-                grid-template-columns: 1fr;
+        @media (max-width: 600px) {
+            .buttons {
+                flex-direction: column;
+                width: 100%;
             }
 
-            .left {
-                padding: 40px;
-                min-height: 50vh;
+            .btn {
+                justify-content: center;
             }
 
-            .brand-icon {
+            .logo {
                 width: 80px;
                 height: 80px;
                 border-radius: 20px;
             }
 
-            .brand-icon svg {
+            .logo svg {
                 width: 40px;
                 height: 40px;
-            }
-
-            .brand-name {
-                font-size: 32px;
-            }
-
-            .features {
-                display: none;
-            }
-
-            .right {
-                padding: 40px;
             }
         }
     </style>
 </head>
 
 <body>
-    <div class="container">
-        <div class="left">
-            <div class="brand">
-                <div class="brand-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-                    </svg>
-                </div>
-                <div class="brand-name">CheapShot</div>
-                <div class="brand-tag">AI Discord Bot</div>
-            </div>
+    <!-- Loading -->
+    <div class="loader" id="loader">
+        <div class="loader-text">Loading</div>
+    </div>
 
-            <div class="features">
-                <div class="feature">
-                    <span class="feature-icon">🤖</span>
-                    <span>Natural language commands</span>
-                </div>
-                <div class="feature">
-                    <span class="feature-icon">🛡️</span>
-                    <span>AI moderation</span>
-                </div>
-                <div class="feature">
-                    <span class="feature-icon">🎨</span>
-                    <span>Image generation</span>
-                </div>
-                <div class="feature">
-                    <span class="feature-icon">⚡</span>
-                    <span>Server management</span>
-                </div>
-            </div>
+    <!-- Particles -->
+    <div id="particles"></div>
+
+    <!-- Content -->
+    <div class="content" id="content">
+        <div class="logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+            </svg>
         </div>
 
-        <div class="right">
-            <h2>Get Started</h2>
-            <p>Add CheapShot to your Discord server or sign in to manage your existing setup.</p>
+        <h1 class="title">CheapShot</h1>
+        <p class="tagline">AI-powered Discord bot for the modern server</p>
 
-            <button class="btn btn-discord" id="add-btn">
+        <div class="buttons">
+            <button class="btn btn-primary" id="add-btn">
                 <svg viewBox="0 0 24 24" fill="currentColor">
                     <path
                         d="M20.317 4.492c-1.53-.69-3.17-1.2-4.885-1.49a.075.075 0 0 0-.079.036c-.21.369-.444.85-.608 1.23a18.566 18.566 0 0 0-5.487 0 12.36 12.36 0 0 0-.617-1.23A.077.077 0 0 0 8.562 3c-1.714.29-3.354.8-4.885 1.491a.07.07 0 0 0-.032.027C.533 9.093-.32 13.555.099 17.961a.08.08 0 0 0 .031.055 20.03 20.03 0 0 0 5.993 2.98.078.078 0 0 0 .084-.026c.462-.62.874-1.275 1.226-1.963.021-.04.001-.088-.041-.104a13.201 13.201 0 0 1-1.872-.878.075.075 0 0 1-.008-.125c.126-.093.252-.19.372-.287a.075.075 0 0 1 .078-.01c3.927 1.764 8.18 1.764 12.061 0a.075.075 0 0 1 .079.009c.12.098.245.195.372.288a.075.075 0 0 1-.006.125c-.598.344-1.22.635-1.873.877a.075.075 0 0 0-.041.105c.36.687.772 1.341 1.225 1.962a.077.077 0 0 0 .084.028 19.963 19.963 0 0 0 6.002-2.981.076.076 0 0 0 .032-.054c.5-5.094-.838-9.52-3.549-13.442a.06.06 0 0 0-.031-.028zM8.02 15.278c-1.182 0-2.157-1.069-2.157-2.38 0-1.312.956-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.956 2.38-2.157 2.38zm7.975 0c-1.183 0-2.157-1.069-2.157-2.38 0-1.312.955-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.946 2.38-2.157 2.38z" />
                 </svg>
                 Add to Discord
             </button>
-
-            <div class="divider">or</div>
-
-            <button class="btn btn-dashboard" id="login-btn">
-                Sign in to Dashboard
+            <button class="btn btn-secondary" id="login-btn">
+                Dashboard →
             </button>
-
-            <div class="footer">© 2025 skmredacted</div>
         </div>
     </div>
 
+    <div class="footer">© 2025 skmredacted</div>
+
+    <!-- tsParticles -->
+    <script src="https://cdn.jsdelivr.net/npm/tsparticles@2/tsparticles.bundle.min.js"></script>
+
     <script>
+        // Initialize particles
+        tsParticles.load("particles", {
+            fullScreen: false,
+            background: {
+                color: "#000"
+            },
+            particles: {
+                number: {
+                    value: 150,
+                    density: {
+                        enable: true,
+                        area: 800
+                    }
+                },
+                color: {
+                    value: ["#ff2d2d", "#ff6b6b", "#ffffff", "#666666"]
+                },
+                shape: {
+                    type: "circle"
+                },
+                opacity: {
+                    value: { min: 0.1, max: 0.8 },
+                    animation: {
+                        enable: true,
+                        speed: 1,
+                        minimumValue: 0.1,
+                        sync: false
+                    }
+                },
+                size: {
+                    value: { min: 1, max: 4 },
+                    animation: {
+                        enable: true,
+                        speed: 3,
+                        minimumValue: 0.5,
+                        sync: false
+                    }
+                },
+                links: {
+                    enable: true,
+                    distance: 150,
+                    color: "#ff2d2d",
+                    opacity: 0.1,
+                    width: 1
+                },
+                move: {
+                    enable: true,
+                    speed: 1,
+                    direction: "none",
+                    random: true,
+                    straight: false,
+                    outModes: {
+                        default: "out"
+                    },
+                    attract: {
+                        enable: true,
+                        rotateX: 600,
+                        rotateY: 1200
+                    }
+                }
+            },
+            interactivity: {
+                detectsOn: "window",
+                events: {
+                    onHover: {
+                        enable: true,
+                        mode: "grab"
+                    },
+                    onClick: {
+                        enable: true,
+                        mode: "push"
+                    }
+                },
+                modes: {
+                    grab: {
+                        distance: 200,
+                        links: {
+                            opacity: 0.3,
+                            color: "#ff2d2d"
+                        }
+                    },
+                    push: {
+                        quantity: 4
+                    }
+                }
+            },
+            detectRetina: true
+        }).then(() => {
+            // Particles loaded, start the entrance animation
+            setTimeout(() => {
+                document.getElementById('loader').classList.add('fade');
+                document.getElementById('content').classList.add('visible');
+            }, 500);
+        });
+
+        // Button handlers
         const CLIENT_ID = '1447587559604486417';
         const REDIRECT = encodeURIComponent(location.origin + '/callback');
         const OAUTH = `https://discord.com/oauth2/authorize?client_id=${CLIENT_ID}&response_type=code&redirect_uri=${REDIRECT}&scope=${encodeURIComponent('identify guilds guilds.members.read')}`;
@@ -324,6 +415,7 @@
         document.getElementById('add-btn').onclick = () => window.open(BOT, '_blank');
         document.getElementById('login-btn').onclick = () => location.href = OAUTH;
 
+        // Auto-redirect if logged in
         fetch('/api/auth/user', { credentials: 'include' })
             .then(r => r.ok && (location.href = '/dashboard.html'))
             .catch(() => { });
