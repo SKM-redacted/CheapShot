@@ -633,7 +633,38 @@ app.get('/api/guilds/:guildId', requireGuildAuth(), async (req, res) => {
     }
 });
 
-// Get guild channels
+// Channel cache to avoid excessive Discord API calls
+const channelsCache = new Map();
+const CHANNELS_CACHE_TTL = 30 * 1000; // 30 seconds
+
+// Helper function to fetch with retry
+async function fetchWithRetry(url, options, maxRetries = 3) {
+    let lastError;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await fetch(url, options);
+
+            // Handle rate limiting
+            if (response.status === 429) {
+                const retryAfter = parseInt(response.headers.get('retry-after') || '1', 10);
+                console.log(`Rate limited, waiting ${retryAfter}s before retry ${attempt}/${maxRetries}`);
+                await new Promise(r => setTimeout(r, retryAfter * 1000));
+                continue;
+            }
+
+            return response;
+        } catch (error) {
+            lastError = error;
+            console.warn(`Fetch attempt ${attempt}/${maxRetries} failed:`, error.message);
+            if (attempt < maxRetries) {
+                await new Promise(r => setTimeout(r, 500 * attempt)); // Exponential backoff
+            }
+        }
+    }
+    throw lastError || new Error('All retry attempts failed');
+}
+
+// Get guild channels (with caching and retry)
 app.get('/api/guilds/:guildId/channels', requireGuildAuth(), async (req, res) => {
     const { guildId } = req.params;
 
@@ -642,12 +673,24 @@ app.get('/api/guilds/:guildId/channels', requireGuildAuth(), async (req, res) =>
             return res.status(500).json({ error: 'No bot token configured' });
         }
 
-        const response = await fetch(`${config.discordApiBase}/guilds/${guildId}/channels`, {
-            headers: { Authorization: `Bot ${config.botTokens[0]}` }
-        });
+        // Check cache first
+        const cached = channelsCache.get(guildId);
+        if (cached && (Date.now() - cached.timestamp) < CHANNELS_CACHE_TTL) {
+            return res.json({ channels: cached.channels });
+        }
+
+        const response = await fetchWithRetry(
+            `${config.discordApiBase}/guilds/${guildId}/channels`,
+            { headers: { Authorization: `Bot ${config.botTokens[0]}` } }
+        );
 
         if (!response.ok) {
-            return res.status(404).json({ error: 'Guild not found' });
+            // Return cached data if available, even if stale
+            if (cached) {
+                console.log(`Discord API error, returning stale cache for ${guildId}`);
+                return res.json({ channels: cached.channels });
+            }
+            return res.status(response.status).json({ error: 'Failed to fetch channels from Discord' });
         }
 
         const channels = await response.json();
@@ -661,14 +704,32 @@ app.get('/api/guilds/:guildId/channels', requireGuildAuth(), async (req, res) =>
             parentId: ch.parent_id
         })).sort((a, b) => a.position - b.position);
 
+        // Update cache
+        channelsCache.set(guildId, {
+            channels: formatted,
+            timestamp: Date.now()
+        });
+
         res.json({ channels: formatted });
     } catch (error) {
         console.error('Fetch channels error:', error);
+
+        // Return cached data if available
+        const cached = channelsCache.get(guildId);
+        if (cached) {
+            console.log(`Error fetching channels, returning stale cache for ${guildId}`);
+            return res.json({ channels: cached.channels });
+        }
+
         res.status(500).json({ error: 'Failed to fetch channels' });
     }
 });
 
-// Get guild roles
+// Roles cache
+const rolesCache = new Map();
+const ROLES_CACHE_TTL = 30 * 1000; // 30 seconds
+
+// Get guild roles (with caching and retry)
 app.get('/api/guilds/:guildId/roles', requireGuildAuth(), async (req, res) => {
     const { guildId } = req.params;
 
@@ -677,12 +738,23 @@ app.get('/api/guilds/:guildId/roles', requireGuildAuth(), async (req, res) => {
             return res.status(500).json({ error: 'No bot token configured' });
         }
 
-        const response = await fetch(`${config.discordApiBase}/guilds/${guildId}/roles`, {
-            headers: { Authorization: `Bot ${config.botTokens[0]}` }
-        });
+        // Check cache first
+        const cached = rolesCache.get(guildId);
+        if (cached && (Date.now() - cached.timestamp) < ROLES_CACHE_TTL) {
+            return res.json({ roles: cached.roles });
+        }
+
+        const response = await fetchWithRetry(
+            `${config.discordApiBase}/guilds/${guildId}/roles`,
+            { headers: { Authorization: `Bot ${config.botTokens[0]}` } }
+        );
 
         if (!response.ok) {
-            return res.status(404).json({ error: 'Guild not found' });
+            if (cached) {
+                console.log(`Discord API error, returning stale roles cache for ${guildId}`);
+                return res.json({ roles: cached.roles });
+            }
+            return res.status(response.status).json({ error: 'Failed to fetch roles from Discord' });
         }
 
         const roles = await response.json();
@@ -698,9 +770,22 @@ app.get('/api/guilds/:guildId/roles', requireGuildAuth(), async (req, res) => {
             hoist: role.hoist
         })).sort((a, b) => b.position - a.position);
 
+        // Update cache
+        rolesCache.set(guildId, {
+            roles: formatted,
+            timestamp: Date.now()
+        });
+
         res.json({ roles: formatted });
     } catch (error) {
         console.error('Fetch roles error:', error);
+
+        const cached = rolesCache.get(guildId);
+        if (cached) {
+            console.log(`Error fetching roles, returning stale cache for ${guildId}`);
+            return res.json({ roles: cached.roles });
+        }
+
         res.status(500).json({ error: 'Failed to fetch roles' });
     }
 });
