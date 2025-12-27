@@ -24,3 +24,5 @@ build/
 # Runtime data
 data/
 dashboard/data/
+
+econ/
