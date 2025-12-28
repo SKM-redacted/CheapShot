@@ -15,8 +15,8 @@ class ContextStore {
         // Max tokens before trimming (20k - keeps context focused)
         this.maxTokens = 20000;
 
-        // Max messages before trimming (keep last 10 messages for focused responses)
-        this.maxMessages = 10;
+        // Max messages before trimming (keep last 25 messages)
+        this.maxMessages = 25;
 
         // Lock timeout (5 seconds)
         this.lockTimeout = 5000;
@@ -397,7 +397,7 @@ class ContextStore {
     clearGuildContext(channelIds) {
         let cleared = 0;
         const channelSet = new Set(channelIds);
-        
+
         for (const [key] of this.personContexts) {
             // contextKey format is "channelId-userId"
             const channelId = key.split('-')[0];
