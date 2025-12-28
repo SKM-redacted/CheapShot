@@ -16,7 +16,7 @@ import { contextStore } from './contextStore.js';
 import { voiceClient } from './voiceClient.js';
 import { ttsClient } from './ttsClient.js';
 import { voiceCommands, handleVoiceCommand } from './voiceCommands.js';
-import { contextCommands, handleContextCommand } from '../slash-commands/context-commands/index.js';
+import { loadAllSlashCommands, handleSlashInteraction, getAllCommands } from '../slash-commands/commandLoader.js';
 import { voiceMemory } from './voiceMemory.js';
 import { extractImagesFromMessage, hasImages } from './imageUtils.js';
 import { generationTracker } from './generationTracker.js';
@@ -1420,6 +1420,7 @@ async function start() {
 
 /**
  * Register slash commands with Discord
+ * Registers BOTH globally (for all servers) AND per-guild (for instant updates to specific guilds)
  */
 async function registerSlashCommands() {
     const primaryBot = botManager.bots[0];
@@ -1428,18 +1429,50 @@ async function registerSlashCommands() {
     try {
         const rest = new REST({ version: '10' }).setToken(config.discordTokens[0]);
 
-        logger.info('STARTUP', 'Registering slash commands...');
+        logger.info('STARTUP', 'Loading slash commands recursively from src/slash-commands...');
 
-        // Combine all slash commands
-        const allCommands = [...voiceCommands, ...contextCommands];
+        // Load all slash commands recursively from src/slash-commands
+        await loadAllSlashCommands();
+        const dynamicCommands = getAllCommands();
 
-        // Register commands globally
-        await rest.put(
-            Routes.applicationCommands(primaryBot.client.user.id),
-            { body: allCommands }
-        );
+        // Combine voice commands (from voiceCommands.js) + dynamically loaded commands
+        const allCommands = [...voiceCommands, ...dynamicCommands];
 
-        logger.info('STARTUP', `Registered ${allCommands.length} slash commands`);
+        logger.info('STARTUP', `Found ${allCommands.length} total slash commands`);
+
+        // Specific guild IDs for instant updates
+        const priorityGuildIds = [
+            '1278196633707741245',
+            '1215010674070265857'
+        ];
+
+        // 1. Register to priority guilds first (instant updates)
+        logger.info('STARTUP', `Registering commands to ${priorityGuildIds.length} priority guild(s)...`);
+        for (const guildId of priorityGuildIds) {
+            try {
+                await rest.put(
+                    Routes.applicationGuildCommands(primaryBot.client.user.id, guildId),
+                    { body: allCommands }
+                );
+                logger.info('STARTUP', `✅ Registered commands to guild: ${guildId}`);
+            } catch (error) {
+                logger.warn('STARTUP', `Failed to register commands to guild ${guildId}: ${error.message}`);
+            }
+        }
+
+        // 2. Register globally (takes up to 1 hour to propagate, but covers all servers)
+        logger.info('STARTUP', 'Registering commands globally...');
+        try {
+            await rest.put(
+                Routes.applicationCommands(primaryBot.client.user.id),
+                { body: allCommands }
+            );
+            logger.info('STARTUP', `✅ Registered ${allCommands.length} commands globally`);
+        } catch (error) {
+            logger.warn('STARTUP', `Failed to register commands globally: ${error.message}`);
+        }
+
+        logger.info('STARTUP', `Slash command registration complete!`);
     } catch (error) {
         logger.error('STARTUP', 'Failed to register slash commands', error);
     }
@@ -1458,9 +1491,9 @@ async function handleInteraction(interaction, bot) {
         const handled = await handleVoiceCommand(interaction);
         if (handled) return;
 
-        // Try context commands
-        const contextHandled = await handleContextCommand(interaction);
-        if (contextHandled) return;
+        // Try dynamically loaded slash commands (from src/slash-commands)
+        const slashHandled = await handleSlashInteraction(interaction);
+        if (slashHandled) return;
 
         // Add more command handlers here in the future
     } catch (error) {
