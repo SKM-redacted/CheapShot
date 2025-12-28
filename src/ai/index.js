@@ -1419,9 +1419,7 @@ async function start() {
 }
 
 /**
- * Register slash commands with Discord
- * - Per-guild for test servers (instant updates)
- * - Globally for everyone else
+ * Register slash commands with Discord (guild-based only)
  */
 async function registerSlashCommands() {
     const primaryBot = botManager.bots[0];
@@ -1434,54 +1432,36 @@ async function registerSlashCommands() {
 
         // Load all slash commands recursively from src/slash-commands
         await loadAllSlashCommands();
-        const dynamicCommands = getAllCommands();
-
-        // Only use dynamically loaded commands from src/slash-commands
-        const allCommands = dynamicCommands;
+        const allCommands = getAllCommands();
 
         logger.info('STARTUP', `Found ${allCommands.length} total slash commands`);
 
-        // Test guild IDs for instant updates
-        const testGuildIds = [
+        // Clear global commands
+        try {
+            await rest.put(
+                Routes.applicationCommands(primaryBot.client.user.id),
+                { body: [] }
+            );
+            logger.info('STARTUP', '✅ Cleared global commands');
+        } catch (error) {
+            logger.warn('STARTUP', `Failed to clear global commands: ${error.message}`);
+        }
+
+        // Guild IDs to register commands to
+        const guildIds = [
             '1278196633707741245',
             '1215010674070265857'
         ];
 
-        // 1. First, clear guild-specific commands from test guilds
-        //    (This prevents duplicates since we'll also register globally)
-        for (const guildId of testGuildIds) {
-            try {
-                await rest.put(
-                    Routes.applicationGuildCommands(primaryBot.client.user.id, guildId),
-                    { body: [] }
-                );
-                logger.debug('STARTUP', `Cleared guild commands for: ${guildId}`);
-            } catch (error) {
-                // Ignore errors here
-            }
-        }
-
-        // 2. Register globally (for all servers including test guilds)
-        logger.info('STARTUP', 'Registering commands globally...');
-        try {
-            await rest.put(
-                Routes.applicationCommands(primaryBot.client.user.id),
-                { body: allCommands }
-            );
-            logger.info('STARTUP', `✅ Registered ${allCommands.length} command(s) globally`);
-        } catch (error) {
-            logger.warn('STARTUP', `Failed to register commands globally: ${error.message}`);
-        }
-
-        // 3. Register per-guild for test servers (overrides global, instant updates)
-        logger.info('STARTUP', `Registering commands to ${testGuildIds.length} test guild(s) for instant updates...`);
-        for (const guildId of testGuildIds) {
+        // Register to each guild
+        logger.info('STARTUP', `Registering commands to ${guildIds.length} guild(s)...`);
+        for (const guildId of guildIds) {
             try {
                 await rest.put(
                     Routes.applicationGuildCommands(primaryBot.client.user.id, guildId),
                     { body: allCommands }
                 );
-                logger.info('STARTUP', `✅ Registered ${allCommands.length} command(s) to test guild: ${guildId}`);
+                logger.info('STARTUP', `✅ Registered ${allCommands.length} command(s) to guild: ${guildId}`);
             } catch (error) {
                 logger.warn('STARTUP', `Failed to register commands to guild ${guildId}: ${error.message}`);
             }
