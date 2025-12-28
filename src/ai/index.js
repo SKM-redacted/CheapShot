@@ -15,7 +15,7 @@ import { loadBalancer } from './loadBalancer.js';
 import { contextStore } from './contextStore.js';
 import { voiceClient } from './voiceClient.js';
 import { ttsClient } from './ttsClient.js';
-import { voiceCommands, handleVoiceCommand } from './voiceCommands.js';
+import { handleVoiceCommand } from './voiceCommands.js';
 import { loadAllSlashCommands, handleSlashInteraction, getAllCommands } from '../slash-commands/commandLoader.js';
 import { voiceMemory } from './voiceMemory.js';
 import { extractImagesFromMessage, hasImages } from './imageUtils.js';
@@ -1435,8 +1435,8 @@ async function registerSlashCommands() {
         await loadAllSlashCommands();
         const dynamicCommands = getAllCommands();
 
-        // Combine voice commands (from voiceCommands.js) + dynamically loaded commands
-        const allCommands = [...voiceCommands, ...dynamicCommands];
+        // Only use dynamically loaded commands from src/slash-commands
+        const allCommands = dynamicCommands;
 
         logger.info('STARTUP', `Found ${allCommands.length} total slash commands`);
 
