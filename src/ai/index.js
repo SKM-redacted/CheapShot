@@ -16,6 +16,7 @@ import { contextStore } from './contextStore.js';
 import { voiceClient } from './voiceClient.js';
 import { ttsClient } from './ttsClient.js';
 import { voiceCommands, handleVoiceCommand } from './voiceCommands.js';
+import { contextCommands, handleContextCommand } from '../slash-commands/context-commands/index.js';
 import { voiceMemory } from './voiceMemory.js';
 import { extractImagesFromMessage, hasImages } from './imageUtils.js';
 import { generationTracker } from './generationTracker.js';
@@ -1429,13 +1430,16 @@ async function registerSlashCommands() {
 
         logger.info('STARTUP', 'Registering slash commands...');
 
+        // Combine all slash commands
+        const allCommands = [...voiceCommands, ...contextCommands];
+
         // Register commands globally
         await rest.put(
             Routes.applicationCommands(primaryBot.client.user.id),
-            { body: voiceCommands }
+            { body: allCommands }
         );
 
-        logger.info('STARTUP', `Registered ${voiceCommands.length} slash commands`);
+        logger.info('STARTUP', `Registered ${allCommands.length} slash commands`);
     } catch (error) {
         logger.error('STARTUP', 'Failed to register slash commands', error);
     }
@@ -1453,6 +1457,10 @@ async function handleInteraction(interaction, bot) {
         // Try voice commands first
         const handled = await handleVoiceCommand(interaction);
         if (handled) return;
+
+        // Try context commands
+        const contextHandled = await handleContextCommand(interaction);
+        if (contextHandled) return;
 
         // Add more command handlers here in the future
     } catch (error) {

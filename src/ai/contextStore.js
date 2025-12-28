@@ -369,6 +369,57 @@ class ContextStore {
             release();
         }
     }
+
+    /**
+     * Clear all contexts for a specific user (across all channels)
+     * @param {string} userId - The user ID to clear contexts for
+     * @returns {number} Number of contexts cleared
+     */
+    clearUserContext(userId) {
+        let cleared = 0;
+        for (const [key] of this.personContexts) {
+            // contextKey format is "channelId-userId"
+            if (key.endsWith(`-${userId}`)) {
+                this.personContexts.delete(key);
+                cleared++;
+            }
+        }
+        logger.info('CONTEXT', `Cleared ${cleared} context(s) for user ${userId}`);
+        return cleared;
+    }
+
+    /**
+     * Clear all contexts for a specific guild (server)
+     * Requires passing the guild's channel IDs since context keys are channelId-userId
+     * @param {string[]} channelIds - Array of channel IDs belonging to the guild
+     * @returns {number} Number of contexts cleared
+     */
+    clearGuildContext(channelIds) {
+        let cleared = 0;
+        const channelSet = new Set(channelIds);
+        
+        for (const [key] of this.personContexts) {
+            // contextKey format is "channelId-userId"
+            const channelId = key.split('-')[0];
+            if (channelSet.has(channelId)) {
+                this.personContexts.delete(key);
+                cleared++;
+            }
+        }
+        logger.info('CONTEXT', `Cleared ${cleared} context(s) for guild (${channelIds.length} channels)`);
+        return cleared;
+    }
+
+    /**
+     * Clear all contexts globally (admin/owner only)
+     * @returns {number} Number of contexts cleared
+     */
+    clearAllContexts() {
+        const count = this.personContexts.size;
+        this.personContexts.clear();
+        logger.info('CONTEXT', `Cleared all ${count} context(s) globally`);
+        return count;
+    }
 }
 
 // Singleton instance
