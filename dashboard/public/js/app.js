@@ -123,7 +123,7 @@ class App {
                 state.set({ currentView: view });
 
                 if (view === 'overview') {
-                    this.renderModuleGrid();
+                    this.restoreOverviewPage();
                 } else if (view === 'context') {
                     // Context is a special full-page view
                     this.openContextView();
@@ -133,6 +133,83 @@ class App {
                 }
             });
         });
+    }
+
+    /**
+     * Restore the overview page (after leaving context view)
+     */
+    restoreOverviewPage() {
+        const guild = state.getKey('selectedGuild');
+
+        // Restore page header
+        const pageTitle = document.querySelector('.page-title');
+        const pageSubtitle = document.querySelector('.page-subtitle');
+        if (pageTitle) pageTitle.textContent = 'Dashboard';
+        if (pageSubtitle) pageSubtitle.textContent = 'Configure your CheapShot bot';
+
+        // Show sync button
+        const syncBtn = document.getElementById('sync-btn');
+        if (syncBtn) syncBtn.style.display = '';
+
+        // Restore page body with stats and modules
+        const pageBody = document.querySelector('.page-body');
+        if (pageBody) {
+            pageBody.innerHTML = `
+                <!-- Stats Row -->
+                <div class="content-section">
+                    <div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+                        <div class="stat-card">
+                            <div class="stat-icon">👥</div>
+                            <div class="stat-content">
+                                <div class="stat-value" id="stat-members">-</div>
+                                <div class="stat-label">Members</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">💬</div>
+                            <div class="stat-content">
+                                <div class="stat-value" id="stat-channels">-</div>
+                                <div class="stat-label">Channels</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">🎭</div>
+                            <div class="stat-content">
+                                <div class="stat-value" id="stat-roles">-</div>
+                                <div class="stat-label">Roles</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">⚡</div>
+                            <div class="stat-content">
+                                <div class="stat-value" id="stat-modules">0</div>
+                                <div class="stat-label">Active Modules</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modules Section -->
+                <div class="content-section">
+                    <div class="section-header">
+                        <h2 class="section-title">Modules</h2>
+                    </div>
+                    <div class="content-grid" id="module-grid">
+                        <!-- Populated by JS -->
+                        <div class="empty-state" style="grid-column: 1 / -1;">
+                            <div class="spinner spinner-lg"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Re-render stats and modules
+        if (guild) {
+            this.updateStats(guild.id);
+            this.setupStatCardHandlers(guild.id);
+        }
+        this.renderModuleGrid();
     }
 
     /**
