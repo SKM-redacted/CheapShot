@@ -12,6 +12,16 @@ import cors from 'cors';
 import { config } from './config.js';
 import db from './db.js';
 
+// Import contextStore for clearing bot memory when deleting context
+let contextStore = null;
+try {
+    const contextModule = await import('../../src/ai/contextStore.js');
+    contextStore = contextModule.default;
+    console.log('✅ ContextStore loaded - dashboard can clear bot memory');
+} catch (err) {
+    console.warn('⚠️ ContextStore not available - delete will only affect database');
+}
+
 const app = express();
 
 // =============================================================
@@ -1537,18 +1547,29 @@ app.delete('/api/guilds/:guildId/context/:channelId/:userId', requireGuildAuth()
     const { guildId, channelId, userId } = req.params;
 
     try {
+        // Clear from database
         await db.query(
             `DELETE FROM conversation_context 
              WHERE guild_id = $1 AND channel_id = $2 AND user_id = $3`,
             [guildId, channelId, userId]
         );
 
+        // Also clear from bot memory if contextStore is available
+        if (contextStore) {
+            try {
+                await contextStore.clearSpecificContext(guildId, channelId, userId);
+                console.log(`Cleared context from bot memory: ${guildId}-${channelId}-${userId}`);
+            } catch (memErr) {
+                console.warn('Failed to clear bot memory:', memErr.message);
+            }
+        }
+
         await db.addAuditLog(guildId, req.session.user.id, 'delete_context', {
             channelId,
             targetUserId: userId
         });
 
-        res.json({ success: true, message: 'Context deleted' });
+        res.json({ success: true, message: 'Context deleted from database and memory' });
     } catch (error) {
         console.error('Delete context error:', error);
         res.status(500).json({ error: 'Failed to delete context' });
@@ -1560,18 +1581,41 @@ app.delete('/api/guilds/:guildId/context/user/:userId', requireGuildAuth(), asyn
     const { guildId, userId } = req.params;
 
     try {
+        // First get list of channels to clear from memory
+        let channelsToClear = [];
+        if (contextStore) {
+            const channelsResult = await db.query(
+                `SELECT channel_id FROM conversation_context WHERE guild_id = $1 AND user_id = $2`,
+                [guildId, userId]
+            );
+            channelsToClear = channelsResult.rows.map(r => r.channel_id);
+        }
+
+        // Delete from database
         const result = await db.query(
             `DELETE FROM conversation_context 
              WHERE guild_id = $1 AND user_id = $2`,
             [guildId, userId]
         );
 
+        // Also clear from bot memory if contextStore is available
+        if (contextStore && channelsToClear.length > 0) {
+            for (const channelId of channelsToClear) {
+                try {
+                    await contextStore.clearSpecificContext(guildId, channelId, userId);
+                } catch (memErr) {
+                    console.warn(`Failed to clear bot memory for channel ${channelId}:`, memErr.message);
+                }
+            }
+            console.log(`Cleared ${channelsToClear.length} context(s) from bot memory for user ${userId}`);
+        }
+
         await db.addAuditLog(guildId, req.session.user.id, 'delete_user_context', {
             targetUserId: userId,
             deletedCount: result.rowCount
         });
 
-        res.json({ success: true, message: `Deleted ${result.rowCount} context(s)`, count: result.rowCount });
+        res.json({ success: true, message: `Deleted ${result.rowCount} context(s) from database and memory`, count: result.rowCount });
     } catch (error) {
         console.error('Delete user context error:', error);
         res.status(500).json({ error: 'Failed to delete user context' });

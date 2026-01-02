@@ -98,9 +98,9 @@ class ContextStore {
             return false;
         }
 
-        // Check cache first
+        // Check cache first (reduced TTL for faster toggle response)
         const cached = this.guildPersistenceCache.get(guildId);
-        if (cached && Date.now() - cached.timestamp < this.persistenceCacheTTL) {
+        if (cached && Date.now() - cached.timestamp < 10000) { // 10 second cache
             return cached.enabled;
         }
 
@@ -119,6 +119,50 @@ class ContextStore {
         } catch (err) {
             logger.warn('CONTEXT', `Failed to check guild settings, defaulting to enabled: ${err.message}`);
             return true;
+        }
+    }
+
+    /**
+     * Clear specific context from both memory and database
+     * @param {string} guildId 
+     * @param {string} channelId 
+     * @param {string} userId 
+     * @returns {Promise<boolean>} Whether context was cleared
+     */
+    async clearSpecificContext(guildId, channelId, userId) {
+        const contextKey = this.getContextKey(guildId, channelId, userId);
+        const release = await this.acquireLock(contextKey);
+
+        try {
+            // Clear from memory
+            this.personContexts.delete(contextKey);
+            this.loadedFromDb.delete(contextKey);
+
+            // Clear any pending saves
+            if (this.pendingSaves.has(contextKey)) {
+                clearTimeout(this.pendingSaves.get(contextKey));
+                this.pendingSaves.delete(contextKey);
+            }
+
+            // Clear from database
+            if (this.dbReady) {
+                try {
+                    await query(
+                        `DELETE FROM conversation_context 
+                         WHERE guild_id = $1 AND channel_id = $2 AND user_id = $3`,
+                        [guildId, channelId, userId]
+                    );
+                    logger.info('CONTEXT', `Cleared context for ${contextKey} from memory and DB`);
+                } catch (err) {
+                    logger.error('CONTEXT', `Failed to clear context from DB: ${err.message}`);
+                }
+            } else {
+                logger.info('CONTEXT', `Cleared context for ${contextKey} from memory`);
+            }
+
+            return true;
+        } finally {
+            release();
         }
     }
 
@@ -274,7 +318,7 @@ class ContextStore {
     }
 
     /**
-     * Get or create person context (with database loading)
+     * Get or create person context (with database loading and sync)
      * @param {string} guildId - The guild/server ID
      * @param {string} channelId - The channel ID
      * @param {string} userId - The user ID
@@ -289,7 +333,36 @@ class ContextStore {
             const dbContext = await this.loadFromDb(guildId, channelId, userId);
             if (dbContext) {
                 this.personContexts.set(contextKey, dbContext);
+                // Track when we last synced with DB
+                dbContext.lastDbSync = Date.now();
                 logger.debug('CONTEXT', `Loaded context from DB for ${contextKey}`);
+            }
+        }
+
+        // If we have a cached context, periodically check if it was deleted from DB
+        const existingContext = this.personContexts.get(contextKey);
+        if (existingContext && this.dbReady && this.loadedFromDb.has(contextKey)) {
+            const lastSync = existingContext.lastDbSync || 0;
+            // Re-sync with DB every 30 seconds to catch external deletes
+            if (Date.now() - lastSync > 30000) {
+                existingContext.lastDbSync = Date.now();
+                const persistenceEnabled = await this.isPersistenceEnabled(guildId);
+                if (persistenceEnabled) {
+                    try {
+                        const result = await query(
+                            `SELECT 1 FROM conversation_context WHERE guild_id = $1 AND channel_id = $2 AND user_id = $3`,
+                            [guildId, channelId, userId]
+                        );
+                        // If not in DB but we have it in memory with messages, clear it (was deleted externally)
+                        if (result.rows.length === 0 && existingContext.messages && existingContext.messages.length > 0) {
+                            logger.info('CONTEXT', `Context ${contextKey} was deleted externally, clearing memory`);
+                            this.personContexts.delete(contextKey);
+                            this.loadedFromDb.delete(contextKey);
+                        }
+                    } catch (err) {
+                        logger.warn('CONTEXT', `Failed to sync context with DB: ${err.message}`);
+                    }
+                }
             }
         }
 
@@ -298,7 +371,8 @@ class ContextStore {
             this.personContexts.set(contextKey, {
                 messages: [],
                 tokenCount: 0,
-                pendingRequests: []
+                pendingRequests: [],
+                lastDbSync: Date.now()
             });
         }
 
