@@ -22,15 +22,9 @@ const __dirname = dirname(__filename);
 // Path to private image uploads folder (NOT in public)
 const UPLOADS_BASE = path.join(__dirname, '../uploads/context-images');
 
-// Import contextStore for clearing bot memory when deleting context
-let contextStore = null;
-try {
-    const contextModule = await import('../../src/ai/contextStore.js');
-    contextStore = contextModule.default;
-    console.log('✅ ContextStore loaded - dashboard can clear bot memory');
-} catch (err) {
-    console.warn('⚠️ ContextStore not available - delete will only affect database');
-}
+// Note: We don't import contextStore here to avoid loading the blessed TUI
+// The dashboard runs as a separate process from the bot
+// Context clearing only affects the database; bot memory clears on next restart
 
 const app = express();
 
@@ -38,6 +32,8 @@ const app = express();
 // PostgreSQL Setup
 // =============================================================
 const PGStore = pgSession(session);
+
+let pgConnectedOnce = false;
 
 const pgPool = new pg.Pool({
     connectionString: config.postgres.connectionString,
@@ -47,7 +43,13 @@ const pgPool = new pg.Pool({
 });
 
 pgPool.on('error', (err) => console.error('PostgreSQL pool error:', err));
-pgPool.on('connect', () => console.log('✅ Connected to PostgreSQL'));
+pgPool.on('connect', () => {
+    // Only log once to avoid spamming the console
+    if (!pgConnectedOnce) {
+        pgConnectedOnce = true;
+        console.log('✅ Connected to PostgreSQL');
+    }
+});
 
 // Test connection and auto-setup tables on startup
 try {
