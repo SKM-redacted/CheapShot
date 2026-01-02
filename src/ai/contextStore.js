@@ -1,5 +1,6 @@
 import { logger } from './logger.js';
 import { query, testConnection, getGuildSettings } from '../shared/database.js';
+import { saveImagesLocally, deleteContextImages } from './imageStorage.js';
 
 /**
  * Context Store - Manages conversation history per person (per guild-channel-user triple)
@@ -142,6 +143,16 @@ class ContextStore {
             if (this.pendingSaves.has(contextKey)) {
                 clearTimeout(this.pendingSaves.get(contextKey));
                 this.pendingSaves.delete(contextKey);
+            }
+
+            // Clear locally stored images
+            try {
+                const deletedCount = await deleteContextImages(guildId, channelId, userId);
+                if (deletedCount > 0) {
+                    logger.info('CONTEXT', `Deleted ${deletedCount} local image(s) for ${contextKey}`);
+                }
+            } catch (imgErr) {
+                logger.warn('CONTEXT', `Failed to delete local images: ${imgErr.message}`);
             }
 
             // Clear from database
@@ -406,7 +417,23 @@ class ContextStore {
 
             // Store images if provided (for vision API support)
             if (images && images.length > 0) {
-                message.images = images;
+                // Save images locally (Discord CDN links expire after 24h)
+                const savedImages = await saveImagesLocally(images, guildId, channelId, userId);
+
+                if (savedImages.length > 0) {
+                    // Store local paths for DB persistence
+                    message.images = savedImages.map(img => ({
+                        url: img.localPath,  // Local path, not Discord CDN
+                        originalUrl: img.originalUrl,  // Keep original for reference
+                        mimeType: img.mimeType,
+                        filename: img.filename,
+                        source: img.source,
+                        size: img.size
+                    }));
+                }
+
+                // Keep full image data including base64 in memory for current session AI calls
+                message._imageData = images;
             }
 
             context.messages.push(message);

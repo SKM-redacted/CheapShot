@@ -9,8 +9,18 @@ import session from 'express-session';
 import pgSession from 'connect-pg-simple';
 import pg from 'pg';
 import cors from 'cors';
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 import { config } from './config.js';
 import db from './db.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Path to private image uploads folder (NOT in public)
+const UPLOADS_BASE = path.join(__dirname, '../uploads/context-images');
 
 // Import contextStore for clearing bot memory when deleting context
 let contextStore = null;
@@ -1649,6 +1659,62 @@ app.get('/api/guilds/:guildId/context/stats', requireGuildAuth(), async (req, re
     } catch (error) {
         console.error('Get context stats error:', error);
         res.status(500).json({ error: 'Failed to get context stats' });
+    }
+});
+
+// =============================================================
+// Authenticated Image Serving
+// =============================================================
+// Serve context images with guild-level authentication
+// Only users with admin access to the guild can view the images
+
+const MIME_TYPES = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.bmp': 'image/bmp',
+    '.svg': 'image/svg+xml',
+    '.tiff': 'image/tiff'
+};
+
+app.get('/api/guilds/:guildId/images/:filename', requireGuildAuth(), async (req, res) => {
+    const { guildId, filename } = req.params;
+
+    try {
+        // Sanitize filename to prevent path traversal attacks
+        const sanitizedFilename = path.basename(filename);
+
+        // Build the file path
+        const filePath = path.join(UPLOADS_BASE, guildId, sanitizedFilename);
+
+        // Check if file exists
+        try {
+            await fs.access(filePath);
+        } catch {
+            return res.status(404).json({ error: 'Image not found' });
+        }
+
+        // Get file extension and determine content type
+        const ext = path.extname(sanitizedFilename).toLowerCase();
+        const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+
+        // Read and send the file
+        const fileBuffer = await fs.readFile(filePath);
+
+        // Set caching headers (1 day cache since images don't change)
+        res.set({
+            'Content-Type': contentType,
+            'Content-Length': fileBuffer.length,
+            'Cache-Control': 'private, max-age=86400',  // 1 day, private (requires auth)
+            'X-Content-Type-Options': 'nosniff'
+        });
+
+        res.send(fileBuffer);
+    } catch (error) {
+        console.error('Image serving error:', error);
+        res.status(500).json({ error: 'Failed to serve image' });
     }
 });
 

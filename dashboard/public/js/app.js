@@ -1351,10 +1351,28 @@ class App {
         // Escape HTML
         content = content.replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+        // Build image thumbnails if present
+        let imageHtml = '';
+        if (msg.images && msg.images.length > 0) {
+            imageHtml = `
+                <div class="context-message-images">
+                    ${msg.images.slice(0, 3).map(img => `
+                        <a href="${img.url}" target="_blank" class="context-image-thumb" title="${img.filename || 'Image'}">
+                            <img src="${img.url}" alt="${img.filename || 'Image'}" loading="lazy" onerror="this.parentElement.innerHTML='📷'">
+                        </a>
+                    `).join('')}
+                    ${msg.images.length > 3 ? `<span class="context-image-more">+${msg.images.length - 3}</span>` : ''}
+                </div>
+            `;
+        }
+
         return `
             <div class="context-message ${isAssistant ? 'assistant' : 'user'}">
                 <span class="context-message-role">${isAssistant ? '🤖' : '👤'}</span>
-                <span class="context-message-content">${content}</span>
+                <div class="context-message-body">
+                    <span class="context-message-content">${content}</span>
+                    ${imageHtml}
+                </div>
                 <span class="context-message-time">${timestamp}</span>
             </div>
         `;
@@ -1394,6 +1412,21 @@ class App {
             const detail = await api.getContextDetail(guildId, channelId, userId);
             const messages = detail.messages || [];
 
+            // Helper to render images
+            const renderImages = (images) => {
+                if (!images || images.length === 0) return '';
+                return `
+                    <div class="context-detail-message-images">
+                        ${images.map(img => `
+                            <a href="${img.url}" target="_blank" class="context-detail-image" title="${img.filename || 'Image'}">
+                                <img src="${img.url}" alt="${img.filename || 'Image'}" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                                <span class="context-detail-image-fallback" style="display:none;">📷 ${img.filename || 'Image'}</span>
+                            </a>
+                        `).join('')}
+                    </div>
+                `;
+            };
+
             const content = `
                 <div class="context-detail">
                     <div class="context-detail-header">
@@ -1417,7 +1450,7 @@ class App {
                                     </span>
                                 </div>
                                 <div class="context-detail-message-content">${(msg.content || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')}</div>
-                                ${msg.images?.length ? `<div class="context-detail-message-images">📷 ${msg.images.length} image(s) attached</div>` : ''}
+                                ${renderImages(msg.images)}
                             </div>
                         `).join('') : '<div class="text-muted p-lg">No messages in this context</div>'}
                     </div>
