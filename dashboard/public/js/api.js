@@ -137,8 +137,51 @@ class ApiClient {
         modules[moduleName] = { ...modules[moduleName], ...config };
         return await this.updateSettings(guildId, { modules });
     }
+
+    // Context endpoints
+    async getContextUsers(guildId, search = '') {
+        const params = search ? `?search=${encodeURIComponent(search)}` : '';
+        const data = await this.request(`/guilds/${guildId}/context/users${params}`);
+        return data;
+    }
+
+    async getContexts(guildId, options = {}) {
+        const { limit = 20, offset = 0, userIds = null, channelId = null } = options;
+        let params = `?limit=${limit}&offset=${offset}`;
+        if (userIds && userIds.length > 0) {
+            params += `&userIds=${userIds.join(',')}`;
+        }
+        if (channelId) {
+            params += `&channelId=${channelId}`;
+        }
+        const data = await this.request(`/guilds/${guildId}/context${params}`);
+        return data;
+    }
+
+    async getContextStats(guildId) {
+        const data = await this.request(`/guilds/${guildId}/context/stats`);
+        return data;
+    }
+
+    async getContextDetail(guildId, channelId, userId) {
+        const data = await this.request(`/guilds/${guildId}/context/${channelId}/${userId}`);
+        return data;
+    }
+
+    async deleteContext(guildId, channelId, userId) {
+        return await this.request(`/guilds/${guildId}/context/${channelId}/${userId}`, {
+            method: 'DELETE'
+        });
+    }
+
+    async deleteUserContext(guildId, userId) {
+        return await this.request(`/guilds/${guildId}/context/user/${userId}`, {
+            method: 'DELETE'
+        });
+    }
 }
 
 // Export singleton
 export const api = new ApiClient();
 export default api;
+

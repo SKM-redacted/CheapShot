@@ -29,10 +29,32 @@ const pgPool = new pg.Pool({
 pgPool.on('error', (err) => console.error('PostgreSQL pool error:', err));
 pgPool.on('connect', () => console.log('✅ Connected to PostgreSQL'));
 
-// Test connection on startup
+// Test connection and auto-setup tables on startup
 try {
     const client = await pgPool.connect();
     console.log('✅ PostgreSQL connection verified');
+
+    // Auto-create conversation_context table if it doesn't exist
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS "conversation_context" (
+            "guild_id" VARCHAR(20) NOT NULL,
+            "channel_id" VARCHAR(20) NOT NULL,
+            "user_id" VARCHAR(20) NOT NULL,
+            "messages" JSONB NOT NULL DEFAULT '[]',
+            "token_count" INTEGER NOT NULL DEFAULT 0,
+            "created_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            PRIMARY KEY ("guild_id", "channel_id", "user_id")
+        )
+    `);
+
+    // Create indexes if they don't exist
+    await client.query(`CREATE INDEX IF NOT EXISTS "IDX_context_guild" ON "conversation_context" ("guild_id")`);
+    await client.query(`CREATE INDEX IF NOT EXISTS "IDX_context_channel" ON "conversation_context" ("channel_id")`);
+    await client.query(`CREATE INDEX IF NOT EXISTS "IDX_context_user" ON "conversation_context" ("user_id")`);
+    await client.query(`CREATE INDEX IF NOT EXISTS "IDX_context_updated" ON "conversation_context" ("updated_at" DESC)`);
+
+    console.log('✅ conversation_context table ready');
     client.release();
 } catch (err) {
     console.error('❌ Failed to connect to PostgreSQL:', err.message);
@@ -1243,6 +1265,346 @@ app.get('/api/guilds/:guildId/audit-logs', requireGuildAuth(), async (req, res) 
     } catch (error) {
         console.error('Get audit logs error:', error);
         res.status(500).json({ error: 'Failed to get audit logs' });
+    }
+});
+
+// =============================================================
+// Conversation Context Management
+// =============================================================
+
+// Get list of users with context in this guild
+app.get('/api/guilds/:guildId/context/users', requireGuildAuth(), async (req, res) => {
+    const { guildId } = req.params;
+    const search = req.query.search || '';
+
+    try {
+        // Get distinct users with context in this guild
+        let query = `
+            SELECT DISTINCT user_id, channel_id, 
+                   (messages->-1->>'username') as last_username,
+                   updated_at
+            FROM conversation_context 
+            WHERE guild_id = $1
+        `;
+        const params = [guildId];
+
+        const result = await db.query(query, params);
+
+        // Get user info from Discord for each unique user
+        const userIds = [...new Set(result.rows.map(r => r.user_id))];
+        const userMap = new Map();
+
+        // Batch fetch user info if we have bot tokens
+        if (config.botTokens.length > 0 && userIds.length > 0) {
+            // Fetch members from guild to get user info
+            try {
+                const membersResponse = await fetch(
+                    `${config.discordApiBase}/guilds/${guildId}/members?limit=1000`,
+                    { headers: { Authorization: `Bot ${config.botTokens[0]}` } }
+                );
+                if (membersResponse.ok) {
+                    const members = await membersResponse.json();
+                    for (const member of members) {
+                        userMap.set(member.user.id, {
+                            id: member.user.id,
+                            username: member.user.username,
+                            globalName: member.user.global_name,
+                            avatar: member.user.avatar,
+                            avatarUrl: member.user.avatar
+                                ? `https://cdn.discordapp.com/avatars/${member.user.id}/${member.user.avatar}.webp?size=64`
+                                : null
+                        });
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to fetch member info:', e.message);
+            }
+        }
+
+        // Build user list with context counts
+        const userStats = new Map();
+        for (const row of result.rows) {
+            if (!userStats.has(row.user_id)) {
+                userStats.set(row.user_id, {
+                    userId: row.user_id,
+                    channelCount: 0,
+                    lastActivity: row.updated_at,
+                    lastUsername: row.last_username
+                });
+            }
+            const stats = userStats.get(row.user_id);
+            stats.channelCount++;
+            if (new Date(row.updated_at) > new Date(stats.lastActivity)) {
+                stats.lastActivity = row.updated_at;
+            }
+        }
+
+        // Combine with Discord info
+        let users = Array.from(userStats.values()).map(stats => {
+            const discordInfo = userMap.get(stats.userId);
+            return {
+                ...stats,
+                username: discordInfo?.username || stats.lastUsername || 'Unknown',
+                globalName: discordInfo?.globalName || null,
+                avatarUrl: discordInfo?.avatarUrl || null
+            };
+        });
+
+        // Filter by search if provided
+        if (search) {
+            const searchLower = search.toLowerCase();
+            users = users.filter(u =>
+                u.username?.toLowerCase().includes(searchLower) ||
+                u.globalName?.toLowerCase().includes(searchLower) ||
+                u.userId.includes(search)
+            );
+        }
+
+        // Sort by last activity
+        users.sort((a, b) => new Date(b.lastActivity) - new Date(a.lastActivity));
+
+        res.json({ users, total: users.length });
+    } catch (error) {
+        console.error('Get context users error:', error);
+        res.status(500).json({ error: 'Failed to get context users' });
+    }
+});
+
+// Get conversation contexts for this guild with pagination
+app.get('/api/guilds/:guildId/context', requireGuildAuth(), async (req, res) => {
+    const { guildId } = req.params;
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const offset = parseInt(req.query.offset) || 0;
+    const userIds = req.query.userIds ? req.query.userIds.split(',') : null;
+    const channelId = req.query.channelId || null;
+
+    try {
+        // Build query with filters
+        let query = `
+            SELECT guild_id, channel_id, user_id, messages, token_count, created_at, updated_at
+            FROM conversation_context 
+            WHERE guild_id = $1
+        `;
+        let countQuery = `SELECT COUNT(*) FROM conversation_context WHERE guild_id = $1`;
+        const params = [guildId];
+        const countParams = [guildId];
+        let paramIndex = 2;
+
+        if (userIds && userIds.length > 0) {
+            query += ` AND user_id = ANY($${paramIndex})`;
+            countQuery += ` AND user_id = ANY($${paramIndex})`;
+            params.push(userIds);
+            countParams.push(userIds);
+            paramIndex++;
+        }
+
+        if (channelId) {
+            query += ` AND channel_id = $${paramIndex}`;
+            countQuery += ` AND channel_id = $${paramIndex}`;
+            params.push(channelId);
+            countParams.push(channelId);
+            paramIndex++;
+        }
+
+        query += ` ORDER BY updated_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+        params.push(limit, offset);
+
+        const [result, countResult] = await Promise.all([
+            db.query(query, params),
+            db.query(countQuery, countParams)
+        ]);
+
+        const total = parseInt(countResult.rows[0].count);
+
+        // Get channel names from Discord
+        const channelIds = [...new Set(result.rows.map(r => r.channel_id))];
+        const channelMap = new Map();
+
+        if (config.botTokens.length > 0 && channelIds.length > 0) {
+            try {
+                const channelsResponse = await fetch(
+                    `${config.discordApiBase}/guilds/${guildId}/channels`,
+                    { headers: { Authorization: `Bot ${config.botTokens[0]}` } }
+                );
+                if (channelsResponse.ok) {
+                    const channels = await channelsResponse.json();
+                    for (const ch of channels) {
+                        channelMap.set(ch.id, { id: ch.id, name: ch.name, type: ch.type });
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to fetch channel info:', e.message);
+            }
+        }
+
+        // Get user info
+        const userIdsInResult = [...new Set(result.rows.map(r => r.user_id))];
+        const userMap = new Map();
+
+        if (config.botTokens.length > 0 && userIdsInResult.length > 0) {
+            try {
+                const membersResponse = await fetch(
+                    `${config.discordApiBase}/guilds/${guildId}/members?limit=1000`,
+                    { headers: { Authorization: `Bot ${config.botTokens[0]}` } }
+                );
+                if (membersResponse.ok) {
+                    const members = await membersResponse.json();
+                    for (const member of members) {
+                        userMap.set(member.user.id, {
+                            id: member.user.id,
+                            username: member.user.username,
+                            globalName: member.user.global_name,
+                            avatarUrl: member.user.avatar
+                                ? `https://cdn.discordapp.com/avatars/${member.user.id}/${member.user.avatar}.webp?size=64`
+                                : null
+                        });
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to fetch member info:', e.message);
+            }
+        }
+
+        // Format contexts
+        const contexts = result.rows.map(row => {
+            const channel = channelMap.get(row.channel_id);
+            const user = userMap.get(row.user_id);
+            const messages = row.messages || [];
+
+            return {
+                guildId: row.guild_id,
+                channelId: row.channel_id,
+                channelName: channel?.name || 'Unknown Channel',
+                userId: row.user_id,
+                username: user?.username || messages[messages.length - 1]?.username || 'Unknown',
+                userAvatarUrl: user?.avatarUrl || null,
+                messageCount: messages.length,
+                tokenCount: row.token_count,
+                messages: messages.slice(-10), // Only send last 10 messages for preview
+                createdAt: row.created_at,
+                updatedAt: row.updated_at
+            };
+        });
+
+        res.json({
+            contexts,
+            pagination: {
+                total,
+                limit,
+                offset,
+                hasMore: offset + limit < total
+            }
+        });
+    } catch (error) {
+        console.error('Get contexts error:', error);
+        res.status(500).json({ error: 'Failed to get contexts' });
+    }
+});
+
+// Get full context for a specific user/channel
+app.get('/api/guilds/:guildId/context/:channelId/:userId', requireGuildAuth(), async (req, res) => {
+    const { guildId, channelId, userId } = req.params;
+
+    try {
+        const result = await db.query(
+            `SELECT * FROM conversation_context 
+             WHERE guild_id = $1 AND channel_id = $2 AND user_id = $3`,
+            [guildId, channelId, userId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Context not found' });
+        }
+
+        const row = result.rows[0];
+        res.json({
+            guildId: row.guild_id,
+            channelId: row.channel_id,
+            userId: row.user_id,
+            messages: row.messages || [],
+            tokenCount: row.token_count,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at
+        });
+    } catch (error) {
+        console.error('Get context detail error:', error);
+        res.status(500).json({ error: 'Failed to get context' });
+    }
+});
+
+// Delete context for a specific user/channel
+app.delete('/api/guilds/:guildId/context/:channelId/:userId', requireGuildAuth(), async (req, res) => {
+    const { guildId, channelId, userId } = req.params;
+
+    try {
+        await db.query(
+            `DELETE FROM conversation_context 
+             WHERE guild_id = $1 AND channel_id = $2 AND user_id = $3`,
+            [guildId, channelId, userId]
+        );
+
+        await db.addAuditLog(guildId, req.session.user.id, 'delete_context', {
+            channelId,
+            targetUserId: userId
+        });
+
+        res.json({ success: true, message: 'Context deleted' });
+    } catch (error) {
+        console.error('Delete context error:', error);
+        res.status(500).json({ error: 'Failed to delete context' });
+    }
+});
+
+// Delete all context for a user in this guild
+app.delete('/api/guilds/:guildId/context/user/:userId', requireGuildAuth(), async (req, res) => {
+    const { guildId, userId } = req.params;
+
+    try {
+        const result = await db.query(
+            `DELETE FROM conversation_context 
+             WHERE guild_id = $1 AND user_id = $2`,
+            [guildId, userId]
+        );
+
+        await db.addAuditLog(guildId, req.session.user.id, 'delete_user_context', {
+            targetUserId: userId,
+            deletedCount: result.rowCount
+        });
+
+        res.json({ success: true, message: `Deleted ${result.rowCount} context(s)`, count: result.rowCount });
+    } catch (error) {
+        console.error('Delete user context error:', error);
+        res.status(500).json({ error: 'Failed to delete user context' });
+    }
+});
+
+// Get context statistics for guild
+app.get('/api/guilds/:guildId/context/stats', requireGuildAuth(), async (req, res) => {
+    const { guildId } = req.params;
+
+    try {
+        const result = await db.query(`
+            SELECT 
+                COUNT(*) as total_contexts,
+                COUNT(DISTINCT user_id) as unique_users,
+                COUNT(DISTINCT channel_id) as unique_channels,
+                SUM(token_count) as total_tokens,
+                SUM(jsonb_array_length(messages)) as total_messages
+            FROM conversation_context 
+            WHERE guild_id = $1
+        `, [guildId]);
+
+        const stats = result.rows[0];
+        res.json({
+            totalContexts: parseInt(stats.total_contexts) || 0,
+            uniqueUsers: parseInt(stats.unique_users) || 0,
+            uniqueChannels: parseInt(stats.unique_channels) || 0,
+            totalTokens: parseInt(stats.total_tokens) || 0,
+            totalMessages: parseInt(stats.total_messages) || 0
+        });
+    } catch (error) {
+        console.error('Get context stats error:', error);
+        res.status(500).json({ error: 'Failed to get context stats' });
     }
 });
 
