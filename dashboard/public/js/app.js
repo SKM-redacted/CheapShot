@@ -429,14 +429,18 @@ class App {
             };
             state.set({ guildData });
 
-            // Update stats
-            this.updateStats(guildId);
+            // Check which view we're on and update accordingly
+            const currentView = state.getKey('currentView');
 
-            // Setup stat card click handlers
-            this.setupStatCardHandlers(guildId);
-
-            // Update UI based on status
-            this.renderModuleGrid();
+            if (currentView === 'context') {
+                // Refresh the context page for the new guild
+                await this.renderContextPage(guildId);
+            } else {
+                // Update overview stats and module grid
+                this.updateStats(guildId);
+                this.setupStatCardHandlers(guildId);
+                this.renderModuleGrid();
+            }
 
         } catch (error) {
             console.error('Failed to load guild data:', error);
@@ -463,18 +467,28 @@ class App {
         // Use channels array length for actual server channel count
         const channelCount = Array.isArray(channels) ? channels.length : (currentData.channelCount || 0);
 
-        document.getElementById('stat-modules').textContent = activeCount;
-        document.getElementById('stat-channels').textContent = channelCount;
-        document.getElementById('stat-members').textContent = currentData.memberCount || '-';
-        document.getElementById('stat-roles').textContent = roles.length || '-';
+        // Guard against missing elements (e.g., when on context page)
+        const statModules = document.getElementById('stat-modules');
+        const statChannels = document.getElementById('stat-channels');
+        const statMembers = document.getElementById('stat-members');
+        const statRoles = document.getElementById('stat-roles');
+
+        if (statModules) statModules.textContent = activeCount;
+        if (statChannels) statChannels.textContent = channelCount;
+        if (statMembers) statMembers.textContent = currentData.memberCount || '-';
+        if (statRoles) statRoles.textContent = roles.length || '-';
     }
 
     /**
      * Setup click handlers for stat cards
      */
     setupStatCardHandlers(guildId) {
+        // Guard: Only run if stat elements exist (overview page)
+        const statMembers = document.getElementById('stat-members');
+        if (!statMembers) return;
+
         // Members stat card
-        const membersCard = document.getElementById('stat-members')?.closest('.stat-card');
+        const membersCard = statMembers.closest('.stat-card');
         if (membersCard) {
             membersCard.style.cursor = 'pointer';
             membersCard.onclick = () => this.openMembersPanel(guildId);
@@ -960,6 +974,16 @@ class App {
     async renderContextPage(guildId) {
         const pageBody = document.querySelector('.page-body');
         if (!pageBody) return;
+
+        // Update header (in case we're switching servers while on context page)
+        const pageTitle = document.querySelector('.page-title');
+        const pageSubtitle = document.querySelector('.page-subtitle');
+        if (pageTitle) pageTitle.textContent = 'Conversation Context';
+        if (pageSubtitle) pageSubtitle.textContent = 'View and manage AI conversation memory for users';
+
+        // Hide sync button for this view
+        const syncBtn = document.getElementById('sync-btn');
+        if (syncBtn) syncBtn.style.display = 'none';
 
         // Show loading state
         pageBody.innerHTML = `
