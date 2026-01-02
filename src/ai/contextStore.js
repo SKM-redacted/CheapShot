@@ -1,5 +1,5 @@
 import { logger } from './logger.js';
-import { query, testConnection } from '../shared/database.js';
+import { query, testConnection, getGuildSettings } from '../shared/database.js';
 
 /**
  * Context Store - Manages conversation history per person (per guild-channel-user triple)
@@ -13,6 +13,10 @@ class ContextStore {
 
         // Track which contexts have been loaded from DB
         this.loadedFromDb = new Set();
+
+        // Cache for guild persistence settings (guildId -> { enabled, timestamp })
+        this.guildPersistenceCache = new Map();
+        this.persistenceCacheTTL = 60000; // 1 minute cache
 
         // Mutex locks per context key
         this.locks = new Map();
@@ -79,6 +83,42 @@ class ContextStore {
             logger.debug('CONTEXT', 'Conversation context table verified');
         } catch (err) {
             logger.error('CONTEXT', `Failed to ensure table exists: ${err.message}`);
+        }
+    }
+
+    /**
+     * Check if context persistence is enabled for a guild
+     * Context is enabled by default if no setting exists
+     * @param {string} guildId 
+     * @returns {Promise<boolean>}
+     */
+    async isPersistenceEnabled(guildId) {
+        // DMs always use memory only (no guild settings)
+        if (guildId === 'DM') {
+            return false;
+        }
+
+        // Check cache first
+        const cached = this.guildPersistenceCache.get(guildId);
+        if (cached && Date.now() - cached.timestamp < this.persistenceCacheTTL) {
+            return cached.enabled;
+        }
+
+        try {
+            const settings = await getGuildSettings(guildId);
+            // Default to true if not set (context enabled by default)
+            const enabled = settings?.modules?.context?.enabled ?? true;
+
+            // Cache the result
+            this.guildPersistenceCache.set(guildId, {
+                enabled,
+                timestamp: Date.now()
+            });
+
+            return enabled;
+        } catch (err) {
+            logger.warn('CONTEXT', `Failed to check guild settings, defaulting to enabled: ${err.message}`);
+            return true;
         }
     }
 
@@ -150,6 +190,10 @@ class ContextStore {
     async loadFromDb(guildId, channelId, userId) {
         if (!this.dbReady) return null;
 
+        // Check if persistence is enabled for this guild
+        const persistenceEnabled = await this.isPersistenceEnabled(guildId);
+        if (!persistenceEnabled) return null;
+
         try {
             const result = await query(
                 `SELECT messages, token_count FROM conversation_context 
@@ -179,8 +223,15 @@ class ContextStore {
      * @param {string} userId 
      * @param {Object} context 
      */
-    scheduleSave(guildId, channelId, userId, context) {
+    async scheduleSave(guildId, channelId, userId, context) {
         if (!this.dbReady) return;
+
+        // Check if persistence is enabled for this guild
+        const persistenceEnabled = await this.isPersistenceEnabled(guildId);
+        if (!persistenceEnabled) {
+            logger.debug('CONTEXT', `Persistence disabled for guild ${guildId}, skipping DB save`);
+            return;
+        }
 
         const contextKey = this.getContextKey(guildId, channelId, userId);
 
@@ -296,7 +347,7 @@ class ContextStore {
             this.trimContextIfNeeded(context);
 
             // Schedule database save
-            this.scheduleSave(guildId, channelId, userId, context);
+            await this.scheduleSave(guildId, channelId, userId, context);
 
             return message;
         } finally {
@@ -332,7 +383,7 @@ class ContextStore {
             this.trimContextIfNeeded(context);
 
             // Schedule database save
-            this.scheduleSave(guildId, channelId, userId, context);
+            await this.scheduleSave(guildId, channelId, userId, context);
 
             return message;
         } finally {

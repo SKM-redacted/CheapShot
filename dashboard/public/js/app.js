@@ -12,7 +12,7 @@ import { toast } from './components/toast.js';
 const modules = {
     ai: { title: 'AI Chat', icon: '🤖', description: 'Configure AI responses and channels' },
     moderation: { title: 'Moderation', icon: '🛡️', description: 'Auto-mod, warnings, and logging' },
-    context: { title: 'Context', icon: '💭', description: 'View conversation context/memory', isView: true },
+    context: { title: 'Context Storage', icon: '💭', description: 'Save conversation memory to database (persists across restarts)', isView: true, defaultEnabled: true },
     settings: { title: 'Settings', icon: '⚙️', description: 'General bot settings' }
 };
 
@@ -784,7 +784,19 @@ class App {
 
         // Render module cards
         container.innerHTML = Object.entries(modules).map(([key, module]) => {
-            const isEnabled = moduleSettings[key]?.enabled || false;
+            // Use defaultEnabled if module setting doesn't exist
+            const isEnabled = moduleSettings[key]?.enabled ?? module.defaultEnabled ?? false;
+
+            // Special status text for context module
+            let statusText;
+            if (key === 'context') {
+                statusText = isEnabled
+                    ? 'Saving to database · Click to view'
+                    : 'Memory only (clears on restart) · Click to view';
+            } else {
+                statusText = `${isEnabled ? 'Enabled' : 'Disabled'} · Click to configure`;
+            }
+
             return `
                 <div class="module-card ${isEnabled ? 'active' : ''}" data-module="${key}">
                     <div class="module-header">
@@ -801,7 +813,7 @@ class App {
                     <p class="module-desc">${module.description}</p>
                     <div class="module-status">
                         <span class="module-status-dot ${isEnabled ? 'active' : ''}"></span>
-                        <span>${isEnabled ? 'Enabled' : 'Disabled'} · Click to configure</span>
+                        <span>${statusText}</span>
                     </div>
                 </div>
             `;
@@ -814,7 +826,15 @@ class App {
                 if (e.target.closest('.toggle')) return;
 
                 const moduleName = card.dataset.module;
-                this.openModulePanel(moduleName);
+
+                // Context module opens the context view instead of a panel
+                if (moduleName === 'context') {
+                    this.setActiveNav('context');
+                    state.set({ currentView: 'context' });
+                    this.openContextView();
+                } else {
+                    this.openModulePanel(moduleName);
+                }
             });
         });
 
@@ -1254,7 +1274,7 @@ class App {
         card.dataset.channelId = ctx.channelId;
         card.dataset.userId = ctx.userId;
 
-        const lastMessage = ctx.messages[ctx.messages.length - 1];
+        const messages = ctx.messages || [];
         const timeAgo = this.formatTimeAgo(new Date(ctx.updatedAt));
 
         card.innerHTML = `
@@ -1266,8 +1286,8 @@ class App {
                 : `<span>${(ctx.username || '?').charAt(0).toUpperCase()}</span>`}
                     </div>
                     <div class="context-user-info">
-                        <div class="context-username">${ctx.username}</div>
-                        <div class="context-meta">#${ctx.channelName} · ${ctx.messageCount} messages · ${timeAgo}</div>
+                        <div class="context-username">${ctx.username || 'Unknown'}</div>
+                        <div class="context-meta">#${ctx.channelName || 'unknown'} · ${ctx.messageCount || 0} messages · ${timeAgo}</div>
                     </div>
                 </div>
                 <div class="context-actions">
@@ -1280,10 +1300,10 @@ class App {
                 </div>
             </div>
             <div class="context-preview">
-                ${ctx.messages.slice(-3).map(msg => this.formatContextMessage(msg)).join('')}
+                ${messages.length > 0 ? messages.slice(-3).map(msg => this.formatContextMessage(msg)).join('') : '<div class="text-muted">No messages</div>'}
             </div>
             <div class="context-footer">
-                <span class="context-tokens">~${Math.round(ctx.tokenCount / 1000)}k tokens</span>
+                <span class="context-tokens">~${Math.round((ctx.tokenCount || 0) / 1000)}k tokens</span>
             </div>
         `;
 
@@ -1313,12 +1333,14 @@ class App {
      * Format a context message for display
      */
     formatContextMessage(msg) {
+        if (!msg) return '';
+
         const isAssistant = msg.role === 'assistant';
-        const timestamp = new Date(msg.timestamp).toLocaleTimeString('en-US', {
+        const timestamp = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('en-US', {
             hour: 'numeric',
             minute: '2-digit',
             hour12: true
-        });
+        }) : '';
 
         // Truncate long messages
         let content = msg.content || '';
@@ -1342,7 +1364,10 @@ class App {
      * Format time ago
      */
     formatTimeAgo(date) {
+        if (!date || isNaN(date.getTime())) return 'Unknown';
+
         const seconds = Math.floor((new Date() - date) / 1000);
+        if (seconds < 0) return 'just now';
         if (seconds < 60) return 'just now';
         if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
         if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
@@ -1367,33 +1392,34 @@ class App {
 
         try {
             const detail = await api.getContextDetail(guildId, channelId, userId);
+            const messages = detail.messages || [];
 
             const content = `
                 <div class="context-detail">
                     <div class="context-detail-header">
                         <div class="context-detail-info">
-                            <div><strong>Channel:</strong> #${previewData.channelName}</div>
-                            <div><strong>Messages:</strong> ${detail.messages.length}</div>
-                            <div><strong>Tokens:</strong> ~${Math.round(detail.tokenCount / 1000)}k</div>
-                            <div><strong>Last updated:</strong> ${new Date(detail.updatedAt).toLocaleString()}</div>
+                            <div><strong>Channel:</strong> #${previewData.channelName || 'unknown'}</div>
+                            <div><strong>Messages:</strong> ${messages.length}</div>
+                            <div><strong>Tokens:</strong> ~${Math.round((detail.tokenCount || 0) / 1000)}k</div>
+                            <div><strong>Last updated:</strong> ${detail.updatedAt ? new Date(detail.updatedAt).toLocaleString() : 'Unknown'}</div>
                         </div>
                         <button class="btn btn-danger" id="delete-context-btn">🗑️ Delete Context</button>
                     </div>
                     <div class="context-detail-messages">
-                        ${detail.messages.map(msg => `
+                        ${messages.length > 0 ? messages.map(msg => `
                             <div class="context-detail-message ${msg.role === 'assistant' ? 'assistant' : 'user'}">
                                 <div class="context-detail-message-header">
                                     <span class="context-detail-message-role">
                                         ${msg.role === 'assistant' ? '🤖 CheapShot' : `👤 ${msg.username || 'User'}`}
                                     </span>
                                     <span class="context-detail-message-time">
-                                        ${new Date(msg.timestamp).toLocaleString()}
+                                        ${msg.timestamp ? new Date(msg.timestamp).toLocaleString() : ''}
                                     </span>
                                 </div>
                                 <div class="context-detail-message-content">${(msg.content || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')}</div>
                                 ${msg.images?.length ? `<div class="context-detail-message-images">📷 ${msg.images.length} image(s) attached</div>` : ''}
                             </div>
-                        `).join('')}
+                        `).join('') : '<div class="text-muted p-lg">No messages in this context</div>'}
                     </div>
                 </div>
             `;
