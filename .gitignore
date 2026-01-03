@@ -25,6 +25,8 @@ build/
 data/
 dashboard/data/
 
+# Economy data
 econ/
 
+# Scripts
 scripts/
