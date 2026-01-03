@@ -76,7 +76,8 @@ async function loadSlashCommandsRecursively(directory) {
                     loadedModules.push({
                         name: file.name,
                         commands: [cmdData],
-                        handler: module.execute
+                        handler: module.execute,
+                        modalHandler: module.handleModalSubmit
                     });
                     logger.info('SLASH_LOADER', `✅ Loaded command: ${cmdData.name} from ${file.name}`);
                 }
@@ -95,7 +96,14 @@ export async function loadAllSlashCommands() {
     loadedModules.length = 0;
 
     logger.info('SLASH_LOADER', '--- Loading Slash Commands ---');
+
+    // Load from src/slash-commands (misc commands)
     await loadSlashCommandsRecursively(__dirname);
+
+    // Load from src/economy/economy/commands (economy commands)
+    const economyCommandsPath = path.join(__dirname, '..', 'economy', 'economy', 'commands');
+    await loadSlashCommandsRecursively(economyCommandsPath);
+
     logger.info('SLASH_LOADER', `--- Loaded ${allCommands.length} total slash command(s) ---`);
 
     return { commands: allCommands, modules: loadedModules };
@@ -130,6 +138,28 @@ export async function handleSlashInteraction(interaction) {
                 if (handled) return true;
             } catch (error) {
                 logger.error('SLASH_LOADER', `Error in handler from ${module.name}:`, error);
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Handle a modal submission by passing it through all loaded modal handlers
+ * @param {Object} interaction - Modal submit interaction
+ * @returns {boolean} True if handled by any module
+ */
+export async function handleModalInteraction(interaction) {
+    if (!interaction.isModalSubmit()) return false;
+
+    for (const module of loadedModules) {
+        if (module.modalHandler) {
+            try {
+                const handled = await module.modalHandler(interaction);
+                if (handled) return true;
+            } catch (error) {
+                logger.error('SLASH_LOADER', `Error in modal handler from ${module.name}:`, error);
             }
         }
     }

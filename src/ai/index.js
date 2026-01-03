@@ -1488,16 +1488,24 @@ async function registerSlashCommands() {
  * @param {Object} bot - The bot that received the interaction
  */
 async function handleInteraction(interaction, bot) {
-    if (!interaction.isChatInputCommand()) return;
-
     try {
-        // Try voice commands first
-        const handled = await handleVoiceCommand(interaction);
-        if (handled) return;
+        // Handle modal submissions
+        if (interaction.isModalSubmit()) {
+            const { handleModalInteraction } = await import('../slash-commands/commandLoader.js');
+            const handled = await handleModalInteraction(interaction);
+            if (handled) return;
+        }
 
-        // Try dynamically loaded slash commands (from src/slash-commands)
-        const slashHandled = await handleSlashInteraction(interaction);
-        if (slashHandled) return;
+        // Handle slash commands
+        if (interaction.isChatInputCommand()) {
+            // Try voice commands first
+            const handled = await handleVoiceCommand(interaction);
+            if (handled) return;
+
+            // Try dynamically loaded slash commands (from src/slash-commands)
+            const slashHandled = await handleSlashInteraction(interaction);
+            if (slashHandled) return;
+        }
 
         // Add more command handlers here in the future
     } catch (error) {
