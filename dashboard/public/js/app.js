@@ -16,6 +16,9 @@ const modules = {
     settings: { title: 'Settings', icon: '⚙️', description: 'General bot settings' }
 };
 
+// LocalStorage key for remembering selected server
+const SELECTED_GUILD_KEY = 'cheapshot_selected_guild';
+
 class App {
     constructor() {
         this.initialized = false;
@@ -42,10 +45,21 @@ class App {
 
             const guilds = guildsData.guilds || guildsData || [];
 
+            // Try to restore previously selected guild from localStorage
+            let selectedGuild = guilds.length > 0 ? guilds[0] : null;
+            const savedGuildId = localStorage.getItem(SELECTED_GUILD_KEY);
+            if (savedGuildId) {
+                const savedGuild = guilds.find(g => g.id === savedGuildId);
+                if (savedGuild) {
+                    selectedGuild = savedGuild;
+                    console.log('[App] Restored previously selected server:', savedGuild.name);
+                }
+            }
+
             state.set({
                 user,
                 guilds,
-                selectedGuild: guilds.length > 0 ? guilds[0] : null
+                selectedGuild
             });
 
             // Render initial UI
@@ -322,6 +336,8 @@ class App {
 
                 if (guild) {
                     state.set({ selectedGuild: guild });
+                    // Save to localStorage so we remember this selection
+                    localStorage.setItem(SELECTED_GUILD_KEY, guild.id);
                     this.updateSelectedServer();
                     this.renderServerList();
                     await this.loadGuildData(guildId);
