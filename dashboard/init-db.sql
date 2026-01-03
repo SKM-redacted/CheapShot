@@ -47,3 +47,20 @@ CREATE TABLE IF NOT EXISTS "audit_logs" (
 
 CREATE INDEX IF NOT EXISTS "IDX_audit_guild" ON "audit_logs" ("guild_id");
 CREATE INDEX IF NOT EXISTS "IDX_audit_created" ON "audit_logs" ("created_at" DESC);
+
+-- Create table for storing conversation context (per server, per channel, per user)
+CREATE TABLE IF NOT EXISTS "conversation_context" (
+  "guild_id" VARCHAR(20) NOT NULL,
+  "channel_id" VARCHAR(20) NOT NULL,
+  "user_id" VARCHAR(20) NOT NULL,
+  "messages" JSONB NOT NULL DEFAULT '[]',
+  "token_count" INTEGER NOT NULL DEFAULT 0,
+  "created_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  PRIMARY KEY ("guild_id", "channel_id", "user_id")
+);
+
+CREATE INDEX IF NOT EXISTS "IDX_context_guild" ON "conversation_context" ("guild_id");
+CREATE INDEX IF NOT EXISTS "IDX_context_channel" ON "conversation_context" ("channel_id");
+CREATE INDEX IF NOT EXISTS "IDX_context_user" ON "conversation_context" ("user_id");
+CREATE INDEX IF NOT EXISTS "IDX_context_updated" ON "conversation_context" ("updated_at" DESC);

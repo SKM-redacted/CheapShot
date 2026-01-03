@@ -519,7 +519,10 @@ async function handleMessage(message, bot) {
     logger.message(message.author.tag, userMessage, message.channel.id);
 
     // Add to context store (with images if present)
+    // Use 'DM' as guildId for direct messages
+    const guildId = message.guild?.id || 'DM';
     await contextStore.addUserMessage(
+        guildId,
         message.channel.id,
         message.author.id,
         message.author.tag,
@@ -529,6 +532,7 @@ async function handleMessage(message, bot) {
 
     // Add pending request
     const requestId = await contextStore.addPendingRequest(
+        guildId,
         message.channel.id,
         message.author.id,
         message.author.tag,
@@ -573,7 +577,8 @@ async function handleMessage(message, bot) {
         await message.reply('❌ Sorry, I encountered an error. Please try again later.');
     } finally {
         // Remove pending request and end generation tracking
-        await contextStore.removePendingRequest(message.channel.id, message.author.id, requestId);
+        const guildIdForCleanup = message.guild?.id || 'DM';
+        await contextStore.removePendingRequest(guildIdForCleanup, message.channel.id, message.author.id, requestId);
         generationTracker.endGeneration(message.author.id, requestId);
     }
 }
@@ -709,7 +714,9 @@ async function handleAIResponse(message, userMessage, bot, requestId, images = [
         const systemPromptWithRules = await getSystemPromptWithRules(message.guild);
 
         // Get context-aware messages for AI (includes images if present)
+        const contextGuildId = message.guild?.id || 'DM';
         const contextMessages = await contextStore.getContextSnapshot(
+            contextGuildId,
             message.channel.id,
             message.author.id,
             systemPromptWithRules,
@@ -1017,11 +1024,13 @@ You have completed the above action(s). Based on the results and the user's orig
                     // This allows the AI to reference previous actions in follow-up messages
                     const actionsContextForStorage = buildActionsContext(completedActions);
                     const assistantResponse = `${finalText || ''}\n\n[Tool Actions Completed]\n${actionsContextForStorage}`.trim();
-                    await contextStore.addAssistantMessage(message.channel.id, message.author.id, assistantResponse);
+                    const saveGuildId = message.guild?.id || 'DM';
+                    await contextStore.addAssistantMessage(saveGuildId, message.channel.id, message.author.id, assistantResponse);
                     logger.debug('CONTEXT', `Saved assistant response with ${completedActions.length} tool action(s) to context`);
                 } else {
                     // No tool calls - save regular AI response to context
-                    await contextStore.addAssistantMessage(message.channel.id, message.author.id, finalText);
+                    const saveGuildId = message.guild?.id || 'DM';
+                    await contextStore.addAssistantMessage(saveGuildId, message.channel.id, message.author.id, finalText);
                     logger.debug('CONTEXT', `Saved assistant response to context`);
                 }
             },

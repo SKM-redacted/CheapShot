@@ -7,7 +7,8 @@
     "scripts": {
         "start": "node src/ai/index.js",
         "dev": "node --watch src/ai/index.js",
-        "dashboard": "node dashboard/api/server.js"
+        "dashboard": "bash dashboard/deploy.sh && node dashboard/api/server.js",
+        "dashboard:dev": "node dashboard/api/server.js"
     },
     "keywords": [
         "discord",

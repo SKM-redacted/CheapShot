@@ -42,7 +42,7 @@ async function handleClearUser(interaction) {
     const { user } = interaction;
 
     try {
-        const cleared = contextStore.clearUserContext(user.id);
+        const cleared = await contextStore.clearUserContext(user.id);
 
         await interaction.reply({
             content: `🧹 Cleared your conversation context! (${cleared} conversation${cleared !== 1 ? 's' : ''} removed)\n\nI won't remember our previous chats anymore.`,

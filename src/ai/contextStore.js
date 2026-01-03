@@ -1,13 +1,23 @@
 import { logger } from './logger.js';
+import { query, testConnection, getGuildSettings } from '../shared/database.js';
+import { saveImagesLocally, deleteContextImages } from './imageStorage.js';
 
 /**
- * Context Store - Manages conversation history per person (per channel-user pair)
- * Features: Token counting, FIFO trimming, mutex locks, pending request tracking
+ * Context Store - Manages conversation history per person (per guild-channel-user triple)
+ * Features: Token counting, FIFO trimming, mutex locks, pending request tracking,
+ *           Database persistence with in-memory caching
  */
 class ContextStore {
     constructor() {
-        // Person contexts: contextKey (channelId-userId) -> { messages, tokenCount, pendingRequests }
+        // Person contexts: contextKey (guildId-channelId-userId) -> { messages, tokenCount, pendingRequests }
         this.personContexts = new Map();
+
+        // Track which contexts have been loaded from DB
+        this.loadedFromDb = new Set();
+
+        // Cache for guild persistence settings (guildId -> { enabled, timestamp })
+        this.guildPersistenceCache = new Map();
+        this.persistenceCacheTTL = 60000; // 1 minute cache
 
         // Mutex locks per context key
         this.locks = new Map();
@@ -20,16 +30,176 @@ class ContextStore {
 
         // Lock timeout (5 seconds)
         this.lockTimeout = 5000;
+
+        // Save debounce delay (500ms)
+        this.saveDebounceDelay = 500;
+
+        // Pending save operations
+        this.pendingSaves = new Map();
+
+        // Database ready flag
+        this.dbReady = false;
+
+        // Initialize database connection
+        this.initDb();
     }
 
     /**
-     * Generate a unique context key for a channel-user pair
+     * Initialize database connection
+     */
+    async initDb() {
+        try {
+            const connected = await testConnection();
+            if (connected) {
+                this.dbReady = true;
+                logger.info('CONTEXT', 'Database connection established for context persistence');
+
+                // Ensure the table exists (in case init-db.sql hasn't run)
+                await this.ensureTable();
+            } else {
+                logger.warn('CONTEXT', 'Database not available, running in memory-only mode');
+            }
+        } catch (err) {
+            logger.warn('CONTEXT', `Database init failed, running in memory-only mode: ${err.message}`);
+        }
+    }
+
+    /**
+     * Ensure the conversation_context table exists
+     */
+    async ensureTable() {
+        try {
+            await query(`
+                CREATE TABLE IF NOT EXISTS "conversation_context" (
+                    "guild_id" VARCHAR(20) NOT NULL,
+                    "channel_id" VARCHAR(20) NOT NULL,
+                    "user_id" VARCHAR(20) NOT NULL,
+                    "messages" JSONB NOT NULL DEFAULT '[]',
+                    "token_count" INTEGER NOT NULL DEFAULT 0,
+                    "created_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    PRIMARY KEY ("guild_id", "channel_id", "user_id")
+                )
+            `);
+            logger.debug('CONTEXT', 'Conversation context table verified');
+        } catch (err) {
+            logger.error('CONTEXT', `Failed to ensure table exists: ${err.message}`);
+        }
+    }
+
+    /**
+     * Check if context persistence is enabled for a guild
+     * Context is enabled by default if no setting exists
+     * @param {string} guildId 
+     * @returns {Promise<boolean>}
+     */
+    async isPersistenceEnabled(guildId) {
+        // DMs always use memory only (no guild settings)
+        if (guildId === 'DM') {
+            return false;
+        }
+
+        // Check cache first (reduced TTL for faster toggle response)
+        const cached = this.guildPersistenceCache.get(guildId);
+        if (cached && Date.now() - cached.timestamp < 10000) { // 10 second cache
+            return cached.enabled;
+        }
+
+        try {
+            const settings = await getGuildSettings(guildId);
+            // Default to true if not set (context enabled by default)
+            const enabled = settings?.modules?.context?.enabled ?? true;
+
+            // Cache the result
+            this.guildPersistenceCache.set(guildId, {
+                enabled,
+                timestamp: Date.now()
+            });
+
+            return enabled;
+        } catch (err) {
+            logger.warn('CONTEXT', `Failed to check guild settings, defaulting to enabled: ${err.message}`);
+            return true;
+        }
+    }
+
+    /**
+     * Clear specific context from both memory and database
+     * @param {string} guildId 
+     * @param {string} channelId 
+     * @param {string} userId 
+     * @returns {Promise<boolean>} Whether context was cleared
+     */
+    async clearSpecificContext(guildId, channelId, userId) {
+        const contextKey = this.getContextKey(guildId, channelId, userId);
+        const release = await this.acquireLock(contextKey);
+
+        try {
+            // Clear from memory
+            this.personContexts.delete(contextKey);
+            this.loadedFromDb.delete(contextKey);
+
+            // Clear any pending saves
+            if (this.pendingSaves.has(contextKey)) {
+                clearTimeout(this.pendingSaves.get(contextKey));
+                this.pendingSaves.delete(contextKey);
+            }
+
+            // Clear locally stored images
+            try {
+                const deletedCount = await deleteContextImages(guildId, channelId, userId);
+                if (deletedCount > 0) {
+                    logger.info('CONTEXT', `Deleted ${deletedCount} local image(s) for ${contextKey}`);
+                }
+            } catch (imgErr) {
+                logger.warn('CONTEXT', `Failed to delete local images: ${imgErr.message}`);
+            }
+
+            // Clear from database
+            if (this.dbReady) {
+                try {
+                    await query(
+                        `DELETE FROM conversation_context 
+                         WHERE guild_id = $1 AND channel_id = $2 AND user_id = $3`,
+                        [guildId, channelId, userId]
+                    );
+                    logger.info('CONTEXT', `Cleared context for ${contextKey} from memory and DB`);
+                } catch (err) {
+                    logger.error('CONTEXT', `Failed to clear context from DB: ${err.message}`);
+                }
+            } else {
+                logger.info('CONTEXT', `Cleared context for ${contextKey} from memory`);
+            }
+
+            return true;
+        } finally {
+            release();
+        }
+    }
+
+    /**
+     * Generate a unique context key for a guild-channel-user triple
+     * @param {string} guildId 
      * @param {string} channelId 
      * @param {string} userId 
      * @returns {string}
      */
-    getContextKey(channelId, userId) {
-        return `${channelId}-${userId}`;
+    getContextKey(guildId, channelId, userId) {
+        return `${guildId}-${channelId}-${userId}`;
+    }
+
+    /**
+     * Parse a context key back into components
+     * @param {string} contextKey 
+     * @returns {{ guildId: string, channelId: string, userId: string }}
+     */
+    parseContextKey(contextKey) {
+        const parts = contextKey.split('-');
+        return {
+            guildId: parts[0],
+            channelId: parts[1],
+            userId: parts[2]
+        };
     }
 
     /**
@@ -66,23 +236,163 @@ class ContextStore {
     }
 
     /**
-     * Get or create person context
-     * @param {string} contextKey - The composite channelId-userId key
-     * @returns {Object}
+     * Load context from database
+     * @param {string} guildId 
+     * @param {string} channelId 
+     * @param {string} userId 
+     * @returns {Promise<Object|null>}
      */
-    getContext(contextKey) {
+    async loadFromDb(guildId, channelId, userId) {
+        if (!this.dbReady) return null;
+
+        // Check if persistence is enabled for this guild
+        const persistenceEnabled = await this.isPersistenceEnabled(guildId);
+        if (!persistenceEnabled) return null;
+
+        try {
+            const result = await query(
+                `SELECT messages, token_count FROM conversation_context 
+                 WHERE guild_id = $1 AND channel_id = $2 AND user_id = $3`,
+                [guildId, channelId, userId]
+            );
+
+            if (result.rows.length > 0) {
+                const row = result.rows[0];
+                return {
+                    messages: row.messages || [],
+                    tokenCount: row.token_count || 0,
+                    pendingRequests: []
+                };
+            }
+        } catch (err) {
+            logger.error('CONTEXT', `Failed to load context from DB: ${err.message}`);
+        }
+
+        return null;
+    }
+
+    /**
+     * Save context to database (debounced)
+     * @param {string} guildId 
+     * @param {string} channelId 
+     * @param {string} userId 
+     * @param {Object} context 
+     */
+    async scheduleSave(guildId, channelId, userId, context) {
+        if (!this.dbReady) return;
+
+        // Check if persistence is enabled for this guild
+        const persistenceEnabled = await this.isPersistenceEnabled(guildId);
+        if (!persistenceEnabled) {
+            logger.debug('CONTEXT', `Persistence disabled for guild ${guildId}, skipping DB save`);
+            return;
+        }
+
+        const contextKey = this.getContextKey(guildId, channelId, userId);
+
+        // Clear existing timer for this key
+        if (this.pendingSaves.has(contextKey)) {
+            clearTimeout(this.pendingSaves.get(contextKey));
+        }
+
+        // Schedule new save
+        const timer = setTimeout(async () => {
+            this.pendingSaves.delete(contextKey);
+            await this.saveToDb(guildId, channelId, userId, context);
+        }, this.saveDebounceDelay);
+
+        this.pendingSaves.set(contextKey, timer);
+    }
+
+    /**
+     * Save context to database immediately
+     * @param {string} guildId 
+     * @param {string} channelId 
+     * @param {string} userId 
+     * @param {Object} context 
+     */
+    async saveToDb(guildId, channelId, userId, context) {
+        if (!this.dbReady) return;
+
+        try {
+            await query(
+                `INSERT INTO conversation_context (guild_id, channel_id, user_id, messages, token_count, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, NOW())
+                 ON CONFLICT (guild_id, channel_id, user_id) 
+                 DO UPDATE SET messages = $4, token_count = $5, updated_at = NOW()`,
+                [guildId, channelId, userId, JSON.stringify(context.messages), context.tokenCount]
+            );
+            logger.debug('CONTEXT', `Saved context for ${guildId}-${channelId}-${userId} to database`);
+        } catch (err) {
+            logger.error('CONTEXT', `Failed to save context to DB: ${err.message}`);
+        }
+    }
+
+    /**
+     * Get or create person context (with database loading and sync)
+     * @param {string} guildId - The guild/server ID
+     * @param {string} channelId - The channel ID
+     * @param {string} userId - The user ID
+     * @returns {Promise<Object>}
+     */
+    async getContext(guildId, channelId, userId) {
+        const contextKey = this.getContextKey(guildId, channelId, userId);
+
+        // If not in memory, try to load from database
+        if (!this.personContexts.has(contextKey) && !this.loadedFromDb.has(contextKey)) {
+            this.loadedFromDb.add(contextKey);
+            const dbContext = await this.loadFromDb(guildId, channelId, userId);
+            if (dbContext) {
+                this.personContexts.set(contextKey, dbContext);
+                // Track when we last synced with DB
+                dbContext.lastDbSync = Date.now();
+                logger.debug('CONTEXT', `Loaded context from DB for ${contextKey}`);
+            }
+        }
+
+        // If we have a cached context, periodically check if it was deleted from DB
+        const existingContext = this.personContexts.get(contextKey);
+        if (existingContext && this.dbReady && this.loadedFromDb.has(contextKey)) {
+            const lastSync = existingContext.lastDbSync || 0;
+            // Re-sync with DB every 30 seconds to catch external deletes
+            if (Date.now() - lastSync > 30000) {
+                existingContext.lastDbSync = Date.now();
+                const persistenceEnabled = await this.isPersistenceEnabled(guildId);
+                if (persistenceEnabled) {
+                    try {
+                        const result = await query(
+                            `SELECT 1 FROM conversation_context WHERE guild_id = $1 AND channel_id = $2 AND user_id = $3`,
+                            [guildId, channelId, userId]
+                        );
+                        // If not in DB but we have it in memory with messages, clear it (was deleted externally)
+                        if (result.rows.length === 0 && existingContext.messages && existingContext.messages.length > 0) {
+                            logger.info('CONTEXT', `Context ${contextKey} was deleted externally, clearing memory`);
+                            this.personContexts.delete(contextKey);
+                            this.loadedFromDb.delete(contextKey);
+                        }
+                    } catch (err) {
+                        logger.warn('CONTEXT', `Failed to sync context with DB: ${err.message}`);
+                    }
+                }
+            }
+        }
+
+        // Create if still doesn't exist
         if (!this.personContexts.has(contextKey)) {
             this.personContexts.set(contextKey, {
                 messages: [],
                 tokenCount: 0,
-                pendingRequests: []
+                pendingRequests: [],
+                lastDbSync: Date.now()
             });
         }
+
         return this.personContexts.get(contextKey);
     }
 
     /**
      * Add a user message to person context
+     * @param {string} guildId - The guild/server ID
      * @param {string} channelId 
      * @param {string} userId 
      * @param {string} username 
@@ -90,12 +400,12 @@ class ContextStore {
      * @param {Array} images - Optional array of image data from extractImagesFromMessage
      * @returns {Promise<Object>} The added message
      */
-    async addUserMessage(channelId, userId, username, content, images = null) {
-        const contextKey = this.getContextKey(channelId, userId);
+    async addUserMessage(guildId, channelId, userId, username, content, images = null) {
+        const contextKey = this.getContextKey(guildId, channelId, userId);
         const release = await this.acquireLock(contextKey);
 
         try {
-            const context = this.getContext(contextKey);
+            const context = await this.getContext(guildId, channelId, userId);
 
             const message = {
                 timestamp: Date.now(),
@@ -107,7 +417,23 @@ class ContextStore {
 
             // Store images if provided (for vision API support)
             if (images && images.length > 0) {
-                message.images = images;
+                // Save images locally (Discord CDN links expire after 24h)
+                const savedImages = await saveImagesLocally(images, guildId, channelId, userId);
+
+                if (savedImages.length > 0) {
+                    // Store local paths for DB persistence
+                    message.images = savedImages.map(img => ({
+                        url: img.localPath,  // Local path, not Discord CDN
+                        originalUrl: img.originalUrl,  // Keep original for reference
+                        mimeType: img.mimeType,
+                        filename: img.filename,
+                        source: img.source,
+                        size: img.size
+                    }));
+                }
+
+                // Keep full image data including base64 in memory for current session AI calls
+                message._imageData = images;
             }
 
             context.messages.push(message);
@@ -121,6 +447,9 @@ class ContextStore {
             // Trim if over limit
             this.trimContextIfNeeded(context);
 
+            // Schedule database save
+            await this.scheduleSave(guildId, channelId, userId, context);
+
             return message;
         } finally {
             release();
@@ -129,17 +458,18 @@ class ContextStore {
 
     /**
      * Add an assistant response to person context
+     * @param {string} guildId - The guild/server ID
      * @param {string} channelId 
      * @param {string} userId 
      * @param {string} content 
      * @returns {Promise<Object>} The added message
      */
-    async addAssistantMessage(channelId, userId, content) {
-        const contextKey = this.getContextKey(channelId, userId);
+    async addAssistantMessage(guildId, channelId, userId, content) {
+        const contextKey = this.getContextKey(guildId, channelId, userId);
         const release = await this.acquireLock(contextKey);
 
         try {
-            const context = this.getContext(contextKey);
+            const context = await this.getContext(guildId, channelId, userId);
 
             const message = {
                 timestamp: Date.now(),
@@ -153,6 +483,9 @@ class ContextStore {
             // Trim if over limit
             this.trimContextIfNeeded(context);
 
+            // Schedule database save
+            await this.scheduleSave(guildId, channelId, userId, context);
+
             return message;
         } finally {
             release();
@@ -161,18 +494,19 @@ class ContextStore {
 
     /**
      * Add a pending request to track
+     * @param {string} guildId - The guild/server ID
      * @param {string} channelId 
      * @param {string} userId 
      * @param {string} username 
      * @param {string} content 
      * @returns {Promise<string>} Request ID
      */
-    async addPendingRequest(channelId, userId, username, content) {
-        const contextKey = this.getContextKey(channelId, userId);
+    async addPendingRequest(guildId, channelId, userId, username, content) {
+        const contextKey = this.getContextKey(guildId, channelId, userId);
         const release = await this.acquireLock(contextKey);
 
         try {
-            const context = this.getContext(contextKey);
+            const context = await this.getContext(guildId, channelId, userId);
             const requestId = `${userId}-${Date.now()}`;
 
             context.pendingRequests.push({
@@ -191,16 +525,17 @@ class ContextStore {
 
     /**
      * Remove a pending request
+     * @param {string} guildId - The guild/server ID
      * @param {string} channelId 
      * @param {string} userId 
      * @param {string} requestId 
      */
-    async removePendingRequest(channelId, userId, requestId) {
-        const contextKey = this.getContextKey(channelId, userId);
+    async removePendingRequest(guildId, channelId, userId, requestId) {
+        const contextKey = this.getContextKey(guildId, channelId, userId);
         const release = await this.acquireLock(contextKey);
 
         try {
-            const context = this.getContext(contextKey);
+            const context = await this.getContext(guildId, channelId, userId);
             context.pendingRequests = context.pendingRequests.filter(
                 req => req.requestId !== requestId
             );
@@ -211,15 +546,15 @@ class ContextStore {
 
     /**
      * Get a snapshot of person context for AI request
+     * @param {string} guildId - The guild/server ID
      * @param {string} channelId 
      * @param {string} userId 
      * @param {string} systemPrompt 
      * @param {Object} currentRequest - { userId, username, content, images? }
      * @returns {Promise<Array>} Messages array for AI
      */
-    async getContextSnapshot(channelId, userId, systemPrompt, currentRequest) {
-        const contextKey = this.getContextKey(channelId, userId);
-        const context = this.getContext(contextKey);
+    async getContextSnapshot(guildId, channelId, userId, systemPrompt, currentRequest) {
+        const context = await this.getContext(guildId, channelId, userId);
         const messages = [];
 
         // System prompt
@@ -339,13 +674,13 @@ class ContextStore {
 
     /**
      * Get context stats for a person
+     * @param {string} guildId - The guild/server ID
      * @param {string} channelId 
      * @param {string} userId 
-     * @returns {Object}
+     * @returns {Promise<Object>}
      */
-    getStats(channelId, userId) {
-        const contextKey = this.getContextKey(channelId, userId);
-        const context = this.getContext(contextKey);
+    async getStats(guildId, channelId, userId) {
+        const context = await this.getContext(guildId, channelId, userId);
         return {
             messageCount: context.messages.length,
             tokenCount: context.tokenCount,
@@ -355,15 +690,32 @@ class ContextStore {
 
     /**
      * Clear context for a person
+     * @param {string} guildId - The guild/server ID
      * @param {string} channelId 
      * @param {string} userId 
      */
-    async clearContext(channelId, userId) {
-        const contextKey = this.getContextKey(channelId, userId);
+    async clearContext(guildId, channelId, userId) {
+        const contextKey = this.getContextKey(guildId, channelId, userId);
         const release = await this.acquireLock(contextKey);
 
         try {
             this.personContexts.delete(contextKey);
+            this.loadedFromDb.delete(contextKey);
+
+            // Also clear from database
+            if (this.dbReady) {
+                try {
+                    await query(
+                        `DELETE FROM conversation_context 
+                         WHERE guild_id = $1 AND channel_id = $2 AND user_id = $3`,
+                        [guildId, channelId, userId]
+                    );
+                    logger.info('CONTEXT', `Cleared context from DB for ${contextKey}`);
+                } catch (err) {
+                    logger.error('CONTEXT', `Failed to clear context from DB: ${err.message}`);
+                }
+            }
+
             logger.info('CONTEXT', `Cleared context for ${contextKey}`);
         } finally {
             release();
@@ -371,54 +723,117 @@ class ContextStore {
     }
 
     /**
-     * Clear all contexts for a specific user (across all channels)
+     * Clear all contexts for a specific user (across all channels and guilds)
      * @param {string} userId - The user ID to clear contexts for
-     * @returns {number} Number of contexts cleared
+     * @returns {Promise<number>} Number of contexts cleared
      */
-    clearUserContext(userId) {
+    async clearUserContext(userId) {
         let cleared = 0;
         for (const [key] of this.personContexts) {
-            // contextKey format is "channelId-userId"
+            // contextKey format is "guildId-channelId-userId"
             if (key.endsWith(`-${userId}`)) {
                 this.personContexts.delete(key);
+                this.loadedFromDb.delete(key);
                 cleared++;
             }
         }
+
+        // Also clear from database
+        if (this.dbReady) {
+            try {
+                const result = await query(
+                    `DELETE FROM conversation_context WHERE user_id = $1`,
+                    [userId]
+                );
+                cleared = Math.max(cleared, result.rowCount || 0);
+            } catch (err) {
+                logger.error('CONTEXT', `Failed to clear user context from DB: ${err.message}`);
+            }
+        }
+
         logger.info('CONTEXT', `Cleared ${cleared} context(s) for user ${userId}`);
         return cleared;
     }
 
     /**
      * Clear all contexts for a specific guild (server)
-     * Requires passing the guild's channel IDs since context keys are channelId-userId
-     * @param {string[]} channelIds - Array of channel IDs belonging to the guild
-     * @returns {number} Number of contexts cleared
+     * @param {string} guildId - The guild ID
+     * @returns {Promise<number>} Number of contexts cleared
      */
-    clearGuildContext(channelIds) {
+    async clearGuildContext(guildId) {
         let cleared = 0;
-        const channelSet = new Set(channelIds);
 
         for (const [key] of this.personContexts) {
-            // contextKey format is "channelId-userId"
-            const channelId = key.split('-')[0];
-            if (channelSet.has(channelId)) {
+            // contextKey format is "guildId-channelId-userId"
+            if (key.startsWith(`${guildId}-`)) {
                 this.personContexts.delete(key);
+                this.loadedFromDb.delete(key);
                 cleared++;
             }
         }
-        logger.info('CONTEXT', `Cleared ${cleared} context(s) for guild (${channelIds.length} channels)`);
+
+        // Also clear from database
+        if (this.dbReady) {
+            try {
+                const result = await query(
+                    `DELETE FROM conversation_context WHERE guild_id = $1`,
+                    [guildId]
+                );
+                cleared = Math.max(cleared, result.rowCount || 0);
+            } catch (err) {
+                logger.error('CONTEXT', `Failed to clear guild context from DB: ${err.message}`);
+            }
+        }
+
+        logger.info('CONTEXT', `Cleared ${cleared} context(s) for guild ${guildId}`);
         return cleared;
     }
 
     /**
      * Clear all contexts globally (admin/owner only)
-     * @returns {number} Number of contexts cleared
+     * @returns {Promise<number>} Number of contexts cleared
      */
-    clearAllContexts() {
-        const count = this.personContexts.size;
+    async clearAllContexts() {
+        const memoryCount = this.personContexts.size;
         this.personContexts.clear();
-        logger.info('CONTEXT', `Cleared all ${count} context(s) globally`);
-        return count;
+        this.loadedFromDb.clear();
+
+        let dbCount = 0;
+
+        // Also clear from database
+        if (this.dbReady) {
+            try {
+                const result = await query(`DELETE FROM conversation_context`);
+                dbCount = result.rowCount || 0;
+            } catch (err) {
+                logger.error('CONTEXT', `Failed to clear all contexts from DB: ${err.message}`);
+            }
+        }
+
+        const total = Math.max(memoryCount, dbCount);
+        logger.info('CONTEXT', `Cleared all ${total} context(s) globally`);
+        return total;
+    }
+
+    /**
+     * Flush all pending saves to database (useful before shutdown)
+     */
+    async flushPendingSaves() {
+        const promises = [];
+        for (const [contextKey, timer] of this.pendingSaves) {
+            clearTimeout(timer);
+            const { guildId, channelId, userId } = this.parseContextKey(contextKey);
+            const context = this.personContexts.get(contextKey);
+            if (context) {
+                promises.push(this.saveToDb(guildId, channelId, userId, context));
+            }
+        }
+        this.pendingSaves.clear();
+
+        if (promises.length > 0) {
+            await Promise.all(promises);
+            logger.info('CONTEXT', `Flushed ${promises.length} pending save(s) to database`);
+        }
     }
 }
 
