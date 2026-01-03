@@ -77,7 +77,8 @@ async function loadSlashCommandsRecursively(directory) {
                         name: file.name,
                         commands: [cmdData],
                         handler: module.execute,
-                        modalHandler: module.handleModalSubmit
+                        modalHandler: module.handleModalSubmit,
+                        buttonHandler: module.handleButtonInteraction
                     });
                     logger.info('SLASH_LOADER', `✅ Loaded command: ${cmdData.name} from ${file.name}`);
                 }
@@ -160,6 +161,28 @@ export async function handleModalInteraction(interaction) {
                 if (handled) return true;
             } catch (error) {
                 logger.error('SLASH_LOADER', `Error in modal handler from ${module.name}:`, error);
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Handle a button interaction by passing it through all loaded button handlers
+ * @param {Object} interaction - Button interaction
+ * @returns {boolean} True if handled by any module
+ */
+export async function handleButtonInteraction(interaction) {
+    if (!interaction.isButton()) return false;
+
+    for (const module of loadedModules) {
+        if (module.buttonHandler) {
+            try {
+                const handled = await module.buttonHandler(interaction);
+                if (handled) return true;
+            } catch (error) {
+                logger.error('SLASH_LOADER', `Error in button handler from ${module.name}:`, error);
             }
         }
     }

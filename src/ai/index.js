@@ -1496,6 +1496,13 @@ async function handleInteraction(interaction, bot) {
             if (handled) return;
         }
 
+        // Handle button interactions
+        if (interaction.isButton()) {
+            const { handleButtonInteraction } = await import('../slash-commands/commandLoader.js');
+            const handled = await handleButtonInteraction(interaction);
+            if (handled) return;
+        }
+
         // Handle slash commands
         if (interaction.isChatInputCommand()) {
             // Try voice commands first
