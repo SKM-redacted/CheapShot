@@ -189,3 +189,39 @@ export async function handleButtonInteraction(interaction) {
 
     return false;
 }
+
+/**
+ * Generate a summary of all slash commands for the AI system prompt
+ * @returns {string} Formatted summary of available slash commands
+ */
+export function getSlashCommandsSummary() {
+    if (allCommands.length === 0) {
+        return '';
+    }
+
+    let summary = `\nYOUR SLASH COMMANDS (IMPORTANT - THESE ARE YOUR COMMANDS):\n`;
+    summary += `The following slash commands are YOUR built-in commands that users can invoke:\n`;
+
+    for (const cmd of allCommands) {
+        const name = cmd.name;
+        const description = cmd.description || 'No description';
+
+        // Check for subcommands
+        if (cmd.options && cmd.options.length > 0) {
+            const subcommands = cmd.options.filter(opt => opt.type === 1); // type 1 = subcommand
+            if (subcommands.length > 0) {
+                for (const sub of subcommands) {
+                    summary += `- /${name} ${sub.name} - ${sub.description || 'No description'}\n`;
+                }
+            } else {
+                summary += `- /${name} - ${description}\n`;
+            }
+        } else {
+            summary += `- /${name} - ${description}\n`;
+        }
+    }
+
+    summary += `\nIf a user mentions or types one of these commands in chat (like "/citizen register" or "citizen register"), recognize it as YOUR command and guide them to use the slash command properly by typing / in Discord to see the autocomplete menu.\n`;
+
+    return summary;
+}

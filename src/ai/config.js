@@ -137,6 +137,16 @@ async function loadToolsSummary() {
     return _getToolsSummary();
 }
 
+// Import slash commands summary (lazy import)
+let _getSlashCommandsSummary = null;
+async function loadSlashCommandsSummary() {
+    if (!_getSlashCommandsSummary) {
+        const { getSlashCommandsSummary } = await import('../slash-commands/commandLoader.js');
+        _getSlashCommandsSummary = getSlashCommandsSummary;
+    }
+    return _getSlashCommandsSummary();
+}
+
 /**
  * Get the full system prompt with auto-generated tools list
  * Call this at runtime to get the prompt with current tools
@@ -144,8 +154,9 @@ async function loadToolsSummary() {
  */
 export async function getSystemPrompt() {
     const toolsSummary = await loadToolsSummary();
+    const slashCommandsSummary = await loadSlashCommandsSummary();
     return `${config.baseSystemPrompt}
-
+${slashCommandsSummary}
 ${toolsSummary}
 
 When a user asks what you can do, you can reference the tools above. Don't list them all - just summarize your main capabilities (chat, images, channels, roles, voice).`;
@@ -170,6 +181,7 @@ async function loadRulesManager() {
  */
 export async function getSystemPromptWithRules(guild = null) {
     const toolsSummary = await loadToolsSummary();
+    const slashCommandsSummary = await loadSlashCommandsSummary();
 
     let rulesSection = '';
 
@@ -194,6 +206,7 @@ MODERATION GUIDELINES:
 
     return `${config.baseSystemPrompt}
 ${rulesSection}
+${slashCommandsSummary}
 ${toolsSummary}
 
 When a user asks what you can do, you can reference the tools above. Don't list them all - just summarize your main capabilities (chat, images, channels, roles, voice).`;

@@ -9,9 +9,52 @@ import {
     ButtonStyle,
     AttachmentBuilder
 } from 'discord.js';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import sharp from 'sharp';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Path to assets
+const ASSETS_DIR = join(__dirname, '..', 'assets');
 
 // Store pending registrations (modal -> original interaction mapping)
 const pendingRegistrations = new Map();
+
+/**
+ * Composite character layers onto background
+ * @param {string[]} layers - Array of layer image paths (in order, bottom to top)
+ * @returns {Promise<Buffer>} - Composited image buffer
+ */
+async function compositeCharacterImage(layers) {
+    if (layers.length === 0) throw new Error('No layers provided');
+
+    // Start with the first layer (background)
+    let composite = sharp(layers[0]);
+
+    // Get metadata for positioning
+    const metadata = await composite.metadata();
+    const width = metadata.width;
+    const height = metadata.height;
+
+    // Overlay each subsequent layer
+    const overlays = [];
+    for (let i = 1; i < layers.length; i++) {
+        // Resize layer to fit and center it
+        const layerBuffer = await sharp(layers[i])
+            .resize(width, height, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+            .toBuffer();
+
+        overlays.push({ input: layerBuffer, gravity: 'center' });
+    }
+
+    if (overlays.length > 0) {
+        composite = composite.composite(overlays);
+    }
+
+    return composite.png().toBuffer();
+}
 
 /**
  * /citizen register - Register as a citizen of Planet Redacted
@@ -72,9 +115,12 @@ export async function handleModalSubmit(interaction) {
 
     const citizenName = interaction.fields.getTextInputValue('citizen_name');
 
-    // Create a simple white placeholder image (1x1 white pixel as base64)
-    const whitePixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAgAAAAIACAIAAAB7GkOtAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH6AEDFwAAK6W+MQAAAB1pVFh0Q29tbWVudAAAAAAAQ3JlYXRlZCB3aXRoIEdJTVBkLmUHAAAAFElEQVR42u3BAQEAAACCIP+vbkhAAQAAAO8GEuAAAaClvDYAAAAASUVORK5CYII=', 'base64');
-    const attachment = new AttachmentBuilder(whitePixel, { name: 'character.png' });
+    // Composite the character image: background + mannequin
+    const backgroundPath = join(ASSETS_DIR, 'character_background.png');
+    const mannequinPath = join(ASSETS_DIR, 'mannequin.png');
+
+    const imageBuffer = await compositeCharacterImage([backgroundPath, mannequinPath]);
+    const attachment = new AttachmentBuilder(imageBuffer, { name: 'character.png' });
 
     // Create the welcome embed
     const embed = new EmbedBuilder()
