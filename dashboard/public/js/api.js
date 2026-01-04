@@ -179,6 +179,14 @@ class ApiClient {
             method: 'DELETE'
         });
     }
+
+    // Live Chat API
+    async liveChatMessage(data) {
+        return await this.request('/chat/message', {
+            method: 'POST',
+            body: data
+        });
+    }
 }
 
 // Export singleton

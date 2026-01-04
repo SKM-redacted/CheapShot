@@ -1721,6 +1721,247 @@ app.get('/api/guilds/:guildId/images/:filename', requireGuildAuth(), async (req,
 });
 
 // =============================================================
+// Live Chat API (AI-powered dashboard assistant)
+// =============================================================
+
+// System prompt for the live chat assistant
+const LIVE_CHAT_SYSTEM_PROMPT = `You are CheapShot Assistant, an AI helper embedded in the CheapShot Discord bot dashboard. You help users configure their bot settings through natural conversation.
+
+ABOUT CHEAPSHOT:
+CheapShot is a powerful Discord AI bot that provides:
+- AI Chat: Intelligent responses in configured channels using Claude AI
+- Moderation: Auto-moderation, warnings, and logging
+- Context Storage: Persistent conversation memory stored in database
+- Voice Features: Join voice channels, listen and speak with users
+- Server Management: Create/manage channels, roles, and more
+
+DASHBOARD FEATURES:
+- AI Chat Module: Configure which channels the bot responds in, enable/disable AI, set mention responses
+- Moderation Module: Enable auto-mod, set log channels, configure warnings
+- Context View: View and manage stored conversation contexts for users
+- Settings Module: General bot configuration
+
+YOUR CAPABILITIES (Tools you can use):
+1. enable_ai_chat - Enable AI chat with optional settings (mentionRespond, typingIndicator, channels)
+2. disable_ai_chat - Disable AI chat
+3. configure_ai_channels - Set which channels AI should respond in
+4. get_server_stats - Get current server statistics
+5. enable_moderation - Enable moderation features with settings
+6. get_current_settings - Retrieve current module settings
+7. navigate_to - Navigate to different dashboard views (overview, context)
+
+COMMUNICATION STYLE:
+- Be friendly and helpful
+- Keep responses concise but informative
+- When executing actions, confirm what you did
+- If user needs to select a server first, remind them
+- Use emojis sparingly for friendliness
+- Explain settings in simple terms
+
+IMPORTANT:
+- Always use the appropriate tool for actions (don't just say you'll do it - actually call the tool)
+- If the user asks to enable something with specific settings, include those settings in the tool call
+- If unsure what the user wants, ask for clarification
+- You can see the user's current server and settings in the context provided`;
+
+// Tool definitions for the live chat
+const LIVE_CHAT_TOOLS = [
+    {
+        type: 'function',
+        function: {
+            name: 'enable_ai_chat',
+            description: 'Enable AI Chat module for the current server. Can optionally configure settings like mention responses and typing indicator.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    mentionRespond: {
+                        type: 'boolean',
+                        description: 'Whether bot should respond when @mentioned (default: true)'
+                    },
+                    typingIndicator: {
+                        type: 'boolean',
+                        description: 'Show typing indicator while generating responses (default: true)'
+                    },
+                    channels: {
+                        type: 'object',
+                        description: 'Object mapping channel names to their config. Example: {"cheapshot": {"id": "123", "type": "public"}}'
+                    }
+                }
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'disable_ai_chat',
+            description: 'Disable AI Chat module for the current server.',
+            parameters: {
+                type: 'object',
+                properties: {}
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'configure_ai_channels',
+            description: 'Configure which channels the AI should respond in.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    channels: {
+                        type: 'object',
+                        description: 'Object mapping channel names to their config with id and type (public/private/moderation)'
+                    }
+                },
+                required: ['channels']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_server_stats',
+            description: 'Get statistics about the current server including member count, channels, and roles.',
+            parameters: {
+                type: 'object',
+                properties: {}
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'enable_moderation',
+            description: 'Enable moderation features for the current server.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    autoMod: {
+                        type: 'boolean',
+                        description: 'Enable automatic moderation (default: true)'
+                    },
+                    logChannel: {
+                        type: 'string',
+                        description: 'Channel ID for moderation logs'
+                    }
+                }
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_current_settings',
+            description: 'Get the current module settings for the server.',
+            parameters: {
+                type: 'object',
+                properties: {}
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'navigate_to',
+            description: 'Navigate to a different view in the dashboard.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    view: {
+                        type: 'string',
+                        enum: ['overview', 'context'],
+                        description: 'The view to navigate to'
+                    }
+                },
+                required: ['view']
+            }
+        }
+    }
+];
+
+// Live chat message endpoint
+app.post('/api/chat/message', requireAuth, async (req, res) => {
+    const { message, history = [], context = {} } = req.body;
+
+    if (!message || typeof message !== 'string') {
+        return res.status(400).json({ error: 'Message is required' });
+    }
+
+    try {
+        // Build conversation messages
+        const messages = [
+            { role: 'system', content: LIVE_CHAT_SYSTEM_PROMPT },
+            ...history.map(h => ({ role: h.role, content: h.content })),
+            {
+                role: 'user',
+                content: `[Context: Server="${context.guildName || 'None selected'}", User="${context.username}", CurrentSettings=${JSON.stringify(context.currentSettings || {})}]\n\n${message}`
+            }
+        ];
+
+        // Call the AI API (using skmredacted API with Claude Opus 4.5)
+        const apiBase = process.env.API_BASE || 'https://ai-api.skmredacted.com';
+        const aiModel = 'claude-opus-4-5';
+
+        const response = await fetch(`${apiBase}/v1/chat/completions`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: aiModel,
+                messages,
+                tools: LIVE_CHAT_TOOLS,
+                max_tokens: 1024,
+                temperature: 0.7
+            })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('AI API error:', response.status, errorText);
+            throw new Error(`AI API error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const choice = data.choices?.[0];
+
+        if (!choice) {
+            throw new Error('No response from AI');
+        }
+
+        // Extract tool calls if any
+        const toolCalls = choice.message?.tool_calls?.map(tc => ({
+            id: tc.id,
+            name: tc.function?.name,
+            arguments: JSON.parse(tc.function?.arguments || '{}')
+        })) || [];
+
+        // Get the content
+        let content = choice.message?.content || '';
+
+        // If there were tool calls but no content, provide a default message
+        if (toolCalls.length > 0 && !content) {
+            const toolNames = toolCalls.map(tc => tc.name).join(', ');
+            content = `I'm executing the following actions: ${toolNames}`;
+        }
+
+        res.json({
+            content,
+            toolCalls,
+            model: aiModel
+        });
+
+    } catch (error) {
+        console.error('Live chat error:', error);
+        res.status(500).json({
+            error: 'Failed to process message',
+            details: error.message
+        });
+    }
+});
+
+// =============================================================
 // Start Server
 // =============================================================
 // Bind to 0.0.0.0 so Docker containers (nginx) can reach us
