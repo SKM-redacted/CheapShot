@@ -7,6 +7,7 @@ import { api } from './api.js';
 import { state } from './state.js';
 import { panel } from './components/panel.js';
 import { toast } from './components/toast.js';
+import { liveChat } from './livechat.js';
 
 // Module registry - only active, working modules
 const modules = {
@@ -34,6 +35,7 @@ class App {
             // Initialize components
             panel.init();
             toast.init();
+            liveChat.init();
 
             // Load initial data
             state.setLoading('global', true);
