@@ -546,31 +546,8 @@ For example, you can ask me to:
     }
 
     async toolEnableModeration(args) {
-        const guild = state.getKey('selectedGuild');
-        if (!guild) {
-            return { success: false, message: 'No server selected' };
-        }
-
-        try {
-            const config = {
-                enabled: true,
-                autoMod: args?.autoMod ?? true,
-                logChannel: args?.logChannel || null,
-                ...args
-            };
-
-            await api.updateModuleConfig(guild.id, 'moderation', config);
-            this.updateLocalState('moderation', config);
-
-            if (window.app) {
-                window.app.renderModuleGrid();
-                window.app.updateStats(guild.id);
-            }
-
-            return { success: true, message: 'Moderation enabled successfully!' };
-        } catch (error) {
-            return { success: false, message: error.message };
-        }
+        // Moderation module is not ready yet
+        return { success: false, message: 'Moderation is not ready yet' };
     }
 
     async toolGetCurrentSettings(args) {

@@ -905,6 +905,15 @@ class App {
         const guild = state.getKey('selectedGuild');
         if (!guild) return;
 
+        // Moderation module is not ready yet - prevent enabling
+        if (moduleName === 'moderation' && enabled) {
+            toast.warning('Moderation is not ready yet');
+            // Revert the toggle
+            const toggle = document.querySelector(`[data-module-toggle="${moduleName}"]`);
+            if (toggle) toggle.checked = false;
+            return;
+        }
+
         try {
             // Get current settings
             const settings = await api.getSettings(guild.id);
