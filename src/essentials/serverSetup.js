@@ -167,6 +167,7 @@ async function sendInviterWelcome(guild, channelIds, bot) {
         const baseUrl = `https://discord.com/channels/${guild.id}`;
         const publicLink = channelIds?.public ? `${baseUrl}/${channelIds.public}` : '#cheapshot';
         const privateLink = channelIds?.private ? `${baseUrl}/${channelIds.private}` : '#cheapshot-private';
+        const moderationLink = channelIds?.moderation ? `${baseUrl}/${channelIds.moderation}` : '#cheapshot-moderation';
 
         const welcomeEmbed = new EmbedBuilder()
             .setColor(0x00AE86)
@@ -179,7 +180,8 @@ async function sendInviterWelcome(guild, channelIds, bot) {
                 {
                     name: '💬 Your CheapShot Channels',
                     value: `**Public:** ${publicLink}\nEveryone can chat with me here\n\n` +
-                        `**Private:** ${privateLink}\nFor requests you want to keep off the books`,
+                        `**Private:** ${privateLink}\nFor requests you want to keep off the books\n\n` +
+                        `**Moderation:** ${moderationLink}\nModeration logs and alerts (moderators only)`,
                     inline: false
                 },
                 {
@@ -205,6 +207,20 @@ async function sendInviterWelcome(guild, channelIds, bot) {
                 {
                     name: '⚠️ Important: Role Setup',
                     value: 'For moderation features to work properly, please move my role **above** other roles in Server Settings → Roles. This allows me to manage members and roles below me.',
+                    inline: false
+                },
+                {
+                    name: '🚧⚠️ AI MODERATION - EXPERIMENTAL ⚠️🚧',
+                    value: '**━━━━━━━━━━━━━━━━━━━━━━━━━━━━**\n' +
+                        '⛔ **WE HIGHLY RECOMMEND NOT ENABLING THIS FEATURE** ⛔\n\n' +
+                        '**This is a DEVELOPMENTAL feature that is actively being tested.**\n\n' +
+                        '⚠️ AI moderation may produce **false positives** and incorrectly flag innocent messages\n' +
+                        '⚠️ May cause **unexpected timeouts/warnings** that could harm your community\n' +
+                        '⚠️ Not thoroughly tested in production environments\n' +
+                        '⚠️ Could miss actual violations while flagging harmless content\n\n' +
+                        `If you still wish to proceed, configure AI moderation in ${moderationLink} or via the dashboard. **Use at your own risk.**\n\n` +
+                        '📢 *All servers will receive a notification when this feature is production ready.*\n' +
+                        '**━━━━━━━━━━━━━━━━━━━━━━━━━━━━**',
                     inline: false
                 }
             )
@@ -391,7 +407,7 @@ async function createCheapShotChannels(guild, bot) {
 
             modChannelId = modChannel.id;
 
-            // Send description
+            // Send description with prominent developmental warning
             const modEmbed = new EmbedBuilder()
                 .setColor(0xED4245)
                 .setTitle('🛡️ CheapShot Moderation')
@@ -405,7 +421,32 @@ async function createCheapShotChannels(guild, bot) {
                 )
                 .setFooter({ text: 'CheapShot AI - Moderation' });
 
-            await modChannel.send({ embeds: [modEmbed] });
+            // Separate warning embed for maximum visibility
+            const warningEmbed = new EmbedBuilder()
+                .setColor(0xFF0000)
+                .setTitle('🚨⚠️ EXPERIMENTAL FEATURE - NOT RECOMMENDED ⚠️🚨')
+                .setDescription(
+                    '**━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━**\n\n' +
+                    '# ⛔ WE HIGHLY RECOMMEND NOT ENABLING AI MODERATION ⛔\n\n' +
+                    '**This is a DEVELOPMENTAL feature that is actively being tested and may cause serious issues in your server.**\n\n' +
+                    '**━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━**\n\n' +
+                    '### ⚠️ Known Risks:\n' +
+                    '• **False Positives** - May incorrectly flag innocent messages\n' +
+                    '• **Unexpected Actions** - Could timeout/warn users incorrectly\n' +
+                    '• **Not Production Ready** - Still under active development\n' +
+                    '• **Missed Violations** - May fail to catch actual rule-breaking\n' +
+                    '• **Community Damage** - Could harm your server\'s reputation\n\n' +
+                    '**━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━**\n\n' +
+                    '### If you still wish to proceed:\n' +
+                    'Configure AI moderation via the CheapShot dashboard.\n' +
+                    '**You are proceeding entirely at your own risk.**\n\n' +
+                    '📢 *All servers will receive a notification when this feature is production ready.*\n\n' +
+                    '**━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━**'
+                )
+                .setFooter({ text: '⚠️ DEVELOPMENTAL FEATURE - USE AT YOUR OWN RISK ⚠️' })
+                .setTimestamp();
+
+            await modChannel.send({ embeds: [modEmbed, warningEmbed] });
             logger.info('SERVER_SETUP', `Created moderation channel: #${CHANNEL_NAMES.moderation}`);
         } else {
             modChannelId = existingModeration.id;

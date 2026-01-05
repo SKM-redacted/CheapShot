@@ -115,11 +115,12 @@ export async function handleModalSubmit(interaction) {
 
     const citizenName = interaction.fields.getTextInputValue('citizen_name');
 
-    // Composite the character image: background + mannequin
+    // Composite the character image: background + mannequin + hair
     const backgroundPath = join(ASSETS_DIR, 'character_background.png');
     const mannequinPath = join(ASSETS_DIR, 'mannequin.png');
+    const hairPath = join(ASSETS_DIR, 'hair_spiky.png');
 
-    const imageBuffer = await compositeCharacterImage([backgroundPath, mannequinPath]);
+    const imageBuffer = await compositeCharacterImage([backgroundPath, mannequinPath, hairPath]);
     const attachment = new AttachmentBuilder(imageBuffer, { name: 'character.png' });
 
     // Create the welcome embed
