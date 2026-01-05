@@ -215,10 +215,11 @@ async function sendInviterWelcome(guild, channelIds, bot) {
                         '⛔ **WE HIGHLY RECOMMEND NOT ENABLING THIS FEATURE** ⛔\n\n' +
                         '**This is a DEVELOPMENTAL feature that is actively being tested.**\n\n' +
                         '⚠️ AI moderation may produce **false positives** and incorrectly flag innocent messages\n' +
-                        '⚠️ May cause **unexpected bans/kicks** that could harm your community\n' +
+                        '⚠️ May cause **unexpected timeouts/warnings** that could harm your community\n' +
                         '⚠️ Not thoroughly tested in production environments\n' +
                         '⚠️ Could miss actual violations while flagging harmless content\n\n' +
-                        `If you still wish to proceed, configure AI moderation in ${moderationLink} or via the dashboard. **Use at your own risk.**\n` +
+                        `If you still wish to proceed, configure AI moderation in ${moderationLink} or via the dashboard. **Use at your own risk.**\n\n` +
+                        '📢 *All servers will receive a notification when this feature is production ready.*\n' +
                         '**━━━━━━━━━━━━━━━━━━━━━━━━━━━━**',
                     inline: false
                 }
@@ -431,7 +432,7 @@ async function createCheapShotChannels(guild, bot) {
                     '**━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━**\n\n' +
                     '### ⚠️ Known Risks:\n' +
                     '• **False Positives** - May incorrectly flag innocent messages\n' +
-                    '• **Unexpected Actions** - Could ban/kick/warn users incorrectly\n' +
+                    '• **Unexpected Actions** - Could timeout/warn users incorrectly\n' +
                     '• **Not Production Ready** - Still under active development\n' +
                     '• **Missed Violations** - May fail to catch actual rule-breaking\n' +
                     '• **Community Damage** - Could harm your server\'s reputation\n\n' +
@@ -439,6 +440,7 @@ async function createCheapShotChannels(guild, bot) {
                     '### If you still wish to proceed:\n' +
                     'Configure AI moderation via the CheapShot dashboard.\n' +
                     '**You are proceeding entirely at your own risk.**\n\n' +
+                    '📢 *All servers will receive a notification when this feature is production ready.*\n\n' +
                     '**━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━**'
                 )
                 .setFooter({ text: '⚠️ DEVELOPMENTAL FEATURE - USE AT YOUR OWN RISK ⚠️' })
