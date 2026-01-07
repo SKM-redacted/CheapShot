@@ -2,8 +2,6 @@
 
 A Discord AI assistant powered by OpenAI-compatible API endpoints. Features real-time streaming responses, multi-bot load balancing, and image generation.
 
-**🎉 Includes a free public API** — No API key required, no rate limits!
-
 ## Features
 
 - **Real-time Streaming**: Watch the AI response appear in real-time as iterated
@@ -36,8 +34,10 @@ Edit `.env`:
 DISCORD_TOKEN=your_discord_bot_token_here
 
 # OpenAI-compatible API Base URL
-# Free public API (no limits, no API key required):
+# OpenAI-compatible API
 API_BASE=https://ai-api.motoemotovps.xyz
+API_KEY=your_api_key_here
+
 
 # AI Model to use
 AI_MODEL=claude-opus-4-1

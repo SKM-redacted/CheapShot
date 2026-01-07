@@ -206,6 +206,7 @@ Only respond with exactly "YES" or "NO".`;
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${config.onyxApiKey}`,
                     'X-App-Name': 'cheapshot-gatekeeper'
                 },
                 body: JSON.stringify(body)

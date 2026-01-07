@@ -57,6 +57,7 @@ export async function getServerPlan(userRequest) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Authorization': `Bearer ${config.onyxApiKey}`,
                 'X-App-Name': 'cheapshot-planner'
             },
             body: JSON.stringify(body)

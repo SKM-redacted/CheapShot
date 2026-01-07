@@ -25,6 +25,7 @@ export const config = {
 
     // OpenAI-compatible API
     onyxApiBase: process.env.API_BASE,
+    onyxApiKey: process.env.API_KEY,
 
     // AI Model
     aiModel: process.env.AI_MODEL,

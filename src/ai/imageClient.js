@@ -37,6 +37,7 @@ export class ImageClient {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${config.onyxApiKey}`,
                     'X-App-Name': 'cheapshot' // Organize images by app
                 },
                 body: JSON.stringify(body)

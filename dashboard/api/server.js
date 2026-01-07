@@ -1901,12 +1901,14 @@ app.post('/api/chat/message', requireAuth, async (req, res) => {
 
         // Call the AI API (using skmredacted API with Claude Opus 4.5)
         const apiBase = process.env.API_BASE || 'https://ai-api.skmredacted.com';
+        const apiKey = process.env.API_KEY;
         const aiModel = 'claude-opus-4-5';
 
         const response = await fetch(`${apiBase}/v1/chat/completions`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
             },
             body: JSON.stringify({
                 model: aiModel,

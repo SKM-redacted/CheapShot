@@ -59,6 +59,7 @@ export class AIClient {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${config.onyxApiKey}`,
                     'X-App-Name': 'cheapshot' // Tracking header
                 },
                 body: JSON.stringify(body)
@@ -188,6 +189,7 @@ export class AIClient {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${config.onyxApiKey}`,
                         'X-App-Name': 'cheapshot'
                     },
                     body: JSON.stringify(body)
@@ -418,6 +420,7 @@ You're talking to ${username}. Keep it casual and SHORT.`;
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${config.onyxApiKey}`,
                     'X-App-Name': 'cheapshot-voice'
                 },
                 body: JSON.stringify(body)
@@ -534,6 +537,7 @@ You're chatting with ${username}. Keep it casual!`;
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${config.onyxApiKey}`,
                     'X-App-Name': 'cheapshot-voice'
                 },
                 body: JSON.stringify(body)

@@ -66,6 +66,7 @@ ${channelList.voice_channels.map(c => `- ${c.name} (in ${c.category})`).join('\n
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Authorization': `Bearer ${config.onyxApiKey}`,
                 'X-App-Name': 'cheapshot-cleanup'
             },
             body: JSON.stringify(body)

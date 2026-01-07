@@ -134,6 +134,7 @@ export async function sendModerationRequest(content, rules) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Authorization': `Bearer ${config.onyxApiKey}`,
                 'X-App-Name': 'cheapshot-moderation'
             },
             body: JSON.stringify(body)
