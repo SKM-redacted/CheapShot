@@ -19,6 +19,30 @@ function parseDiscordTokens() {
     return tokens;
 }
 
+/**
+ * Parse Deepgram API keys from environment
+ * Uses DEEPGRAM_API_KEY_1, DEEPGRAM_API_KEY_2, etc.
+ * Falls back to single DEEPGRAM_API_KEY for backwards compatibility
+ */
+function parseDeepgramApiKeys() {
+    const keys = [];
+
+    // First, check for numbered keys (up to 100 accounts as user mentioned ~50)
+    for (let i = 1; i <= 100; i++) {
+        const key = process.env[`DEEPGRAM_API_KEY_${i}`];
+        if (key && key.trim()) {
+            keys.push(key.trim());
+        }
+    }
+
+    // If no numbered keys found, fall back to single key for backwards compatibility
+    if (keys.length === 0 && process.env.DEEPGRAM_API_KEY) {
+        keys.push(process.env.DEEPGRAM_API_KEY.trim());
+    }
+
+    return keys;
+}
+
 export const config = {
     // Discord - Multiple tokens support
     discordTokens: parseDiscordTokens(),
@@ -33,8 +57,10 @@ export const config = {
     // Voice uses gatekeeper model for faster responses (usually a smaller/faster model)
     voiceModel: process.env.VOICE_MODEL || process.env.GATEKEEPER_MODEL || process.env.AI_MODEL,
 
-    // Deepgram API for voice transcription
-    deepgramApiKey: process.env.DEEPGRAM_API_KEY,
+    // Deepgram API keys for voice transcription/TTS (multiple key support)
+    deepgramApiKeys: parseDeepgramApiKeys(),
+    // Legacy single key support (uses first key from pool)
+    deepgramApiKey: parseDeepgramApiKeys()[0] || null,
 
     // Queue settings (less relevant with multi-bot, but kept for compatibility)
     maxConcurrentRequests: parseInt(process.env.MAX_CONCURRENT_REQUESTS) || 3,

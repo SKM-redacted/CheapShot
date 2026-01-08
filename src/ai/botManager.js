@@ -10,6 +10,7 @@ class BotManager {
     constructor() {
         this.bots = [];
         this.claimedMessages = new Set(); // Prevent duplicate responses
+        this.claimedInteractions = new Set(); // Prevent duplicate interaction handling
         this.initialized = false;
     }
 
@@ -130,6 +131,27 @@ class BotManager {
     }
 
     /**
+     * Try to claim an interaction (prevent duplicate handling)
+     * This is critical for multi-bot setups - only one bot should handle each interaction!
+     * @param {string} interactionId 
+     * @returns {boolean} True if claimed successfully
+     */
+    claimInteraction(interactionId) {
+        if (this.claimedInteractions.has(interactionId)) {
+            return false;
+        }
+
+        this.claimedInteractions.add(interactionId);
+
+        // Cleanup old claims after 5 minutes (interactions can take longer)
+        setTimeout(() => {
+            this.claimedInteractions.delete(interactionId);
+        }, 300000);
+
+        return true;
+    }
+
+    /**
      * Check if a bot can send/edit in a channel
      * @param {Object} bot 
      * @param {string} channelId 
@@ -242,11 +264,17 @@ class BotManager {
 
     /**
      * Setup interaction handler on all bots
+     * IMPORTANT: Uses claim mechanism to prevent duplicate handling in multi-bot setups!
      * @param {Function} handler - Async function(interaction, bot)
      */
     onInteraction(handler) {
         for (const bot of this.bots) {
             bot.client.on('interactionCreate', async (interaction) => {
+                // Only one bot should handle each interaction (prevents duplicate tool executions!)
+                if (!this.claimInteraction(interaction.id)) {
+                    return;
+                }
+
                 await handler(interaction, bot);
             });
         }

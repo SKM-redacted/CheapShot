@@ -1,19 +1,21 @@
-import { createClient, LiveTTSEvents } from '@deepgram/sdk';
+import { LiveTTSEvents } from '@deepgram/sdk';
 import { createAudioResource, StreamType, AudioPlayerStatus, createAudioPlayer } from '@discordjs/voice';
 import { Readable } from 'stream';
 import { config } from './config.js';
 import { logger } from './logger.js';
+import { deepgramKeyPool } from './deepgramKeyPool.js';
 
 /**
- * Text-to-Speech Client using Deepgram Aura
+ * Text-to-Speech Client using Deepgram Aura with Multi-Key Pool Support
  * Handles real-time text to speech conversion for Discord voice channels
  * Optimized for low-latency streaming playback with PARALLEL PRE-GENERATION
+ * Automatically load balances across multiple API keys
  */
 export class TTSClient {
     constructor() {
-        this.deepgram = null;
         this.activeSpeakers = new Map(); // guildId -> { connection, player, audioQueue, isPlaying, pendingGenerations }
         this.speedFactor = 0.28; // 0.28 = slower for clarity, 1.0 = normal speed
+        this.initialized = false;
 
         // Multilingual voice mapping (Deepgram Aura-2 voices)
         // https://developers.deepgram.com/docs/tts-models
@@ -36,6 +38,43 @@ export class TTSClient {
             'ja': 'aura-2-thalia-en',      // Japanese (fallback to English for now)
         };
         this.defaultVoice = 'aura-2-thalia-en';
+    }
+
+    /**
+     * Initialize the Deepgram key pool for TTS
+     * @returns {boolean} Whether initialization was successful
+     */
+    initialize() {
+        if (config.deepgramApiKeys.length === 0) {
+            logger.warn('TTS', 'No Deepgram API keys configured - TTS disabled');
+            return false;
+        }
+
+        try {
+            // Initialize the key pool with all available keys (if not already done by STT)
+            if (!deepgramKeyPool.isReady()) {
+                deepgramKeyPool.initialize(config.deepgramApiKeys);
+            }
+
+            this.initialized = true;
+            logger.info('TTS', `Deepgram TTS initialized with ${config.deepgramApiKeys.length} API key(s)`);
+            logger.info('TTS', `Total TTS capacity: ${deepgramKeyPool.getTotalCapacity('tts')} concurrent connections`);
+            return true;
+        } catch (error) {
+            logger.error('TTS', 'Failed to initialize Deepgram TTS key pool', error);
+            return false;
+        }
+    }
+
+    /**
+     * Check if the client is ready (for compatibility with existing code)
+     * @returns {Object|null} Returns the pool if ready, null otherwise
+     */
+    get deepgram() {
+        if (!this.initialized && config.deepgramApiKeys.length > 0) {
+            this.initialize();
+        }
+        return this.initialized ? deepgramKeyPool : null;
     }
 
     /**
@@ -101,25 +140,6 @@ export class TTSClient {
     }
 
     /**
-     * Initialize the Deepgram client
-     */
-    initialize() {
-        if (!config.deepgramApiKey) {
-            logger.warn('TTS', 'No Deepgram API key configured - TTS disabled');
-            return false;
-        }
-
-        try {
-            this.deepgram = createClient(config.deepgramApiKey);
-            logger.info('TTS', 'Deepgram TTS client initialized');
-            return true;
-        } catch (error) {
-            logger.error('TTS', 'Failed to initialize Deepgram TTS client', error);
-            return false;
-        }
-    }
-
-    /**
      * Speak text in a voice channel using streaming TTS with PARALLEL PRE-GENERATION
      * Audio is generated immediately in parallel - doesn't wait for previous sentence to finish!
      * @param {string} guildId - Guild ID
@@ -129,10 +149,8 @@ export class TTSClient {
      * @returns {Promise<boolean>} Success
      */
     async speak(guildId, voiceConnection, text, options = {}) {
-        if (!this.deepgram) {
-            if (!this.initialize()) {
-                return false;
-            }
+        if (!this.initialized && !this.initialize()) {
+            return false;
         }
 
         if (!text || !text.trim()) {
@@ -282,18 +300,28 @@ export class TTSClient {
 
     /**
      * Generate TTS audio buffer (doesn't play - just generates)
+     * Uses the key pool for load balancing
      * @param {string} text - Text to speak
      * @param {Object} options - TTS options (voice, language)
      * @returns {Promise<Buffer>} Audio buffer
      */
     async generateTTSBuffer(text, options = {}) {
         return new Promise((resolve, reject) => {
+            // Acquire a key from the pool
+            const acquired = deepgramKeyPool.acquire('tts');
+            if (!acquired) {
+                reject(new Error('No Deepgram TTS capacity available'));
+                return;
+            }
+
+            const { client, connectionId, keyIndex } = acquired;
+
             // Use explicit voice, or get voice for language, or default
             const model = options.voice || this.getVoiceForLanguage(options.language);
             const audioChunks = [];
 
             try {
-                const dgConnection = this.deepgram.speak.live({
+                const dgConnection = client.speak.live({
                     model: model,
                     encoding: 'linear16',
                     sample_rate: 24000,
@@ -301,7 +329,25 @@ export class TTSClient {
                     mip_opt_out: true,
                 });
 
+                // Track if we've resolved/rejected to avoid double calls
+                let completed = false;
+                const complete = (result, error = null) => {
+                    if (completed) return;
+                    completed = true;
+
+                    // Release the key back to the pool
+                    deepgramKeyPool.release(keyIndex, connectionId);
+
+                    if (error) {
+                        deepgramKeyPool.recordError(keyIndex, error);
+                        reject(error);
+                    } else {
+                        resolve(result);
+                    }
+                };
+
                 dgConnection.on(LiveTTSEvents.Open, () => {
+                    logger.debug('TTS', `TTS connection opened (key: ${keyIndex})`);
                     dgConnection.sendText(text);
                     dgConnection.flush();
                 });
@@ -315,10 +361,10 @@ export class TTSClient {
                         const fullAudio = Buffer.concat(audioChunks);
                         const adjustedAudio = this.stretchAudio(fullAudio, this.speedFactor);
                         dgConnection.requestClose();
-                        resolve(adjustedAudio);
+                        complete(adjustedAudio);
                     } else {
                         dgConnection.requestClose();
-                        resolve(null);
+                        complete(null);
                     }
                 });
 
@@ -327,16 +373,21 @@ export class TTSClient {
                     if (audioChunks.length > 0) {
                         const fullAudio = Buffer.concat(audioChunks);
                         const adjustedAudio = this.stretchAudio(fullAudio, this.speedFactor);
-                        resolve(adjustedAudio);
+                        complete(adjustedAudio);
+                    } else {
+                        complete(null);
                     }
                 });
 
                 dgConnection.on(LiveTTSEvents.Error, (error) => {
-                    logger.error('TTS', `Deepgram TTS error: ${error.message}`);
-                    reject(error);
+                    logger.error('TTS', `Deepgram TTS error (key: ${keyIndex}): ${error.message}`);
+                    complete(null, error);
                 });
 
             } catch (error) {
+                // Release the key on failure
+                deepgramKeyPool.release(keyIndex, connectionId);
+                deepgramKeyPool.recordError(keyIndex, error);
                 reject(error);
             }
         });
@@ -453,6 +504,22 @@ export class TTSClient {
             speaker.player.stop();
             this.activeSpeakers.delete(guildId);
         }
+    }
+
+    /**
+     * Get pool statistics
+     * @returns {Object}
+     */
+    getPoolStats() {
+        return deepgramKeyPool.getStats();
+    }
+
+    /**
+     * Get a simple status summary
+     * @returns {string}
+     */
+    getStatusSummary() {
+        return `Active speakers: ${this.activeSpeakers.size} | ${deepgramKeyPool.getStatusSummary()}`;
     }
 
     /**

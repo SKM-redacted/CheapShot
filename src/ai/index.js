@@ -1417,7 +1417,8 @@ async function start() {
         logger.info('STARTUP', `CheapShot Multi-Bot System ready with ${botManager.getBotCount()} bot(s)`);
         logger.info('STARTUP', `AI Model: ${config.aiModel}`);
         logger.info('STARTUP', `API Base: ${config.onyxApiBase}`);
-        logger.info('STARTUP', `Voice transcription: ${config.deepgramApiKey ? 'Enabled' : 'Disabled (no API key)'}`);
+        logger.info('STARTUP', `Voice transcription: ${config.deepgramApiKeys.length > 0 ? `Enabled (${config.deepgramApiKeys.length} keys, ${sttClient.initialized ? sttClient.getStatusSummary() : 'initializing...'})` : 'Disabled (no API keys)'}`);
+
 
         logger.info('STARTUP', `Channel restrictions: Loaded from guild directories (data/guild/{guildId}/channels.json)`);
         logger.info('STARTUP', `Bot responds in: public + private channels | Moderation channel: excluded`);

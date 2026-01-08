@@ -142,9 +142,21 @@ export class AIClient {
                 }
             }
 
+            // Deduplicate tool calls before execution (some APIs send same call in multiple formats)
+            const seenCalls = new Set();
+            const uniqueToolCalls = toolCalls.filter(tc => {
+                const key = `${tc.name}:${JSON.stringify(tc.arguments)}`;
+                if (seenCalls.has(key)) {
+                    console.log('[AI] Skipping duplicate tool call:', tc.name);
+                    return false;
+                }
+                seenCalls.add(key);
+                return true;
+            });
+
             // Check if we have tool calls
-            if (toolCalls.length > 0 && onToolCall) {
-                for (const toolCall of toolCalls) {
+            if (uniqueToolCalls.length > 0 && onToolCall) {
+                for (const toolCall of uniqueToolCalls) {
                     await onToolCall(toolCall);
                 }
             }
@@ -273,8 +285,20 @@ export class AIClient {
                     }
                 }
 
-                if (toolCalls.length > 0 && onToolCall) {
-                    for (const toolCall of toolCalls) {
+                // Deduplicate tool calls before execution
+                const seenCalls = new Set();
+                const uniqueToolCalls = toolCalls.filter(tc => {
+                    const key = `${tc.name}:${JSON.stringify(tc.arguments)}`;
+                    if (seenCalls.has(key)) {
+                        console.log('[AI] Skipping duplicate tool call:', tc.name);
+                        return false;
+                    }
+                    seenCalls.add(key);
+                    return true;
+                });
+
+                if (uniqueToolCalls.length > 0 && onToolCall) {
+                    for (const toolCall of uniqueToolCalls) {
                         await onToolCall(toolCall);
                     }
                 }
@@ -706,9 +730,21 @@ You're chatting with ${username}. Keep it casual!`;
                 }
             }
 
+            // Deduplicate tool calls before execution
+            const seenCalls = new Set();
+            const uniqueToolCalls = toolCalls.filter(tc => {
+                const key = `${tc.name}:${JSON.stringify(tc.arguments)}`;
+                if (seenCalls.has(key)) {
+                    console.log('[AI] Skipping duplicate tool call:', tc.name);
+                    return false;
+                }
+                seenCalls.add(key);
+                return true;
+            });
+
             // Execute tool calls if we have any
-            if (toolCalls.length > 0 && onToolCall) {
-                for (const toolCall of toolCalls) {
+            if (uniqueToolCalls.length > 0 && onToolCall) {
+                for (const toolCall of uniqueToolCalls) {
                     await onToolCall(toolCall);
                 }
             }

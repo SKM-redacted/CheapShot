@@ -197,7 +197,7 @@ class VoiceClient {
         // Initialize STT client if needed
         if (!sttClient.deepgram) {
             if (!sttClient.initialize()) {
-                await connectionInfo.textChannel.send('❌ Voice transcription is not configured. Please set `DEEPGRAM_API_KEY` in the environment.');
+                await connectionInfo.textChannel.send('❌ Voice transcription is not configured. Please set `DEEPGRAM_API_KEY_1` (or `DEEPGRAM_API_KEY`) in the environment.');
                 return false;
             }
         }
