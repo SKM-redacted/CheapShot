@@ -647,6 +647,49 @@
     box-shadow: 0 0 8px var(--success);
 }
 
+/* Disabled/Coming Soon Module Cards */
+.module-card.module-disabled {
+    opacity: 0.7;
+}
+
+.module-card.module-disabled::before {
+    background: linear-gradient(90deg,
+            transparent 0%,
+            rgba(138, 138, 152, 0.4) 20%,
+            rgba(138, 138, 152, 0.6) 50%,
+            rgba(138, 138, 152, 0.4) 80%,
+            transparent 100%);
+}
+
+.module-card.module-disabled:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+}
+
+.module-card.module-disabled .module-icon {
+    background: linear-gradient(135deg, var(--steel) 0%, var(--iron) 100%);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.coming-soon-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.3rem 0.75rem;
+    font-size: var(--text-xs);
+    font-weight: 600;
+    background: linear-gradient(135deg, var(--steel) 0%, var(--iron) 100%);
+    color: var(--cloud);
+    border-radius: var(--radius-full);
+    border: 1px solid var(--iron);
+}
+
+/* Disabled toggle in module cards */
+.toggle-input:disabled+.toggle-track {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+
 /* =============================================================
    List Components (Members, Roles panels)
    ============================================================= */

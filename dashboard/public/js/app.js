@@ -12,7 +12,7 @@ import { liveChat } from './livechat.js';
 // Module registry - only active, working modules
 const modules = {
     ai: { title: 'AI Chat', icon: '🤖', description: 'Configure AI responses and channels' },
-    moderation: { title: 'Moderation', icon: '🛡️', description: 'Auto-mod, warnings, and logging' },
+    moderation: { title: 'Moderation', icon: '🛡️', description: 'Auto-mod, warnings, and logging', defaultEnabled: false, disabled: true, comingSoon: true },
     context: { title: 'Context Storage', icon: '💭', description: 'Save conversation memory to database (persists across restarts)', isView: true, defaultEnabled: true },
     settings: { title: 'Settings', icon: '⚙️', description: 'General bot settings' }
 };
@@ -816,12 +816,14 @@ class App {
 
         // Render module cards
         container.innerHTML = Object.entries(modules).map(([key, module]) => {
-            // Use defaultEnabled if module setting doesn't exist
-            const isEnabled = moduleSettings[key]?.enabled ?? module.defaultEnabled ?? false;
+            // For disabled/coming soon modules, always show as disabled regardless of DB state
+            const isEnabled = module.disabled ? false : (moduleSettings[key]?.enabled ?? module.defaultEnabled ?? false);
 
-            // Special status text for context module
+            // Special status text for different module types
             let statusText;
-            if (key === 'context') {
+            if (module.comingSoon) {
+                statusText = 'Coming Soon';
+            } else if (key === 'context') {
                 statusText = isEnabled
                     ? 'Saving to database · Click to view'
                     : 'Memory only (clears on restart) · Click to view';
@@ -829,17 +831,23 @@ class App {
                 statusText = `${isEnabled ? 'Enabled' : 'Disabled'} · Click to configure`;
             }
 
+            // For disabled modules, add a visual indicator
+            const disabledClass = module.disabled ? 'module-disabled' : '';
+            const toggleDisabled = module.disabled ? 'disabled' : '';
+
             return `
-                <div class="module-card ${isEnabled ? 'active' : ''}" data-module="${key}">
+                <div class="module-card ${isEnabled ? 'active' : ''} ${disabledClass}" data-module="${key}">
                     <div class="module-header">
                         <div class="module-icon">${module.icon}</div>
+                        ${module.comingSoon ? '<span class="coming-soon-badge">Coming Soon</span>' : `
                         <label class="toggle" onclick="event.stopPropagation()">
                             <input type="checkbox" class="toggle-input" data-module-toggle="${key}"
-                                   ${isEnabled ? 'checked' : ''}>
+                                   ${isEnabled ? 'checked' : ''} ${toggleDisabled}>
                             <span class="toggle-track">
                                 <span class="toggle-thumb"></span>
                             </span>
                         </label>
+                        `}
                     </div>
                     <h3 class="module-title">${module.title}</h3>
                     <p class="module-desc">${module.description}</p>
