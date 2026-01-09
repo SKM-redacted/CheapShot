@@ -1899,10 +1899,10 @@ app.post('/api/chat/message', requireAuth, async (req, res) => {
             }
         ];
 
-        // Call the AI API (using skmredacted API with Claude Opus 4.5)
+        // Call the AI API with streaming to handle reasoning events
         const apiBase = process.env.API_BASE || 'https://ai-api.skmredacted.com';
         const apiKey = process.env.API_KEY;
-        const aiModel = 'claude-opus-4-5';
+        const aiModel = process.env.AI_MODEL || 'claude-sonnet-4-5';
 
         const response = await fetch(`${apiBase}/v1/chat/completions`, {
             method: 'POST',
@@ -1915,7 +1915,8 @@ app.post('/api/chat/message', requireAuth, async (req, res) => {
                 messages,
                 tools: LIVE_CHAT_TOOLS,
                 max_tokens: 1024,
-                temperature: 0.7
+                temperature: 0.7,
+                stream: true  // Enable streaming to detect reasoning events
             })
         });
 
@@ -1925,33 +1926,190 @@ app.post('/api/chat/message', requireAuth, async (req, res) => {
             throw new Error(`AI API error: ${response.status}`);
         }
 
-        const data = await response.json();
-        const choice = data.choices?.[0];
+        // Process the stream
+        let fullContent = '';
+        let toolCalls = [];
+        let currentToolCall = null;
+        let isReasoning = false;
+        let reasoningContent = '';
 
-        if (!choice) {
-            throw new Error('No response from AI');
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+
+            if (done) {
+                // Process any remaining buffer
+                if (buffer.trim()) {
+                    processLine(buffer);
+                }
+                break;
+            }
+
+            buffer += decoder.decode(value, { stream: true });
+
+            // Process complete lines
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                processLine(line);
+            }
         }
 
-        // Extract tool calls if any
-        const toolCalls = choice.message?.tool_calls?.map(tc => ({
-            id: tc.id,
-            name: tc.function?.name,
-            arguments: JSON.parse(tc.function?.arguments || '{}')
-        })) || [];
+        function processLine(line) {
+            if (!line.startsWith('data: ')) return;
 
-        // Get the content
-        let content = choice.message?.content || '';
+            const data = line.slice(6).trim();
+            if (data === '[DONE]') return;
+
+            try {
+                const parsed = JSON.parse(data);
+
+                // Check for custom event format (reasoning events)
+                const eventType = parsed.type || parsed.event;
+                if (eventType) {
+                    switch (eventType) {
+                        case 'reasoning_start':
+                            isReasoning = true;
+                            break;
+                        case 'reasoning_delta':
+                            if (parsed.reasoning || parsed.content) {
+                                reasoningContent += parsed.reasoning || parsed.content || '';
+                            }
+                            break;
+                        case 'reasoning_done':
+                            isReasoning = false;
+                            break;
+                        case 'message_start':
+                            // Message starting, reasoning done
+                            break;
+                        case 'message_delta':
+                            const msgContent = parsed.content || parsed.delta?.content || parsed.text;
+                            if (msgContent) {
+                                fullContent += msgContent;
+                            }
+                            // Handle tool calls in message delta
+                            const deltaTc = parsed.tool_calls || parsed.delta?.tool_calls;
+                            if (deltaTc) {
+                                for (const tc of deltaTc) {
+                                    if (tc.function) {
+                                        if (!currentToolCall) {
+                                            currentToolCall = { name: '', arguments: '' };
+                                        }
+                                        if (tc.function.name) {
+                                            currentToolCall.name = tc.function.name;
+                                        }
+                                        if (tc.function.arguments) {
+                                            currentToolCall.arguments += tc.function.arguments;
+                                        }
+                                    }
+                                }
+                            }
+                            break;
+                        case 'message_done':
+                        case 'done':
+                            // Finalize any pending tool call
+                            if (currentToolCall && currentToolCall.name) {
+                                try {
+                                    const args = JSON.parse(currentToolCall.arguments || '{}');
+                                    toolCalls.push({ name: currentToolCall.name, arguments: args });
+                                } catch (e) { }
+                                currentToolCall = null;
+                            }
+                            break;
+                        case 'tool_calls':
+                            if (parsed.tool_calls) {
+                                for (const tc of parsed.tool_calls) {
+                                    if (tc.function) {
+                                        try {
+                                            toolCalls.push({
+                                                name: tc.function.name,
+                                                arguments: typeof tc.function.arguments === 'string'
+                                                    ? JSON.parse(tc.function.arguments)
+                                                    : tc.function.arguments
+                                            });
+                                        } catch (e) { }
+                                    }
+                                }
+                            }
+                            break;
+                    }
+                    return; // Handled custom event
+                }
+
+                // Standard OpenAI format
+                const choice = parsed.choices?.[0];
+                if (!choice) return;
+
+                // Get content from delta
+                const content = choice.delta?.content;
+                if (content) {
+                    fullContent += content;
+                }
+
+                // Handle tool calls in delta
+                if (choice.delta?.tool_calls) {
+                    for (const tc of choice.delta.tool_calls) {
+                        if (tc.function) {
+                            if (!currentToolCall) {
+                                currentToolCall = { name: '', arguments: '' };
+                            }
+                            if (tc.function.name) {
+                                currentToolCall.name = tc.function.name;
+                            }
+                            if (tc.function.arguments) {
+                                currentToolCall.arguments += tc.function.arguments;
+                            }
+                        }
+                    }
+                }
+
+                // Handle finish reason
+                if (choice.finish_reason === 'tool_calls' && currentToolCall) {
+                    try {
+                        const args = JSON.parse(currentToolCall.arguments || '{}');
+                        toolCalls.push({ name: currentToolCall.name, arguments: args });
+                    } catch (e) { }
+                    currentToolCall = null;
+                }
+
+                // Handle non-streaming format
+                if (choice.message?.content) {
+                    fullContent = choice.message.content;
+                }
+                if (choice.message?.tool_calls) {
+                    for (const tc of choice.message.tool_calls) {
+                        if (tc.function) {
+                            try {
+                                toolCalls.push({
+                                    id: tc.id,
+                                    name: tc.function.name,
+                                    arguments: JSON.parse(tc.function.arguments || '{}')
+                                });
+                            } catch (e) { }
+                        }
+                    }
+                }
+
+            } catch (e) {
+                // Invalid JSON, skip
+            }
+        }
 
         // If there were tool calls but no content, provide a default message
-        if (toolCalls.length > 0 && !content) {
+        if (toolCalls.length > 0 && !fullContent) {
             const toolNames = toolCalls.map(tc => tc.name).join(', ');
-            content = `I'm executing the following actions: ${toolNames}`;
+            fullContent = `I'm executing the following actions: ${toolNames}`;
         }
 
         res.json({
-            content,
+            content: fullContent,
             toolCalls,
-            model: aiModel
+            model: aiModel,
+            didReason: reasoningContent.length > 0  // Flag indicating reasoning occurred
         });
 
     } catch (error) {

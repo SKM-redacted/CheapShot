@@ -273,22 +273,47 @@ For example, you can ask me to:
 
     /**
      * Show typing indicator
+     * @param {boolean} isThinking - Whether AI is doing deep thinking/reasoning
      */
-    showTyping() {
+    showTyping(isThinking = false) {
         this.isTyping = true;
+
+        // Remove any existing typing indicator first
+        const existing = document.getElementById('chat-typing');
+        if (existing) existing.remove();
+
         const typingEl = document.createElement('div');
         typingEl.className = 'chat-typing';
         typingEl.id = 'chat-typing';
+
+        const message = isThinking
+            ? 'CheapShot is thinking deeply...'
+            : 'CheapShot is thinking...';
+
         typingEl.innerHTML = `
-            <div class="chat-typing-dots">
+            <div class="chat-typing-dots${isThinking ? ' thinking' : ''}">
                 <div class="chat-typing-dot"></div>
                 <div class="chat-typing-dot"></div>
                 <div class="chat-typing-dot"></div>
             </div>
-            <span>CheapShot is thinking...</span>
+            <span>${message}</span>
         `;
         this.messagesContainer.appendChild(typingEl);
         this.scrollToBottom();
+    }
+
+    /**
+     * Update typing indicator text
+     * @param {string} message - The message to show
+     */
+    updateTypingMessage(message) {
+        const typingEl = document.getElementById('chat-typing');
+        if (typingEl) {
+            const span = typingEl.querySelector('span');
+            if (span) {
+                span.textContent = message;
+            }
+        }
     }
 
     /**
