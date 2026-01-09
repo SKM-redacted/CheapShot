@@ -326,6 +326,13 @@ export class AIClient {
 
     /**
      * Parse a single SSE line and extract content or tool calls
+     * Handles both:
+     * - Custom API format with reasoning events (claude-sonnet-4.5)
+     * - Standard OpenAI format (gpt-4.1)
+     * 
+     * Custom format event flow:
+     *   reasoning_start → reasoning_delta (multiple) → reasoning_done → message_start → message_delta (multiple)
+     * 
      * @param {string} line - SSE line to parse
      * @returns {object|null} - Extracted content, tool call, or null
      */
@@ -342,8 +349,15 @@ export class AIClient {
 
         try {
             const parsed = JSON.parse(data);
-            const choice = parsed.choices?.[0];
 
+            // Check for custom API format with event types (reasoning/message events)
+            const eventType = parsed.type || parsed.event;
+            if (eventType) {
+                return this.parseCustomEvent(parsed, eventType);
+            }
+
+            // Standard OpenAI format
+            const choice = parsed.choices?.[0];
             if (!choice) return null;
 
             const result = {};
@@ -395,6 +409,92 @@ export class AIClient {
         } catch (e) {
             // Invalid JSON, skip
             return null;
+        }
+    }
+
+    /**
+     * Parse custom API event format (used by reasoning models like claude-sonnet-4.5)
+     * @param {object} parsed - Parsed JSON object
+     * @param {string} eventType - The event type
+     * @returns {object|null} - Extracted content or null
+     */
+    parseCustomEvent(parsed, eventType) {
+        switch (eventType) {
+            case 'reasoning_start':
+                // AI has started its internal thinking process - ignore for user
+                return null;
+
+            case 'reasoning_delta':
+                // Piece of the AI's thought process - ignore for user
+                // (reasoning is logged internally but not shown)
+                return null;
+
+            case 'reasoning_done':
+                // AI finished thinking - ignore for user
+                return null;
+
+            case 'message_start':
+                // Actual answer is starting - no content yet
+                return null;
+
+            case 'message_delta':
+                // Actual response content - this is what we show to the user
+                const content = parsed.content || parsed.delta?.content || parsed.text;
+                if (content) {
+                    return { content };
+                }
+
+                // Check for tool calls in message delta
+                const toolCalls = parsed.tool_calls || parsed.delta?.tool_calls;
+                if (toolCalls) {
+                    for (const tc of toolCalls) {
+                        if (tc.function) {
+                            return {
+                                toolCallDelta: {
+                                    name: tc.function.name,
+                                    arguments: tc.function.arguments
+                                }
+                            };
+                        }
+                    }
+                }
+                return null;
+
+            case 'message_done':
+            case 'done':
+                // Message complete
+                return { finishReason: 'stop' };
+
+            case 'tool_calls':
+                // Tool call event
+                if (parsed.tool_calls) {
+                    for (const tc of parsed.tool_calls) {
+                        if (tc.function) {
+                            try {
+                                return {
+                                    toolCall: {
+                                        name: tc.function.name,
+                                        arguments: typeof tc.function.arguments === 'string'
+                                            ? JSON.parse(tc.function.arguments)
+                                            : tc.function.arguments
+                                    }
+                                };
+                            } catch (e) {
+                                // Skip invalid JSON
+                            }
+                        }
+                    }
+                }
+                return null;
+
+            case 'error':
+                console.error('[AI] Stream error event:', parsed.error || parsed.message);
+                return null;
+
+            default:
+                // Unknown event type - log and skip
+                // console.log('[AI] Unknown event type:', eventType);
+                return null;
         }
     }
 
