@@ -1139,6 +1139,105 @@ async function handleImageGeneration(originalMessage, args) {
 }
 
 /**
+ * Send server info (count, IDs, names) to the secret dev channel
+ * This runs on bot startup to provide visibility into what servers the bot is in
+ */
+async function sendServerInfoToDevChannel() {
+    if (!config.secretChannelDev) {
+        logger.warn('STARTUP', 'No secret_channel_dev configured in .env, skipping server info report');
+        return;
+    }
+
+    const primaryBot = botManager.bots[0];
+    if (!primaryBot?.client?.user) {
+        logger.warn('STARTUP', 'Primary bot not ready, cannot send server info');
+        return;
+    }
+
+    try {
+        // Fetch the channel
+        const channel = await primaryBot.client.channels.fetch(config.secretChannelDev).catch(() => null);
+        if (!channel) {
+            logger.warn('STARTUP', `Could not find secret dev channel: ${config.secretChannelDev}`);
+            return;
+        }
+
+        // Collect all guilds from all bots (should be the same, but we'll merge)
+        const allGuilds = new Map();
+        for (const bot of botManager.bots) {
+            for (const [guildId, guild] of bot.client.guilds.cache) {
+                if (!allGuilds.has(guildId)) {
+                    allGuilds.set(guildId, {
+                        id: guildId,
+                        name: guild.name,
+                        memberCount: guild.memberCount,
+                        ownerId: guild.ownerId
+                    });
+                }
+            }
+        }
+
+        const serverCount = allGuilds.size;
+        const serverList = Array.from(allGuilds.values());
+
+        // Sort by member count (largest first)
+        serverList.sort((a, b) => b.memberCount - a.memberCount);
+
+        // Build embed fields for each server
+        const serverFields = serverList.map((server, index) => ({
+            name: `${index + 1}. ${server.name}`,
+            value: `**ID:** \`${server.id}\`\n**Members:** ${server.memberCount.toLocaleString()}\n**Owner ID:** \`${server.ownerId}\``,
+            inline: true
+        }));
+
+        // Discord has a limit of 25 fields per embed, so we may need to split
+        const embeds = [];
+        const fieldsPerEmbed = 25;
+
+        for (let i = 0; i < serverFields.length; i += fieldsPerEmbed) {
+            const chunk = serverFields.slice(i, i + fieldsPerEmbed);
+            const isFirst = i === 0;
+
+            const embed = new EmbedBuilder()
+                .setColor(0x5865F2) // Discord Blurple
+                .setTimestamp();
+
+            if (isFirst) {
+                embed.setTitle('🤖 CheapShot Server Report')
+                    .setDescription(`Bot is currently in **${serverCount}** server${serverCount !== 1 ? 's' : ''}\n\n` +
+                        `**Bot Tag:** ${primaryBot.client.user.tag}\n` +
+                        `**Bot ID:** \`${primaryBot.client.user.id}\`\n` +
+                        `**Total Bots:** ${botManager.getBotCount()}`);
+            } else {
+                embed.setTitle(`📊 Server List (continued ${i + 1}-${Math.min(i + fieldsPerEmbed, serverFields.length)})`);
+            }
+
+            embed.addFields(chunk);
+            embeds.push(embed);
+        }
+
+        // If no servers, send a simple embed
+        if (serverCount === 0) {
+            const embed = new EmbedBuilder()
+                .setTitle('🤖 CheapShot Server Report')
+                .setDescription('Bot is not currently in any servers.')
+                .setColor(0xFFA500) // Orange
+                .setTimestamp();
+            embeds.push(embed);
+        }
+
+        // Send all embeds
+        for (const embed of embeds) {
+            await channel.send({ embeds: [embed] });
+        }
+
+        logger.info('STARTUP', `✅ Server info report sent to dev channel (${serverCount} server(s))`);
+    } catch (error) {
+        logger.error('STARTUP', `Failed to send server info to dev channel: ${error.message}`);
+    }
+}
+
+/**
  * Start the multi-bot system
  */
 async function start() {
@@ -1422,6 +1521,9 @@ async function start() {
 
         logger.info('STARTUP', `Channel restrictions: Loaded from guild directories (data/guild/{guildId}/channels.json)`);
         logger.info('STARTUP', `Bot responds in: public + private channels | Moderation channel: excluded`);
+
+        // Send server info to the secret dev channel
+        await sendServerInfoToDevChannel();
     } catch (error) {
         logger.error('STARTUP', 'Failed to start bot system', error);
         process.exit(1);
